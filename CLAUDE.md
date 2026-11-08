@@ -62,6 +62,13 @@ Viewer rebinds by bone name:
     garment.bind(new THREE.Skeleton(bones, garment.skeleton.boneInverses), garment.bindMatrix);
     avatarArmature.add(garment);
 
+Body GLB is exported AT Caleb's body: 1.78 m tall, default morph weights (glTF mesh.weights) already fit
+chest 92 / waist 75 / hips 90 / inseam 84. Faces +Z. Morph weights are MHR PCA units, sensible range -3..3.
+**web/public/models/body_measure.json** (added by A): default_weights, measured_cm_at_default, and
+jacobian_cm_per_unit {chest,waist,hips}[6] = cm change per unit of body_i. MHR PCs are not one-measurement-each
+(body_0 ~ overall girth/Build: +14 chest, +17 waist, +7.5 hips per unit). To map typed measurements -> weights:
+w = default + pinv(J) @ (target_cm - measured_cm_at_default), clamp to -3..3.
+
 **Body controls (viewer)**: Height scales the avatar root. Sliders Build / Chest / Waist / Hips drive
 body_0..body_3 on the body AND every garment at once. Measurement inputs map to slider values.
 
