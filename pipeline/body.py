@@ -22,6 +22,7 @@ import body_measure as bm  # noqa: E402
 import poses  # noqa: E402
 import render  # noqa: E402
 import sculpt  # noqa: E402
+import skin_paint  # noqa: E402
 
 # Male: Caleb. Female: classic fashion-model proportions (WHR ~0.69, bust ~= hips, ~1:8 head).
 PRESETS = {
@@ -121,6 +122,33 @@ def scale_to_height(arm, mesh, factor: float) -> None:
     bs.bake_transforms(arm, mesh)
 
 
+def paint_skin(arm, mesh, rest_co: np.ndarray, sex: str, res: int = 2048) -> None:
+    """Bake hair, brows, eyes, lips and skin tone into a base-colour texture on the skin material."""
+    me = mesh.data
+    loop_v = np.empty(len(me.loops), dtype=np.int64)
+    me.loops.foreach_get("vertex_index", loop_v)
+    uv = np.empty(len(me.loops) * 2)
+    me.uv_layers.active.data.foreach_get("uv", uv)
+    uv = uv.reshape(-1, 2)
+    tris = []
+    for poly in me.polygons:   # fan-triangulate in loop space (UVs live on loops)
+        ls = list(range(poly.loop_start, poly.loop_start + poly.loop_total))
+        tris += [(ls[0], ls[k], ls[k + 1]) for k in range(1, len(ls) - 1)]
+    tris = np.array(tris)
+    eye_l = np.array(arm.data.bones["l_eye"].head_local)
+    img_px = skin_paint.bake(uv[tris], rest_co[loop_v[tris]], eye_l, skin_paint.LOOKS[sex], res)
+    img = bpy.data.images.new(f"skin_{sex}", res, res, alpha=False)
+    img.pixels.foreach_set(img_px.astype(np.float32).ravel())
+    img.update()
+    img.pack()
+    mat = mesh.data.materials[0]
+    tex = mat.node_tree.nodes.new("ShaderNodeTexImage")
+    tex.image = img
+    bsdf = mat.node_tree.nodes["Principled BSDF"]
+    mat.node_tree.links.new(tex.outputs["Color"], bsdf.inputs["Base Color"])
+    bsdf.inputs["Roughness"].default_value = 0.55
+
+
 def write_measure_json(path, sex, weights, measured, jac, height_cm) -> None:
     payload = {
         "sex": sex,
@@ -172,6 +200,7 @@ def main() -> None:
     stem = os.path.splitext(os.path.basename(args.out))[0]
     os.makedirs(out_dir, exist_ok=True)
     rest_co = bs.evaluated_coords(mesh)
+    paint_skin(arm, mesh, rest_co, args.sex)
     render_poses(arm, mesh, rest_co, target_h, args.render or os.path.join(ROOT, f"pipeline/renders/{stem}_front.png"))
     clips = poses.bake_clips(arm, mesh, rest_co)   # after renders: NLA tracks override manual posing
     bs.export_glb(args.out, [arm, mesh], animations=True)
