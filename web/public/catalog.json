@@ -1,0 +1,317 @@
+{
+  "source": "uniqlo.com/us product API, pulled 2026-11-07; colours sampled from UNIQLO swatch images",
+  "items": [
+    {
+      "id": "E455365-000",
+      "name": "SUPIMA Cotton T-Shirt",
+      "price": 24.9,
+      "salePrice": null,
+      "slot": "top",
+      "shape": "tee",
+      "fabric": "jersey",
+      "url": "https://www.uniqlo.com/us/en/products/E455365-000/00",
+      "image": "https://image.uniqlo.com/UQ/ST3/us/imagesgoods/455365/item/usgoods_12_455365_3x4.jpg",
+      "sizes": "XXS-3XL",
+      "colors": [
+        {
+          "code": "07",
+          "name": "Gray",
+          "hex": "#686c69",
+          "swatch": "https://image.uniqlo.com/UQ/ST3/WesternCommon/imagesgoods/455365/chip/goods_07_455365_chip.jpg"
+        },
+        {
+          "code": "00",
+          "name": "White",
+          "hex": "#f0f0f0",
+          "swatch": "https://image.uniqlo.com/UQ/ST3/WesternCommon/imagesgoods/455365/chip/goods_00_455365_chip.jpg"
+        },
+        {
+          "code": "04",
+          "name": "Gray",
+          "hex": "#b8bdbd",
+          "swatch": "https://image.uniqlo.com/UQ/ST3/WesternCommon/imagesgoods/455365/chip/goods_04_455365_chip.jpg"
+        },
+        {
+          "code": "09",
+          "name": "Black",
+          "hex": "#323232",
+          "swatch": "https://image.uniqlo.com/UQ/ST3/WesternCommon/imagesgoods/455365/chip/goods_09_455365_chip.jpg"
+        },
+        {
+          "code": "12",
+          "name": "Pink",
+          "hex": "#fbb3b3",
+          "swatch": "https://image.uniqlo.com/UQ/ST3/WesternCommon/imagesgoods/455365/chip/goods_12_455365_chip.jpg"
+        },
+        {
+          "code": "17",
+          "name": "Red",
+          "hex": "#833645",
+          "swatch": "https://image.uniqlo.com/UQ/ST3/WesternCommon/imagesgoods/455365/chip/goods_17_455365_chip.jpg"
+        },
+        {
+          "code": "31",
+          "name": "Beige",
+          "hex": "#e3dbce",
+          "swatch": "https://image.uniqlo.com/UQ/ST3/WesternCommon/imagesgoods/455365/chip/goods_31_455365_chip.jpg"
+        }
+      ]
+    },
+    {
+      "id": "E422992-000",
+      "name": "Crew Neck T-Shirt",
+      "price": 19.9,
+      "salePrice": null,
+      "slot": "top",
+      "shape": "tee",
+      "fabric": "jersey",
+      "url": "https://www.uniqlo.com/us/en/products/E422992-000/00",
+      "image": "https://image.uniqlo.com/UQ/ST3/us/imagesgoods/422992/item/usgoods_11_422992_3x4.jpg",
+      "sizes": "XXS-3XL",
+      "colors": [
+        {
+          "code": "38",
+          "name": "Dark Brown",
+          "hex": "#61493f",
+          "swatch": "https://image.uniqlo.com/UQ/ST3/WesternCommon/imagesgoods/422992/chip/goods_38_422992_chip.jpg"
+        },
+        {
+          "code": "00",
+          "name": "White",
+          "hex": "#f0efed",
+          "swatch": "https://image.uniqlo.com/UQ/ST3/WesternCommon/imagesgoods/422992/chip/goods_00_422992_chip.jpg"
+        },
+        {
+          "code": "03",
+          "name": "Gray",
+          "hex": "#d6d5c9",
+          "swatch": "https://image.uniqlo.com/UQ/ST3/WesternCommon/imagesgoods/422992/chip/goods_03_422992_chip.jpg"
+        },
+        {
+          "code": "07",
+          "name": "Gray",
+          "hex": "#424550",
+          "swatch": "https://image.uniqlo.com/UQ/ST3/WesternCommon/imagesgoods/422992/chip/goods_07_422992_chip.jpg"
+        },
+        {
+          "code": "09",
+          "name": "Black",
+          "hex": "#2f2e35",
+          "swatch": "https://image.uniqlo.com/UQ/ST3/WesternCommon/imagesgoods/422992/chip/goods_09_422992_chip.jpg"
+        },
+        {
+          "code": "11",
+          "name": "Pink",
+          "hex": "#d9cbc0",
+          "swatch": "https://image.uniqlo.com/UQ/ST3/WesternCommon/imagesgoods/422992/chip/goods_11_422992_chip.jpg"
+        },
+        {
+          "code": "16",
+          "name": "Red",
+          "hex": "#a04f4b",
+          "swatch": "https://image.uniqlo.com/UQ/ST3/WesternCommon/imagesgoods/422992/chip/goods_16_422992_chip.jpg"
+        }
+      ]
+    },
+    {
+      "id": "E453754-000",
+      "name": "Washable Milano Ribbed Sweater",
+      "price": 49.9,
+      "salePrice": null,
+      "slot": "top",
+      "shape": "sweater",
+      "fabric": "rib_knit",
+      "url": "https://www.uniqlo.com/us/en/products/E453754-000/00",
+      "image": "https://image.uniqlo.com/UQ/ST3/us/imagesgoods/453754/item/usgoods_19_453754_3x4.jpg",
+      "sizes": "XXS-3XL",
+      "colors": [
+        {
+          "code": "03",
+          "name": "Gray",
+          "hex": "#b5bbb9",
+          "swatch": "https://image.uniqlo.com/UQ/ST3/WesternCommon/imagesgoods/453754/chip/goods_03_453754_chip.jpg"
+        },
+        {
+          "code": "01",
+          "name": "Off White",
+          "hex": "#f2ede1",
+          "swatch": "https://image.uniqlo.com/UQ/ST3/WesternCommon/imagesgoods/453754/chip/goods_01_453754_chip.jpg"
+        },
+        {
+          "code": "09",
+          "name": "Black",
+          "hex": "#272728",
+          "swatch": "https://image.uniqlo.com/UQ/ST3/WesternCommon/imagesgoods/453754/chip/goods_09_453754_chip.jpg"
+        },
+        {
+          "code": "19",
+          "name": "Wine",
+          "hex": "#47282b",
+          "swatch": "https://image.uniqlo.com/UQ/ST3/WesternCommon/imagesgoods/453754/chip/goods_19_453754_chip.jpg"
+        },
+        {
+          "code": "26",
+          "name": "Orange",
+          "hex": "#ea4c37",
+          "swatch": "https://image.uniqlo.com/UQ/ST3/WesternCommon/imagesgoods/453754/chip/goods_26_453754_chip.jpg"
+        },
+        {
+          "code": "31",
+          "name": "Beige",
+          "hex": "#e1d3bc",
+          "swatch": "https://image.uniqlo.com/UQ/ST3/WesternCommon/imagesgoods/453754/chip/goods_31_453754_chip.jpg"
+        },
+        {
+          "code": "67",
+          "name": "Blue",
+          "hex": "#2d5167",
+          "swatch": "https://image.uniqlo.com/UQ/ST3/WesternCommon/imagesgoods/453754/chip/goods_67_453754_chip.jpg"
+        }
+      ]
+    },
+    {
+      "id": "E450543-000",
+      "name": "Cashmere Sweater",
+      "price": 79.9,
+      "salePrice": null,
+      "slot": "top",
+      "shape": "sweater",
+      "fabric": "cashmere",
+      "url": "https://www.uniqlo.com/us/en/products/E450543-000/00",
+      "image": "https://image.uniqlo.com/UQ/ST3/us/imagesgoods/450543/item/usgoods_15_450543_3x4.jpg",
+      "sizes": "XS-3XL",
+      "colors": [
+        {
+          "code": "08",
+          "name": "Dark Gray",
+          "hex": "#72746d",
+          "swatch": "https://image.uniqlo.com/UQ/ST3/WesternCommon/imagesgoods/450543/chip/goods_08_450543_chip.jpg"
+        },
+        {
+          "code": "01",
+          "name": "Off White",
+          "hex": "#f3f1e5",
+          "swatch": "https://image.uniqlo.com/UQ/ST3/WesternCommon/imagesgoods/450543/chip/goods_01_450543_chip.jpg"
+        },
+        {
+          "code": "03",
+          "name": "Gray",
+          "hex": "#bfbebf",
+          "swatch": "https://image.uniqlo.com/UQ/ST3/WesternCommon/imagesgoods/450543/chip/goods_03_450543_chip.jpg"
+        },
+        {
+          "code": "09",
+          "name": "Black",
+          "hex": "#1f1f21",
+          "swatch": "https://image.uniqlo.com/UQ/ST3/WesternCommon/imagesgoods/450543/chip/goods_09_450543_chip.jpg"
+        },
+        {
+          "code": "15",
+          "name": "Red",
+          "hex": "#b21533",
+          "swatch": "https://image.uniqlo.com/UQ/ST3/WesternCommon/imagesgoods/450543/chip/goods_15_450543_chip.jpg"
+        },
+        {
+          "code": "27",
+          "name": "Orange",
+          "hex": "#ba5f35",
+          "swatch": "https://image.uniqlo.com/UQ/ST3/WesternCommon/imagesgoods/450543/chip/goods_27_450543_chip.jpg"
+        },
+        {
+          "code": "31",
+          "name": "Beige",
+          "hex": "#c29b7e",
+          "swatch": "https://image.uniqlo.com/UQ/ST3/WesternCommon/imagesgoods/450543/chip/goods_31_450543_chip.jpg"
+        }
+      ]
+    },
+    {
+      "id": "E475598-000",
+      "name": "Ultra Stretch Pants",
+      "price": 59.9,
+      "salePrice": null,
+      "slot": "bottom",
+      "shape": "pants",
+      "fabric": "twill",
+      "url": "https://www.uniqlo.com/us/en/products/E475598-000/00",
+      "image": "https://image.uniqlo.com/UQ/ST3/us/imagesgoods/475598/item/usgoods_09_475598_3x4.jpg",
+      "sizes": "XS-3XL",
+      "colors": [
+        {
+          "code": "09",
+          "name": "Black",
+          "hex": "#2a2b2f",
+          "swatch": "https://image.uniqlo.com/UQ/ST3/WesternCommon/imagesgoods/475598/chip/goods_09_475598_chip.jpg"
+        },
+        {
+          "code": "08",
+          "name": "Dark Gray",
+          "hex": "#4b5059",
+          "swatch": "https://image.uniqlo.com/UQ/ST3/WesternCommon/imagesgoods/475598/chip/goods_08_475598_chip.jpg"
+        },
+        {
+          "code": "32",
+          "name": "Beige",
+          "hex": "#bbb18e",
+          "swatch": "https://image.uniqlo.com/UQ/ST3/WesternCommon/imagesgoods/475598/chip/goods_32_475598_chip.jpg"
+        },
+        {
+          "code": "57",
+          "name": "Olive",
+          "hex": "#545448",
+          "swatch": "https://image.uniqlo.com/UQ/ST3/WesternCommon/imagesgoods/475598/chip/goods_57_475598_chip.jpg"
+        },
+        {
+          "code": "69",
+          "name": "Navy",
+          "hex": "#394050",
+          "swatch": "https://image.uniqlo.com/UQ/ST3/WesternCommon/imagesgoods/475598/chip/goods_69_475598_chip.jpg"
+        }
+      ]
+    },
+    {
+      "id": "E479000-000",
+      "name": "Barrel Jeans",
+      "price": 49.9,
+      "salePrice": null,
+      "slot": "bottom",
+      "shape": "pants",
+      "fabric": "denim",
+      "url": "https://www.uniqlo.com/us/en/products/E479000-000/00",
+      "image": "https://image.uniqlo.com/UQ/ST3/us/imagesgoods/479000/item/usgoods_67_479000_3x4.jpg",
+      "sizes": "22inch-34inch",
+      "colors": [
+        {
+          "code": "04",
+          "name": "Gray",
+          "hex": "#838586",
+          "swatch": "https://image.uniqlo.com/UQ/ST3/WesternCommon/imagesgoods/479000/chip/goods_04_479000_chip.jpg"
+        },
+        {
+          "code": "08",
+          "name": "Dark Gray",
+          "hex": "#413f45",
+          "swatch": "https://image.uniqlo.com/UQ/ST3/WesternCommon/imagesgoods/479000/chip/goods_08_479000_chip.jpg"
+        },
+        {
+          "code": "67",
+          "name": "Blue",
+          "hex": "#476180",
+          "swatch": "https://image.uniqlo.com/UQ/ST3/WesternCommon/imagesgoods/479000/chip/goods_67_479000_chip.jpg"
+        },
+        {
+          "code": "68",
+          "name": "Blue",
+          "hex": "#3b516f",
+          "swatch": "https://image.uniqlo.com/UQ/ST3/WesternCommon/imagesgoods/479000/chip/goods_68_479000_chip.jpg"
+        },
+        {
+          "code": "69",
+          "name": "Navy",
+          "hex": "#36404a",
+          "swatch": "https://image.uniqlo.com/UQ/ST3/WesternCommon/imagesgoods/479000/chip/goods_69_479000_chip.jpg"
+        }
+      ]
+    }
+  ]
+}
