@@ -129,6 +129,12 @@ function ErrorNote() {
   );
 }
 
+function DressingNote() {
+  const dressed = useFit((s) => s.dressed);
+  if (dressed) return null;
+  return <div className="dressing">Dressing your avatar…</div>;
+}
+
 export function ViewerChrome() {
   const scene = useFit((s) => s.scene);
   const dark = SCENES[scene].chromeDark;
@@ -141,6 +147,7 @@ export function ViewerChrome() {
       <PosePicker />
       <div className="viewer-hint">Drag to rotate · scroll to zoom</div>
       <ViewControls />
+      <DressingNote />
       <Generating />
       <ErrorNote />
     </div>

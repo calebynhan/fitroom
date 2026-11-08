@@ -15,6 +15,14 @@ export async function assetExists(url: string): Promise<boolean> {
   }
 }
 
+/** Checks an asset once and remembers it, so later mounts skip the probe. */
+export async function primeAsset(url: string): Promise<boolean> {
+  if (known.has(url)) return true;
+  const ok = await assetExists(url);
+  if (ok) known.add(url);
+  return ok;
+}
+
 export function useAssetAvailable(url: string): AssetStatus {
   const [status, setStatus] = useState<AssetStatus>(known.has(url) ? 'ok' : 'checking');
   useEffect(() => {

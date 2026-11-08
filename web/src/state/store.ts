@@ -24,6 +24,8 @@ interface FitState {
   /** Morph weights body_0..body_n; null until the body GLB provides its defaults. */
   weights: number[] | null;
   fits: FitsFile | null;
+  /** True once the avatar is shown wearing its outfit (never render it undressed). */
+  dressed: boolean;
 
   setModel: (model: ModelId) => void;
   setPose: (pose: PoseId) => void;
@@ -38,6 +40,7 @@ interface FitState {
   setMeasure: (measure: BodyMeasure | null) => void;
   initWeights: (weights: number[]) => void;
   setFits: (fits: FitsFile | null) => void;
+  setDressed: (dressed: boolean) => void;
 }
 
 function defaultSelection(items: CatalogItem[], id: string, slot: Slot): Selection | null {
@@ -57,6 +60,7 @@ function bodyDefaults(model: ModelId) {
     measure: null,
     weights: null,
     fits: null,
+    dressed: false,
   };
 }
 
@@ -99,4 +103,5 @@ export const useFit = create<FitState>()((set) => ({
       return { weights: s.measure ? weightsForGirths(s.measure, s.girths) : [...weights] };
     }),
   setFits: (fits) => set({ fits }),
+  setDressed: (dressed) => set({ dressed }),
 }));

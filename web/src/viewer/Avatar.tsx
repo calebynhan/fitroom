@@ -1,8 +1,9 @@
 import { useGLTF } from '@react-three/drei';
 import { useFrame } from '@react-three/fiber';
-import { Suspense, useEffect, useMemo, useRef } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
-import { MODELS } from '../body/models';
+import { garmentUrl, MODELS, type ModelId } from '../body/models';
+import type { Slot } from '../catalog/types';
 import { useFit } from '../state/store';
 import { AssetBoundary } from './AssetBoundary';
 import { Garment } from './Garment';
@@ -10,7 +11,7 @@ import { Glasses } from './Glasses';
 import { PlaceholderBody } from './PlaceholderBody';
 import { POSE_FADE_S } from './poses';
 import { applyBodyWeights, buildRig, groundOffset, readBodyWeights, type BodyRig } from './rig';
-import { useAssetAvailable } from './useAssetAvailable';
+import { primeAsset, useAssetAvailable } from './useAssetAvailable';
 import { useOutfitLooks } from './useOutfitLooks';
 
 // Matte store-mannequin ivory, so the head and hands read as intentional.
@@ -33,12 +34,39 @@ function styleBody(mesh: THREE.SkinnedMesh): void {
   });
 }
 
-function Outfit({ rig }: { rig: BodyRig }) {
+const REVEAL_TIMEOUT_MS = 10_000; // show the body anyway if a garment never arrives
+const GARMENT_SHAPES = ['tee', 'sweater', 'pants'] as const;
+
+/** Fetch every garment for this body up front so swaps never flash skin. */
+function usePreloadGarments(model: ModelId): void {
+  useEffect(() => {
+    GARMENT_SHAPES.forEach((shape) => {
+      const url = garmentUrl(model, shape);
+      void primeAsset(url).then((ok) => ok && useGLTF.preload(url));
+    });
+  }, [model]);
+}
+
+interface OutfitProps {
+  rig: BodyRig;
+  onDressed: () => void;
+}
+
+function Outfit({ rig, onDressed }: OutfitProps) {
   const looks = useOutfitLooks();
+  const [ready, setReady] = useState<Record<Slot, boolean>>({ top: false, bottom: false });
+  const markReady = useCallback(
+    (slot: Slot, ok: boolean) => setReady((r) => (r[slot] === ok ? r : { ...r, [slot]: ok })),
+    [],
+  );
+  const dressed = Boolean(looks.top && looks.bottom && ready.top && ready.bottom);
+  useEffect(() => {
+    if (dressed) onDressed();
+  }, [dressed, onDressed]);
   return (
     <>
-      {looks.top && <Garment key={`top-${looks.top.shape}`} rig={rig} {...looks.top} />}
-      {looks.bottom && <Garment key={`bottom-${looks.bottom.shape}`} rig={rig} {...looks.bottom} />}
+      {looks.top && <Garment key={`top-${looks.top.shape}`} rig={rig} onReady={markReady} {...looks.top} />}
+      {looks.bottom && <Garment key={`bottom-${looks.bottom.shape}`} rig={rig} onReady={markReady} {...looks.bottom} />}
     </>
   );
 }
@@ -74,6 +102,16 @@ function usePose(root: THREE.Object3D, clips: THREE.AnimationClip[]): void {
 
 function BodyModel({ url, glasses }: { url: string; glasses: boolean }) {
   const gltf = useGLTF(url);
+  const [revealed, setRevealed] = useState(false); // sticky: hidden until first fully dressed
+  const setDressed = useFit((s) => s.setDressed);
+  const reveal = useCallback(() => {
+    setRevealed(true);
+    setDressed(true);
+  }, [setDressed]);
+  useEffect(() => {
+    const t = setTimeout(reveal, REVEAL_TIMEOUT_MS);
+    return () => clearTimeout(t);
+  }, [reveal]);
   const rig = useMemo(() => buildRig(gltf.scene), [gltf.scene]);
   const offset = useMemo(() => groundOffset(gltf.scene), [gltf.scene]);
   const weights = useFit((s) => s.weights);
@@ -92,8 +130,8 @@ function BodyModel({ url, glasses }: { url: string; glasses: boolean }) {
 
   return (
     <group position={offset}>
-      <primitive object={gltf.scene} />
-      {rig && <Outfit rig={rig} />}
+      <primitive object={gltf.scene} visible={revealed} />
+      {rig && <Outfit rig={rig} onDressed={reveal} />}
       {rig && glasses && <Glasses rig={rig} />}
     </group>
   );
@@ -105,11 +143,12 @@ export function Avatar() {
   const status = useAssetAvailable(config.bodyUrl);
   const heightCm = useFit((s) => s.heightCm);
   const scale = heightCm / config.baseHeightCm;
+  usePreloadGarments(model);
   return (
     <group scale={scale}>
       {status === 'ok' && (
         <AssetBoundary key={model} name={config.bodyUrl} fallback={<PlaceholderBody />}>
-          <Suspense fallback={<PlaceholderBody />}>
+          <Suspense fallback={null}>
             <BodyModel url={config.bodyUrl} glasses={config.glasses} />
           </Suspense>
         </AssetBoundary>

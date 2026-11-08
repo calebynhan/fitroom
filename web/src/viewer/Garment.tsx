@@ -2,42 +2,46 @@ import { useGLTF } from '@react-three/drei';
 import { Suspense, useEffect, useMemo } from 'react';
 import type { FitMorphs } from '../catalog/fits';
 import { garmentUrl } from '../body/models';
-import type { Shape } from '../catalog/types';
+import type { Shape, Slot } from '../catalog/types';
 import { useFit } from '../state/store';
 import { AssetBoundary } from './AssetBoundary';
-import { makeFabricMaterial, tintFabric } from './fabric';
+import { disposeFabric, makeFabricMaterial, tintFabric } from './fabric';
 import { applyBodyWeights, applyFitMorphs, findSkinnedMesh, rebindToRig, type BodyRig } from './rig';
 import { useAssetAvailable } from './useAssetAvailable';
 
 interface GarmentProps {
   rig: BodyRig;
+  slot: Slot;
+  onReady?: (slot: Slot, ready: boolean) => void;
   shape: Shape;
   fabric: string;
   hex: string;
   fitMorphs: FitMorphs;
 }
 
-function GarmentModel({ rig, shape, fabric, hex, fitMorphs }: GarmentProps) {
+function GarmentModel({ rig, slot, onReady, shape, fabric, hex, fitMorphs }: GarmentProps) {
   const model = useFit((s) => s.model);
   const gltf = useGLTF(garmentUrl(model, shape));
   const source = useMemo(() => findSkinnedMesh(gltf.scene), [gltf.scene]);
   const mesh = useMemo(() => (source ? rebindToRig(source, rig) : null), [source, rig]);
-  const material = useMemo(() => makeFabricMaterial(fabric, source?.material), [fabric, source]);
+  const material = useMemo(() => makeFabricMaterial(fabric, source?.material, source?.geometry), [fabric, source]);
   const weights = useFit((s) => s.weights);
 
   useEffect(() => tintFabric(material, hex), [material, hex]);
-  useEffect(() => () => material.dispose(), [material]);
+  useEffect(() => () => disposeFabric(material), [material]);
 
   useEffect(() => {
     if (!mesh) return undefined;
     mesh.material = material;
     mesh.castShadow = true;
     rig.armature.add(mesh);
+    onReady?.(slot, true);
     return () => {
+      onReady?.(slot, false);
       rig.armature.remove(mesh);
       mesh.skeleton.dispose(); // bone texture; geometry is shared with the useGLTF cache
     };
-  }, [mesh, material, rig]);
+  }, [mesh, material, rig, slot, onReady]);
 
   useEffect(() => {
     if (mesh && weights) applyBodyWeights(mesh, weights);
