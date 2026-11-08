@@ -19,9 +19,10 @@ import bl_scene as bs
 STANCE = [  # A-pose legs -> natural hip-width stance, soles kept flat
     ("l_upleg", "Y", 4.5), ("r_upleg", "Y", -4.5), ("l_talocrural", "Y", -4.5), ("r_talocrural", "Y", 4.5),
 ]
+# Catalogue posing tip: keep a little air between arm and waist so the garment silhouette reads.
 RELAXED_ARM = {
-    "l": [("l_uparm", "Y", 37), ("l_uparm", "X", -4), ("l_lowarm", "Y", 10), ("l_lowarm", "X", -9)],
-    "r": [("r_uparm", "Y", -37), ("r_uparm", "X", -4), ("r_lowarm", "Y", -10), ("r_lowarm", "X", -9)],
+    "l": [("l_uparm", "Y", 32), ("l_uparm", "X", -4), ("l_lowarm", "Y", 6), ("l_lowarm", "X", -9)],
+    "r": [("r_uparm", "Y", -32), ("r_uparm", "X", -4), ("r_lowarm", "Y", -6), ("r_lowarm", "X", -9)],
 }
 
 POSES = {
@@ -40,8 +41,8 @@ POSES = {
         "rot": STANCE + [
             ("l_upleg", "X", -15), ("l_lowleg", "X", 8), ("l_talocrural", "X", 1),
             ("r_upleg", "X", 10), ("r_lowleg", "X", 13), ("r_talocrural", "X", -7),
-            ("r_uparm", "Y", -37), ("r_uparm", "X", -13), ("r_lowarm", "Y", -10), ("r_lowarm", "X", -16),
-            ("l_uparm", "Y", 37), ("l_uparm", "X", 11), ("l_lowarm", "Y", 10), ("l_lowarm", "X", -7),
+            ("r_uparm", "Y", -33), ("r_uparm", "X", -13), ("r_lowarm", "Y", -6), ("r_lowarm", "X", -16),
+            ("l_uparm", "Y", 33), ("l_uparm", "X", 11), ("l_lowarm", "Y", 6), ("l_lowarm", "X", -7),
             ("c_spine1", "Z", -4.0), ("c_head", "Z", 3.0),
         ],
         "ik": [],

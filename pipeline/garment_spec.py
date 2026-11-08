@@ -17,6 +17,7 @@ HEAD_CLEAR = 0.045          # everything this far above the neck joint is head
 CROTCH_MARGIN = 0.045       # tops can't hem below the crotch: the body splits into two legs there
 LAYER_GAP = 0.020           # untucked tops clear the pants shell (pants inflate + thickness + margin)
 LAYER_BLEND = 0.03          # metres above the pants waistband over which top clearance ramps up
+REF_NECK_HALF_WIDTH = 0.058  # male neck the collar radii were tuned on; other necks scale the collar
 
 
 @dataclass(frozen=True)
@@ -27,6 +28,7 @@ class Landmarks:
     chest_z: float
     neck: np.ndarray
     neck_xy: np.ndarray
+    neck_scale: float
     shoulder: dict
     elbow: dict
     wrist: dict
@@ -85,7 +87,8 @@ def _sleeve_segment(L: Landmarks, spec: GarmentSpec, s: str):
 
 def _collar_uv(co: np.ndarray, L: Landmarks, spec: GarmentSpec) -> np.ndarray:
     cx, cy = L.neck_xy[0], L.neck_xy[1] - COLLAR_FORWARD
-    return np.column_stack([(co[:, 0] - cx) / spec.collar_rx, (co[:, 1] - cy) / spec.collar_ry])
+    rx, ry = spec.collar_rx * L.neck_scale, spec.collar_ry * L.neck_scale
+    return np.column_stack([(co[:, 0] - cx) / rx, (co[:, 1] - cy) / ry])
 
 
 def in_collar(co: np.ndarray, L: Landmarks, spec: GarmentSpec, scale: float) -> np.ndarray:

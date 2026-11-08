@@ -4,6 +4,9 @@ bpy must be imported before bmesh (bpy-as-module bootstraps Blender).
 """
 from __future__ import annotations
 
+import json
+import os
+
 import bpy  # noqa: F401  (must load first)
 import numpy as np
 
@@ -96,9 +99,11 @@ def evaluated_coords(mesh) -> np.ndarray:
 
 
 def export_glb(path: str, objs, animations: bool = False) -> None:
+    """Export to a temp file, then rename: the viewer never loads a half-written GLB."""
     select_only(list(objs))
+    tmp = f"{path}.tmp.glb"
     bpy.ops.export_scene.gltf(
-        filepath=path,
+        filepath=tmp,
         export_format="GLB",
         use_selection=True,
         export_yup=True,
@@ -113,3 +118,11 @@ def export_glb(path: str, objs, animations: bool = False) -> None:
         export_rest_position_armature=True,
         export_materials="EXPORT",
     )
+    os.replace(tmp, path)
+
+
+def write_json_atomic(path: str, payload: dict) -> None:
+    tmp = f"{path}.tmp"
+    with open(tmp, "w") as f:
+        json.dump(payload, f, indent=2)
+    os.replace(tmp, path)

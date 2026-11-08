@@ -133,8 +133,7 @@ def write_measure_json(path, sex, weights, measured, jac, height_cm) -> None:
         "jacobian_cm_per_unit": jac,
         "note": "Linear model: measurement ~= measured_cm_at_default + J @ (w - default_weights).",
     }
-    with open(path, "w") as f:
-        json.dump(payload, f, indent=2)
+    bs.write_json_atomic(path, payload)
 
 
 def main() -> None:

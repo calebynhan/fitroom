@@ -95,10 +95,12 @@ def find_landmarks(arm, co: np.ndarray) -> gs.Landmarks:
     crotch = co[centre & (co[:, 2] > z0 + 0.35 * height) & (co[:, 2] < z0 + 0.6 * height), 2].min()
     neck = bone_head(arm, "c_neck")
     ring = (np.abs(co[:, 2] - (neck[2] + 0.03)) < 0.012) & (np.abs(co[:, 0]) < 0.1)
+    neck_half_width = float(np.abs(co[ring, 0]).max())
     both = lambda bone: {s: bone_head(arm, f"{s}_{bone}") for s in ("l", "r")}  # noqa: E731
     return gs.Landmarks(
         height=height, hips_z=bone_head(arm, "root")[2], crotch_z=crotch, chest_z=z0 + 0.725 * height,
-        neck=neck, neck_xy=co[ring, :2].mean(axis=0), shoulder=both("uparm"), elbow=both("lowarm"), wrist=both("wrist"),
+        neck=neck, neck_xy=co[ring, :2].mean(axis=0), neck_scale=neck_half_width / gs.REF_NECK_HALF_WIDTH,
+        shoulder=both("uparm"), elbow=both("lowarm"), wrist=both("wrist"),
         hip_joint=both("upleg"), knee=both("lowleg"), ankle=both("talocrural"),
     )
 
@@ -169,7 +171,7 @@ def shape_fit(v, f, arm_w, bd: BodyData, spec: gs.GarmentSpec, fit: gf.Fit, plan
             v = gf.hem_band(v, arm_w, gs.top_hem_z(L, spec), spec.inflate)
         if fit.sleeve_flare_r > 0:
             v = gf.flare_sleeves(v, arm_w, L, fit)
-        if fit.forearm_r > 0:
+        if fit.forearm_ease > 0:
             v = gf.roomy_forearms(v, arm_w, L, fit)
     else:
         v = gf.drape_legs(v, L, fit, gs.pants_hem_z(L, spec))
@@ -375,8 +377,7 @@ def render_checks(arm, body, body_co, objs: dict, out_dir: str, height: float, p
 def write_fits_json(out_dir: str) -> None:
     payload = {"items": gf.ITEM_FITS, "name_rules": gf.NAME_RULES,
                "note": "Set garment.morphTargetInfluences[morphTargetDictionary[name]] = weight for each morph."}
-    with open(os.path.join(out_dir, "fits.json"), "w") as f:
-        json.dump(payload, f, indent=2)
+    bs.write_json_atomic(os.path.join(out_dir, "fits.json"), payload)
 
 
 def main() -> None:

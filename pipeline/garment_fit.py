@@ -28,7 +28,7 @@ class Fit:
     drape: float = 0.0              # 0 = follows the waist, 1 = hangs straight from the chest
     sleeve_flare_r: float = 0.0     # open tee sleeve radius around the upper arm (m)
     sleeve_stretch: float = 1.0     # sleeve length multiplier (tee sleeve slides further down the arm)
-    forearm_r: float = 0.0          # roomy knit sleeve radius around the forearm (m)
+    forearm_ease: float = 0.0       # knit sleeve stands this far off the (inflated) forearm (m)
     hem_band: bool = False          # knit rib band pulls the hem in
     thigh_extra: float = 0.0        # pants: extra radius at the top of the thigh (m)
     leg_hem_r: float = 0.0          # pants: hem opening radius (m)
@@ -39,7 +39,7 @@ class Fit:
 FITS = {
     "tee": (Fit("base", chest_ease_cm=14, drape=0.6, sleeve_flare_r=0.056),
             Fit("fit_boxy", chest_ease_cm=21, drape=1.0, sleeve_flare_r=0.066, sleeve_stretch=1.3)),
-    "sweater": (Fit("base", chest_ease_cm=12, drape=0.5, forearm_r=0.047, hem_band=True),),
+    "sweater": (Fit("base", chest_ease_cm=12, drape=0.5, forearm_ease=0.006, hem_band=True),),
     "pants": (Fit("base", thigh_extra=0.010, leg_hem_r=0.052),
               Fit("fit_barrel", thigh_extra=0.018, leg_hem_r=0.070, leg_bulge=0.016, leg_outward=0.012)),
 }
@@ -133,9 +133,13 @@ def roomy_forearms(v, arm_w, L, fit: Fit) -> np.ndarray:
     """Knit sleeve: relaxed around the forearm, gathered into a fitted cuff at the wrist."""
     a, seg, axis, t = _arm_frame(v, L, L.elbow, L.wrist)
     centre = a + np.clip(t, 0, 1)[:, None] * seg
+    d = v - centre
+    r = np.linalg.norm(d - (d * axis).sum(1, keepdims=True) * axis, axis=1)
+    mid = (arm_w > 0.6) & (t > 0.25) & (t < 0.6)
+    target = (float(np.median(r[mid])) if mid.any() else 0.04) + fit.forearm_ease   # relative to this arm
     cuff = 1.0 - gg.smoothstep(0.72, 0.86, t)
-    blend = gg.smoothstep(0.4, 0.8, arm_w) * gg.smoothstep(-0.3, 0.1, t) * cuff
-    return gg.push_radial(v, centre, axis, np.full(len(v), fit.forearm_r), blend)
+    blend = gg.smoothstep(0.4, 0.8, arm_w) * gg.smoothstep(0.0, 0.25, t) * cuff   # elbow left alone
+    return gg.push_radial(v, centre, axis, np.full(len(v), target), blend)
 
 
 def drape_legs(v, L, fit: Fit, hem_z: float) -> np.ndarray:
