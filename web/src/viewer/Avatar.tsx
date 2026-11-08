@@ -19,10 +19,13 @@ const MANNEQUIN_ROUGHNESS = 0.55;
 function styleBody(mesh: THREE.SkinnedMesh): void {
   mesh.castShadow = true;
   mesh.frustumCulled = false;
-  // If the pipeline painted features as vertex colours (COLOR_0), show them on a white base; else mannequin ivory.
-  const painted = Boolean(mesh.geometry.getAttribute('color'));
+  // Painted features from the pipeline (baseColorTexture, or COLOR_0) show on a white base; else mannequin ivory.
+  const map = (mesh.material as THREE.MeshStandardMaterial | undefined)?.map ?? null;
+  if (map) map.colorSpace = THREE.SRGBColorSpace;
+  const painted = !map && Boolean(mesh.geometry.getAttribute('color'));
   mesh.material = new THREE.MeshStandardMaterial({
-    color: painted ? '#ffffff' : MANNEQUIN_COLOR,
+    map,
+    color: map || painted ? '#ffffff' : MANNEQUIN_COLOR,
     vertexColors: painted,
     roughness: MANNEQUIN_ROUGHNESS,
     metalness: 0,
