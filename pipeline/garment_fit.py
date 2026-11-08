@@ -19,6 +19,7 @@ import garment_geom as gg
 TWO_PI = 2 * np.pi
 MIDLINE_CLEARANCE = 0.006   # pant legs never cross x = 0
 HEM_BAND = 0.055            # height of a knit rib hem band
+CROTCH_BRIDGE = 0.08        # below the crotch seam, fabric hangs straight instead of following a thigh gap
 
 
 @dataclass(frozen=True)
@@ -140,6 +141,18 @@ def roomy_forearms(v, arm_w, L, fit: Fit) -> np.ndarray:
     cuff = 1.0 - gg.smoothstep(0.72, 0.86, t)
     blend = gg.smoothstep(0.4, 0.8, arm_w) * gg.smoothstep(0.0, 0.25, t) * cuff   # elbow left alone
     return gg.push_radial(v, centre, axis, np.full(len(v), target), blend)
+
+
+def close_crotch(v: np.ndarray, L) -> np.ndarray:
+    """Pull the inner-leg fabric just below the crotch toward the midline: real pants bridge the thigh
+    gap from the crotch seam down, rather than following it (which shows a see-through hole)."""
+    below = L.crotch_z - v[:, 2]
+    w = (1.0 - gg.smoothstep(0.0, CROTCH_BRIDGE, below)) * (below > -0.01)
+    ax = np.abs(v[:, 0])
+    w *= 1.0 - gg.smoothstep(0.015, 0.05, ax)              # only the inner faces of the legs
+    out = v.copy()
+    out[:, 0] = np.sign(v[:, 0]) * (ax + w * (MIDLINE_CLEARANCE - ax).clip(max=0.0))
+    return out
 
 
 def drape_legs(v, L, fit: Fit, hem_z: float) -> np.ndarray:

@@ -175,6 +175,7 @@ def shape_fit(v, f, arm_w, bd: BodyData, spec: gs.GarmentSpec, fit: gf.Fit, plan
             v = gf.roomy_forearms(v, arm_w, L, fit)
     else:
         v = gf.drape_legs(v, L, fit, gs.pants_hem_z(L, spec))
+        v = gf.close_crotch(v, L)
     v, _ = anti_clip(v, bd, gs.clearance(v, L, spec))
     v = gg.taubin_smooth(v, f, iters=4)
     v, _ = anti_clip(v, bd, gs.clearance(v, L, spec))
