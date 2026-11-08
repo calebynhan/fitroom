@@ -19,7 +19,14 @@ const MANNEQUIN_ROUGHNESS = 0.55;
 function styleBody(mesh: THREE.SkinnedMesh): void {
   mesh.castShadow = true;
   mesh.frustumCulled = false;
-  mesh.material = new THREE.MeshStandardMaterial({ color: MANNEQUIN_COLOR, roughness: MANNEQUIN_ROUGHNESS, metalness: 0 });
+  // If the pipeline painted features as vertex colours (COLOR_0), show them on a white base; else mannequin ivory.
+  const painted = Boolean(mesh.geometry.getAttribute('color'));
+  mesh.material = new THREE.MeshStandardMaterial({
+    color: painted ? '#ffffff' : MANNEQUIN_COLOR,
+    vertexColors: painted,
+    roughness: MANNEQUIN_ROUGHNESS,
+    metalness: 0,
+  });
 }
 
 function Outfit({ rig }: { rig: BodyRig }) {

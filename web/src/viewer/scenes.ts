@@ -13,6 +13,8 @@ export interface ScenePreset {
   rimLight: number;
   rimColor: string;
   shadowOpacity: number;
+  groundColor: string;
+  groundRoughness: number;
   /** Viewer labels switch to light text over dark backdrops. */
   chromeDark: boolean;
   /** Words for the photoreal prompt. */
@@ -30,12 +32,14 @@ export const SCENES: Record<SceneId, ScenePreset> = {
     backgroundColor: '#f7f6f2',
     backgroundBlurriness: 0,
     backgroundIntensity: 1,
-    environmentIntensity: 0.9,
-    keyLight: 1.6,
+    environmentIntensity: 0.65,
+    keyLight: 1.05,
     keyColor: '#ffffff',
-    rimLight: 0.6,
+    rimLight: 0.5,
     rimColor: '#ffffff',
     shadowOpacity: 0.45,
+    groundColor: '#ebe8e1', // seamless studio floor
+    groundRoughness: 1,
     chromeDark: false,
     setting: 'a bright, minimal photo studio with a seamless light-grey backdrop and soft even lighting',
   },
@@ -51,8 +55,10 @@ export const SCENES: Record<SceneId, ScenePreset> = {
     keyColor: '#fff4e6',
     rimLight: 0.5,
     rimColor: '#cfe0ff',
-    shadowOpacity: 0.5,
-    chromeDark: true,
+    shadowOpacity: 0.45,
+    groundColor: '#8d8c88', // pavement
+    groundRoughness: 0.95,
+    chromeDark: false, // light sky behind the labels
     setting: 'a city street in daylight, shallow depth of field with softly blurred buildings behind',
   },
   night: {
@@ -62,12 +68,14 @@ export const SCENES: Record<SceneId, ScenePreset> = {
     backgroundColor: '#0d1220',
     backgroundBlurriness: 0.25,
     backgroundIntensity: 0.32,
-    environmentIntensity: 0.6,
-    keyLight: 0.9,
+    environmentIntensity: 1.15,
+    keyLight: 1.5,
     keyColor: '#ffd9b0',
-    rimLight: 1.6,
+    rimLight: 2.0,
     rimColor: '#7fa6ff',
-    shadowOpacity: 0.6,
+    shadowOpacity: 0.45,
+    groundColor: '#1d2027', // dark wet asphalt
+    groundRoughness: 0.45,
     chromeDark: true,
     setting: 'outdoors at night under a starry sky, warm key light and a cool blue rim light',
   },

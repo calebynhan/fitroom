@@ -3,7 +3,11 @@ import { useThree } from '@react-three/fiber';
 import { useEffect } from 'react';
 import * as THREE from 'three';
 import { useFit } from '../state/store';
+import { Ground } from './Ground';
 import { SCENES } from './scenes';
+
+const KEY_POSITION: [number, number, number] = [-2.5, 3.5, 3]; // front-left, soft
+const RIM_POSITION: [number, number, number] = [3, 2.5, -3]; // behind-right
 
 export function SceneSetup() {
   const sceneId = useFit((s) => s.scene);
@@ -25,9 +29,10 @@ export function SceneSetup() {
         backgroundIntensity={preset.backgroundIntensity}
         environmentIntensity={preset.environmentIntensity}
       />
-      <directionalLight position={[2.5, 4, 3]} intensity={preset.keyLight} color={preset.keyColor} />
-      <directionalLight position={[-3, 2.5, -3]} intensity={preset.rimLight} color={preset.rimColor} />
-      <ContactShadows position={[0, 0.001, 0]} opacity={preset.shadowOpacity} scale={4} blur={2.4} far={2} resolution={512} />
+      <directionalLight position={KEY_POSITION} intensity={preset.keyLight} color={preset.keyColor} />
+      <directionalLight position={RIM_POSITION} intensity={preset.rimLight} color={preset.rimColor} />
+      <Ground color={preset.groundColor} roughness={preset.groundRoughness} />
+      <ContactShadows position={[0, 0.001, 0]} opacity={0.45} blur={2.5} far={1.5} scale={4} resolution={512} />
     </>
   );
 }
