@@ -24,6 +24,7 @@ import garment_fit as gf  # noqa: E402
 import garment_geom as gg  # noqa: E402
 import garment_spec as gs  # noqa: E402
 import glb_tools  # noqa: E402
+import poses  # noqa: E402
 import render  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -65,6 +66,11 @@ def load_body(path: str):
     bs.reset_scene()
     bpy.ops.import_scene.gltf(filepath=path, merge_vertices=True, disable_bone_shape=True)
     arm, body = bs.find_one("ARMATURE"), bs.find_one("MESH")
+    if arm.animation_data:   # pose clips from body.glb must not drive the armature here
+        arm.animation_data.action = None
+        for track in list(arm.animation_data.nla_tracks):
+            arm.animation_data.nla_tracks.remove(track)
+    poses.reset(arm)
     bs.bake_transforms(arm, body)
     return arm, body
 
@@ -292,6 +298,8 @@ SHOTS = (
     ("barrel_jeans", {"pants": {"fit_barrel": 1.0}}),
     ("outfit", {"tee": {}, "pants": {}}),
     ("outfit_u_barrel", {"tee": {"fit_boxy": 1.0}, "pants": {"fit_barrel": 1.0}}),
+    ("pose_pocket", {"tee": {}, "pants": {}}),
+    ("pose_walk", {"sweater": {}, "pants": {"fit_barrel": 1.0}}),
 )
 
 
@@ -301,14 +309,14 @@ def _set_fit_morphs(obj, morphs: dict) -> None:
             kb.value = float(morphs.get(kb.name, 0.0))
 
 
-def render_checks(arm, objs: dict, out_dir: str, height: float, prefix: str) -> list:
+def render_checks(arm, body, body_co, objs: dict, out_dir: str, height: float, prefix: str) -> list:
     for shape, obj in objs.items():
         obj.data.materials[0] = render.make_material(f"render_{shape}", RENDER_RGB[shape], 0.85)
-    render.lower_arms(arm)
     paths = []
     for label, outfit in SHOTS:
         if not set(outfit) <= set(objs):
             continue
+        poses.apply(arm, body, label.split("pose_")[1] if label.startswith("pose_") else "relaxed", body_co)
         for shape, obj in objs.items():
             obj.hide_render = shape not in outfit
             _set_fit_morphs(obj, outfit.get(shape, {}))
@@ -350,7 +358,8 @@ def main() -> None:
         o.hide_set(False)
     write_fits_json(args.out)
     if args.renders:
-        for p in render_checks(arm, objs, os.path.abspath(args.renders), L.height, args.render_prefix):
+        for p in render_checks(arm, body, bd.proxy, objs, os.path.abspath(args.renders), L.height,
+                               args.render_prefix):
             print("  rendered", p)
 
 

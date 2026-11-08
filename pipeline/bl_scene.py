@@ -84,7 +84,18 @@ def assert_all_weighted(mesh: bpy.types.Object) -> None:
         raise RuntimeError(f"{mesh.name}: {len(bad)} vertices have no skin weight (e.g. {bad[:5]})")
 
 
-def export_glb(path: str, objs) -> None:
+def evaluated_coords(mesh) -> np.ndarray:
+    """World-space vertex positions after shape keys and the armature pose."""
+    deps = bpy.context.evaluated_depsgraph_get()
+    ev = mesh.evaluated_get(deps)
+    me = ev.to_mesh()
+    co = np.empty(len(me.vertices) * 3)
+    me.vertices.foreach_get("co", co)
+    ev.to_mesh_clear()
+    return co.reshape(-1, 3)
+
+
+def export_glb(path: str, objs, animations: bool = False) -> None:
     select_only(list(objs))
     bpy.ops.export_scene.gltf(
         filepath=path,
@@ -95,7 +106,8 @@ def export_glb(path: str, objs) -> None:
         export_skins=True,
         export_morph=True,
         export_morph_normal=False,
-        export_animations=False,
+        export_animations=animations,
+        export_animation_mode="NLA_TRACKS",
         export_def_bones=False,
         export_leaf_bone=False,
         export_rest_position_armature=True,

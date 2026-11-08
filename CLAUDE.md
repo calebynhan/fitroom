@@ -78,6 +78,15 @@ same body_0..5 morph names, 1.72 m, model proportions (bust 86 / underbust 66 / 
 are web/public/garments/female/{tee,sweater,pants}.glb (+ fits.json), same morphs. Swap body + garment folder
 together; never mix male garments on the female body.
 
+**Poses (added by A)**: body.glb and body_female.glb carry 3 glTF animation clips, each a single keyframe of
+every bone: "relaxed" (arms loose at sides, hip-width stance), "pocket" (weight on right leg, left hand at front
+pocket), "walk" (mid-stride, arms swinging). Modelled on UNIQLO catalogue shots. Garments follow automatically
+(bound to the avatar bones). Default to "relaxed" (the rest A-pose is only for binding):
+
+    const mixer = new THREE.AnimationMixer(avatarScene);
+    const act = mixer.clipAction(THREE.AnimationClip.findByName(gltf.animations, 'relaxed'));
+    act.play(); mixer.update(0);          // switch: other.reset().play(); act.crossFadeTo(other, 0.4); tick mixer
+
 **Body controls (viewer)**: Height scales the avatar root. Sliders Build / Chest / Waist / Hips drive
 body_0..body_3 on the body AND every garment at once. Measurement inputs map to slider values.
 

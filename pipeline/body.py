@@ -19,6 +19,7 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import bl_scene as bs  # noqa: E402
 import body_measure as bm  # noqa: E402
+import poses  # noqa: E402
 import render  # noqa: E402
 import sculpt  # noqa: E402
 
@@ -171,13 +172,25 @@ def main() -> None:
     out_dir = os.path.dirname(os.path.abspath(args.out))
     stem = os.path.splitext(os.path.basename(args.out))[0]
     os.makedirs(out_dir, exist_ok=True)
-    bs.export_glb(args.out, [arm, mesh])
+    rest_co = bs.evaluated_coords(mesh)
+    render_poses(arm, mesh, rest_co, target_h, args.render or os.path.join(ROOT, f"pipeline/renders/{stem}_front.png"))
+    clips = poses.bake_clips(arm, mesh, rest_co)   # after renders: NLA tracks override manual posing
+    bs.export_glb(args.out, [arm, mesh], animations=True)
     write_measure_json(os.path.join(out_dir, f"{stem}_measure.json"), args.sex, weights, measured, jac, t["height"])
-    print("wrote", args.out, os.path.getsize(args.out) // 1024, "KB")
+    print("wrote", args.out, os.path.getsize(args.out) // 1024, "KB, pose clips", clips)
 
-    render_path = args.render or os.path.join(ROOT, f"pipeline/renders/{stem}_front.png")
-    render.lower_arms(arm)
-    print("rendered", render_path, "with", render.render_front(os.path.abspath(render_path), target_h))
+
+def render_poses(arm, mesh, rest_co, height_m: float, front_path: str) -> None:
+    front_path = os.path.abspath(front_path)
+    shots = []
+    for name in poses.POSES:
+        poses.apply(arm, mesh, name, rest_co)
+        shots.append(front_path.replace("_front.png", f"_{name}.png"))
+        render.render_front(shots[-1], height_m)
+    poses.apply(arm, mesh, "relaxed", rest_co)
+    render.render_front(front_path, height_m)
+    poses.reset(arm)
+    print("rendered", render.tile_images(shots, len(shots), front_path.replace("_front.png", "_poses.png")))
 
 
 if __name__ == "__main__":
