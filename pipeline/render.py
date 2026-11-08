@@ -4,11 +4,12 @@ from __future__ import annotations
 import math
 
 import bpy
+import numpy as np
 from mathutils import Matrix, Vector
 
 UPARM_DROP_DEG = 36.0
 LOWARM_DROP_DEG = 14.0
-RES = (768, 1152)
+RES = (512, 768)
 ENGINES = ("BLENDER_EEVEE", "BLENDER_EEVEE_NEXT", "BLENDER_WORKBENCH")
 
 
@@ -86,6 +87,27 @@ def _setup_stage(scene, height: float) -> None:
     _add_light("fill", "AREA", (-2.5, -2.5, 1.4), (70, 0, -45), 90, 3.0)
     _add_light("rim", "AREA", (0.0, 3.0, 2.5), (-60, 0, 180), 160, 2.0)
     _setup_world(scene)
+
+
+def tile_images(paths: list, cols: int, out: str) -> str:
+    """Contact sheet of equally sized renders (left to right, top to bottom)."""
+    ims = []
+    for p in paths:
+        im = bpy.data.images.load(p)
+        ims.append(np.array(im.pixels[:]).reshape(im.size[1], im.size[0], im.channels)[..., :4])
+        bpy.data.images.remove(im)
+    h, w = ims[0].shape[:2]
+    rows = -(-len(ims) // cols)
+    grid = np.ones((rows * h, cols * w, 4))
+    for i, a in enumerate(ims):
+        r, c = divmod(i, cols)
+        grid[(rows - 1 - r) * h:(rows - r) * h, c * w:(c + 1) * w] = a
+    img = bpy.data.images.new("sheet", cols * w, rows * h)
+    img.pixels = grid.ravel().tolist()
+    img.filepath_raw = out
+    img.file_format = "PNG"
+    img.save()
+    return out
 
 
 def render_front(path: str, height: float) -> str:

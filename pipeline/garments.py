@@ -6,6 +6,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import json
 import math
 import os
 import sys
@@ -19,6 +20,7 @@ from scipy.spatial import cKDTree
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import bl_scene as bs  # noqa: E402
+import garment_fit as gf  # noqa: E402
 import garment_geom as gg  # noqa: E402
 import garment_spec as gs  # noqa: E402
 import glb_tools  # noqa: E402
@@ -32,6 +34,7 @@ MIN_INFLUENCE = 0.01
 TIGHT_GAP = 0.003
 LOOSE_EXTRA = 0.018
 SNAP_TOL = 0.03
+HEM_SNAP_TOL = 0.05
 
 
 @dataclass(frozen=True)
@@ -54,6 +57,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--out", required=True)
     p.add_argument("--shapes", default="tee,sweater,pants")
     p.add_argument("--renders", default=os.path.join(ROOT, "pipeline/renders"))
+    p.add_argument("--render-prefix", default="", help="filename prefix for check renders, e.g. female_")
     return p.parse_args()
 
 
@@ -139,21 +143,33 @@ def build_surface(bd: BodyData, spec: gs.GarmentSpec):
     v = v + bd.normals[idx] * spec.inflate
     v = gg.taubin_smooth(v, f, iters=spec.smooth_iters)
     arm_w = bd.arm_w[idx]
-    if spec.drape:
-        v = gs.drape_torso(v, arm_w, L)
-    if spec.sleeve_flare_r > 0:
-        v = gs.flare_sleeves(v, arm_w, L, spec.sleeve_flare_r)
-    if spec.leg_hem_r > 0:
-        hem_z = planes[1][0][2]
-        v = gs.drape_legs(v, L, spec.leg_hem_r, hem_z)
+    variants = {fit.name: shape_fit(v, f, arm_w, bd, spec, fit, planes) for fit in gf.FITS[spec.shape]}
+    (_, f2, kept), dropped = gg.drop_long_edge_faces(variants["base"], f)   # spike cleanup on base fit
+    _, f3, kept2 = gg.largest_component(variants["base"][kept], f2)
+    sel = kept[kept2]
+    print(f"  {spec.shape}: {len(sel)} verts, {len(f3)} tris, fits {list(variants)}, spikes dropped {dropped}")
+    return f3, idx[sel], {name: pos[sel] for name, pos in variants.items()}
+
+
+def shape_fit(v, f, arm_w, bd: BodyData, spec: gs.GarmentSpec, fit: gf.Fit, planes) -> np.ndarray:
+    """Apply one UNIQLO fit to the shared inflated surface; every fit keeps the same topology."""
+    L = bd.landmarks
+    if spec.slot == "top":
+        v = gf.ease_torso(v, arm_w, L, fit, spec.inflate)
+        if fit.hem_band:
+            v = gf.hem_band(v, arm_w, gs.top_hem_z(L, spec), spec.inflate)
+        if fit.sleeve_flare_r > 0:
+            v = gf.flare_sleeves(v, arm_w, L, fit)
+        if fit.forearm_r > 0:
+            v = gf.roomy_forearms(v, arm_w, L, fit)
+    else:
+        v = gf.drape_legs(v, L, fit, gs.pants_hem_z(L, spec))
     v, _ = anti_clip(v, bd, gs.clearance(v, L, spec))
     v = gg.taubin_smooth(v, f, iters=4)
-    v, pushed = anti_clip(v, bd, gs.clearance(v, L, spec))
-    (v, f, idx3), dropped = gg.drop_long_edge_faces(v, f)
-    v, f, idx4 = gg.largest_component(v, f)
-    src = idx[idx3[idx4]]
-    print(f"  {spec.shape}: {len(v)} verts, {len(f)} tris, anti-clip pushed {pushed}, spikes dropped {dropped}")
-    return v, f, src
+    v, _ = anti_clip(v, bd, gs.clearance(v, L, spec))
+    v = gg.snap_boundary_to_planes(v, f, planes, HEM_SNAP_TOL)   # clean straight hems and cuffs
+    v, _ = anti_clip(v, bd, gs.clearance(v, L, spec) * 0.8)
+    return v
 
 
 def solidify(name: str, v: np.ndarray, f: np.ndarray, thickness: float):
@@ -171,6 +187,17 @@ def solidify(name: str, v: np.ndarray, f: np.ndarray, thickness: float):
     bs.select_only([obj])
     bpy.ops.object.modifier_apply(modifier=mod.name)
     return obj
+
+
+def solid_variant(spec: gs.GarmentSpec, f: np.ndarray, pos: np.ndarray, n_expected: int, bd: BodyData):
+    """Solidify a fit variant on the shared topology and return its anti-clipped vertex positions."""
+    obj = solidify(f"{spec.shape}_variant", pos, f, spec.thickness)
+    solid = bs.vertex_coords(obj)
+    bpy.data.objects.remove(obj, do_unlink=True)
+    if len(solid) != n_expected:
+        raise RuntimeError("fit variant topology differs from base; cannot store it as a morph target")
+    built, _ = anti_clip(solid, bd, gs.clearance(solid, bd.landmarks, spec) * 0.9)
+    return built
 
 
 def skin_and_morphs(v: np.ndarray, src: np.ndarray, bd: BodyData, spec: gs.GarmentSpec):
@@ -227,13 +254,16 @@ def add_shape_keys(obj, basis: np.ndarray, keys: list) -> None:
 
 
 def make_garment(arm, bd: BodyData, spec: gs.GarmentSpec):
-    v, f, src = build_surface(bd, spec)
+    f, src, variants = build_surface(bd, spec)
+    v = variants["base"]
     obj = solidify(spec.shape, v, f, spec.thickness)
     solid = bs.vertex_coords(obj)
     dist, nearest = cKDTree(v).query(solid)   # shell (mm) << edge length (cm): unambiguous
     if dist.max() > 2 * spec.thickness + 1e-4:
         raise RuntimeError(f"solidified vert {dist.max():.4f} m from any surface vert")
     built, _ = anti_clip(solid, bd, gs.clearance(solid, bd.landmarks, spec) * 0.9)
+    fit_deltas = {name: solid_variant(spec, f, pos, len(solid), bd) - built
+                  for name, pos in variants.items() if name != "base"}
     w, deltas, tight, loose = skin_and_morphs(built, src[nearest], bd, spec)
     basis = built - np.tensordot(bd.default_w, deltas, axes=1)
     obj.data.vertices.foreach_set("co", built.ravel())
@@ -248,23 +278,54 @@ def make_garment(arm, bd: BodyData, spec: gs.GarmentSpec):
     bs.assert_all_weighted(obj)
     keys = [(f"body_{i}", deltas[i], bd.default_w[i]) for i in range(bs.MORPH_COUNT)]
     keys += [("fit_tight", tight, 0.0), ("fit_loose", loose, 0.0)]
+    keys += [(name, delta, 0.0) for name, delta in fit_deltas.items()]
     add_shape_keys(obj, basis, keys)   # shape keys LAST: no geometry ops after this
     return obj
 
 
-def render_checks(arm, body, objs: dict, out_dir: str, height: float) -> list:
+# One check render per UNIQLO hero item (shape + fit morphs), plus a full outfit.
+SHOTS = (
+    ("supima_tee", {"tee": {}}),
+    ("u_crew_tee", {"tee": {"fit_boxy": 1.0}}),
+    ("cashmere_sweater", {"sweater": {}}),
+    ("ultra_stretch_pants", {"pants": {}}),
+    ("barrel_jeans", {"pants": {"fit_barrel": 1.0}}),
+    ("outfit", {"tee": {}, "pants": {}}),
+    ("outfit_u_barrel", {"tee": {"fit_boxy": 1.0}, "pants": {"fit_barrel": 1.0}}),
+)
+
+
+def _set_fit_morphs(obj, morphs: dict) -> None:
+    for kb in obj.data.shape_keys.key_blocks:
+        if kb.name.startswith("fit_"):
+            kb.value = float(morphs.get(kb.name, 0.0))
+
+
+def render_checks(arm, objs: dict, out_dir: str, height: float, prefix: str) -> list:
     for shape, obj in objs.items():
         obj.data.materials[0] = render.make_material(f"render_{shape}", RENDER_RGB[shape], 0.85)
     render.lower_arms(arm)
-    shots = [(s, [s]) for s in objs] + [("outfit", [s for s in ("tee", "pants") if s in objs])]
     paths = []
-    for label, show in shots:
+    for label, outfit in SHOTS:
+        if not set(outfit) <= set(objs):
+            continue
         for shape, obj in objs.items():
-            obj.hide_render = shape not in show
-        path = os.path.join(out_dir, f"body_{label}.png")
+            obj.hide_render = shape not in outfit
+            _set_fit_morphs(obj, outfit.get(shape, {}))
+        path = os.path.join(out_dir, f"{prefix}{label}.png")
         render.render_front(path, height)
         paths.append(path)
+    for obj in objs.values():
+        _set_fit_morphs(obj, {})
+    render.tile_images(paths, len(paths), os.path.join(out_dir, f"{prefix}items.png"))
     return paths
+
+
+def write_fits_json(out_dir: str) -> None:
+    payload = {"items": gf.ITEM_FITS, "name_rules": gf.NAME_RULES,
+               "note": "Set garment.morphTargetInfluences[morphTargetDictionary[name]] = weight for each morph."}
+    with open(os.path.join(out_dir, "fits.json"), "w") as f:
+        json.dump(payload, f, indent=2)
 
 
 def main() -> None:
@@ -287,8 +348,9 @@ def main() -> None:
         objs[shape] = obj
     for o in objs.values():
         o.hide_set(False)
+    write_fits_json(args.out)
     if args.renders:
-        for p in render_checks(arm, body, objs, os.path.abspath(args.renders), L.height):
+        for p in render_checks(arm, objs, os.path.abspath(args.renders), L.height, args.render_prefix):
             print("  rendered", p)
 
 

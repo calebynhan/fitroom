@@ -56,6 +56,10 @@ l_/r_lowleg, l_/r_uparm, l_/r_lowarm ...), metres, Y-up, A-pose. Morph targets b
 **Garment GLB** web/public/garments/<shape>.glb: one SkinnedMesh skinned to the SAME bone names, same rest pose.
 Same morph targets body_0..body_5, transferred from the body (each garment vertex copies the delta of its
 nearest body surface point). Also fit_tight / fit_loose. Material "fabric", white base (viewer tints).
+UNIQLO fits (added by A): tee.glb also has fit_boxy (Uniqlo U heavyweight tee), pants.glb has fit_barrel
+(Barrel Jeans). **web/public/garments/fits.json**: items{<UNIQLO id>: {shape, morphs{name: weight}, fit}} and
+name_rules[{match: regex on product name, morphs}] for pasted links. Viewer: after choosing an item, set each
+listed morph influence on that garment (others 0). fit_* morphs are 0 by default; body_* copy the body.
 Viewer rebinds by bone name:
 
     const bones = garment.skeleton.bones.map(b => avatarBonesByName.get(b.name)!);

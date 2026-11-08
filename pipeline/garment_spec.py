@@ -1,4 +1,7 @@
-"""Per-shape garment parameters and region selection by skeleton landmarks (pure numpy)."""
+"""Per-shape garment cut parameters and region selection by skeleton landmarks (pure numpy).
+
+How each garment stands off the body (ease, drape, sleeve/leg shape) lives in garment_fit.py.
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -12,9 +15,6 @@ COLLAR_FORWARD = 0.010      # crew neck opening sits slightly forward of the nec
 COLLAR_BACK_RISE = 0.01     # neckline height at the sides/back, above the neck joint
 HEAD_CLEAR = 0.045          # everything this far above the neck joint is head
 CROTCH_MARGIN = 0.045       # tops can't hem below the crotch: the body splits into two legs there
-DRAPE_STRENGTH = 0.6        # 1.0 = hang straight down from the chest outline
-DRAPE_TAPER = 0.97
-MIDLINE_CLEARANCE = 0.006   # pant legs never cross x = 0
 LAYER_GAP = 0.020           # untucked tops clear the pants shell (pants inflate + thickness + margin)
 LAYER_BLEND = 0.03          # metres above the pants waistband over which top clearance ramps up
 
@@ -49,21 +49,19 @@ class GarmentSpec:
     collar_front_drop: float = 0.0
     sleeve: str = ""            # "short" | "long" | ""
     sleeve_t: float = 0.0
-    sleeve_flare_r: float = 0.0
-    drape: bool = False
     waist_above_hips: float = 0.0
     hem_above_ankle: float = 0.0
-    leg_hem_r: float = 0.0
 
 
+# Hem heights follow UNIQLO model photos: tee/sweater hems sit ~8 cm below the belt, at the hip.
 SPECS = {
-    "tee": GarmentSpec("tee", "top", inflate=0.008, thickness=0.0022, hem_below_hips=0.10, collar_rx=0.078,
-                       collar_ry=0.070, collar_front_drop=0.035, sleeve="short", sleeve_t=0.45, sleeve_flare_r=0.054, drape=True),
-    "sweater": GarmentSpec("sweater", "top", inflate=0.015, thickness=0.0035, hem_below_hips=0.13,
-                           collar_rx=0.072, collar_ry=0.066,
-                           collar_front_drop=0.040, sleeve="long", sleeve_t=0.93, drape=True),
+    "tee": GarmentSpec("tee", "top", inflate=0.008, thickness=0.0022, hem_below_hips=0.02, collar_rx=0.078,
+                       collar_ry=0.068, collar_front_drop=0.016, sleeve="short", sleeve_t=0.50),
+    "sweater": GarmentSpec("sweater", "top", inflate=0.012, thickness=0.0035, hem_below_hips=0.035,
+                           collar_rx=0.070, collar_ry=0.064, collar_front_drop=0.008, sleeve="long",
+                           sleeve_t=0.93),
     "pants": GarmentSpec("pants", "bottom", inflate=0.010, thickness=0.0028, waist_above_hips=0.06,
-                         hem_above_ankle=0.03, leg_hem_r=0.058),
+                         hem_above_ankle=0.03),
 }
 
 
@@ -71,16 +69,12 @@ def _unit(v: np.ndarray) -> np.ndarray:
     return v / np.linalg.norm(v)
 
 
-def side_of(co: np.ndarray) -> np.ndarray:
-    return np.where(co[:, 0] >= 0, "l", "r")
-
-
-def _per_side(co: np.ndarray, table: dict) -> np.ndarray:
-    return np.where((co[:, 0] >= 0)[:, None], table["l"], table["r"])
-
-
 def top_hem_z(L: Landmarks, spec: GarmentSpec) -> float:
     return max(L.hips_z - spec.hem_below_hips, L.crotch_z + CROTCH_MARGIN)
+
+
+def pants_hem_z(L: Landmarks, spec: GarmentSpec) -> float:
+    return float(np.mean([L.ankle["l"][2], L.ankle["r"][2]])) + spec.hem_above_ankle
 
 
 def _sleeve_segment(L: Landmarks, spec: GarmentSpec, s: str):
@@ -122,7 +116,7 @@ def top_region(co: np.ndarray, arm_w: np.ndarray, L: Landmarks, spec: GarmentSpe
 
 def pants_region(co: np.ndarray, arm_w: np.ndarray, L: Landmarks, spec: GarmentSpec):
     waist_z = L.hips_z + spec.waist_above_hips
-    hem_z = float(np.mean([L.ankle["l"][2], L.ankle["r"][2]])) + spec.hem_above_ankle
+    hem_z = pants_hem_z(L, spec)
     keep = (co[:, 2] > hem_z) & (co[:, 2] < waist_z) & (arm_w <= ARM_VERT_CUTOFF)
     up = np.array([0.0, 0.0, 1.0])
     return keep, [(np.array([0.0, 0.0, waist_z]), up), (np.array([0.0, 0.0, hem_z]), up)]
@@ -139,51 +133,3 @@ def clearance(v: np.ndarray, L: Landmarks, spec: GarmentSpec) -> np.ndarray:
     pants_waist = L.hips_z + SPECS["pants"].waist_above_hips
     ramp = 1.0 - gg.smoothstep(pants_waist, pants_waist + LAYER_BLEND, v[:, 2])
     return spec.gap + (LAYER_GAP - spec.gap) * ramp
-
-
-def drape_torso(v: np.ndarray, arm_w: np.ndarray, L: Landmarks) -> np.ndarray:
-    """Below the chest, fabric hangs from the chest outline instead of hugging the waist."""
-    torso = arm_w < 0.2
-    band = torso & (np.abs(v[:, 2] - L.chest_z) < 0.015)
-    centre_xy = np.array([0.0, np.median(v[band, 1])])
-    prof = gg.polar_profile(v[band, :2], centre_xy)
-    target = gg.sample_profile(prof, v[:, :2] - centre_xy)
-    target = target * DRAPE_TAPER
-    blend = DRAPE_STRENGTH * gg.smoothstep(0.0, 0.12, L.chest_z - v[:, 2]) * torso
-    centre = np.column_stack([np.zeros(len(v)), np.full(len(v), centre_xy[1]), v[:, 2]])
-    return gg.push_radial(v, centre, None, target, blend)
-
-
-def flare_sleeves(v: np.ndarray, arm_w: np.ndarray, L: Landmarks, flare_r: float) -> np.ndarray:
-    """Tee sleeves stand off the upper arm as an open tube."""
-    s_pt, e_pt = _per_side(v, L.shoulder), _per_side(v, L.elbow)
-    seg = e_pt - s_pt
-    length = np.linalg.norm(seg, axis=1, keepdims=True)
-    axis = seg / length
-    t = ((v - s_pt) * axis).sum(1) / length[:, 0]
-    centre = s_pt + np.clip(t, 0, 1)[:, None] * seg
-    blend = gg.smoothstep(0.3, 0.7, arm_w) * gg.smoothstep(0.05, 0.35, t)
-    return gg.push_radial(v, centre, axis, np.full(len(v), flare_r), blend)
-
-
-def drape_legs(v: np.ndarray, L: Landmarks, hem_r: float, hem_z: float) -> np.ndarray:
-    """Straight pant legs: from the thigh at the crotch, fall as a tapering tube to the hem."""
-    z_top = L.crotch_z - 0.03
-    out = v.copy()
-    for s, sign in (("l", 1.0), ("r", -1.0)):
-        sel = (sign * v[:, 0] > 0) & (v[:, 2] < z_top)
-        hj, an = L.hip_joint[s], L.ankle[s]
-        z = v[sel, 2]
-        t = np.clip((hj[2] - z) / (hj[2] - an[2]), 0, 1)[:, None]
-        centre = hj + t * (an - hj)   # straight hip->ankle axis: no kink at the knee
-        centre[:, 2] = z
-        ring = np.abs(z - (z_top - 0.015)) < 0.015
-        d = v[sel][ring, :2] - centre[ring, :2]
-        r_top = float(np.percentile(np.linalg.norm(d, axis=1), 80)) if ring.any() else hem_r
-        s_lin = np.clip((z_top - z) / (z_top - hem_z), 0, 1)
-        target = r_top + s_lin * (hem_r - r_top)
-        blend = gg.smoothstep(0.0, 0.06, z_top - z)
-        pushed = gg.push_radial(v[sel], centre, None, target, blend)
-        pushed[:, 0] = sign * np.maximum(sign * pushed[:, 0], MIDLINE_CLEARANCE)
-        out[sel] = pushed
-    return out

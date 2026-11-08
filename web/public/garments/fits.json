@@ -1,0 +1,61 @@
+{
+  "items": {
+    "E455365-000": {
+      "shape": "tee",
+      "morphs": {},
+      "fit": "Regular (SUPIMA)"
+    },
+    "E422992-000": {
+      "shape": "tee",
+      "morphs": {
+        "fit_boxy": 1.0
+      },
+      "fit": "Boxy heavyweight (Uniqlo U)"
+    },
+    "E453754-000": {
+      "shape": "sweater",
+      "morphs": {
+        "fit_loose": 0.15
+      },
+      "fit": "Regular, slightly roomier"
+    },
+    "E450543-000": {
+      "shape": "sweater",
+      "morphs": {},
+      "fit": "Regular"
+    },
+    "E475598-000": {
+      "shape": "pants",
+      "morphs": {},
+      "fit": "Regular, tapered"
+    },
+    "E479000-000": {
+      "shape": "pants",
+      "morphs": {
+        "fit_barrel": 1.0
+      },
+      "fit": "Loose barrel leg"
+    }
+  },
+  "name_rules": [
+    {
+      "match": "barrel|wide|baggy|balloon|curved|loose",
+      "morphs": {
+        "fit_barrel": 1.0
+      }
+    },
+    {
+      "match": "oversized|boxy|heavyweight|uniqlo u|relaxed",
+      "morphs": {
+        "fit_boxy": 1.0
+      }
+    },
+    {
+      "match": "skinny|slim",
+      "morphs": {
+        "fit_tight": 0.5
+      }
+    }
+  ],
+  "note": "Set garment.morphTargetInfluences[morphTargetDictionary[name]] = weight for each morph."
+}
