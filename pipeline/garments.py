@@ -37,6 +37,7 @@ LOOSE_EXTRA = 0.018
 SNAP_TOL = 0.03
 POSE_PASSES = ("relaxed", "walk", "pocket", "relaxed")   # default pose last so it ends cleanest
 POSE_GAP = 0.003
+POSE_MAX_PUSH = 0.04   # ignore matches farther than this (wrong body part)
 HAND_TOKENS = ("lowarm", "wrist", "pinky", "ring", "middle", "index", "thumb")
 HEM_SNAP_TOL = 0.05
 
@@ -248,19 +249,25 @@ def _bone_skin_matrices(arm, names: list) -> np.ndarray:
 def pose_correct(built: np.ndarray, w: np.ndarray, arm, body, bd: BodyData) -> tuple[np.ndarray, dict]:
     """Posed anti-clip: in each pose, push garment verts that end up inside the posed body back out, and
     map the correction to rest space through the inverse of each vertex's skinning transform (LBS)."""
-    hand_v = bd.weights[:, [i for i, n in enumerate(bd.names) if any(t in n for t in HAND_TOKENS)]].sum(1) > 0.3
-    no_hand_faces = bd.faces[~hand_v[bd.faces].any(axis=1)]
+    arm_cols = [i for i, n in enumerate(bd.names) if any(t in n for t in bs.ARM_TOKENS)]
+    body_arm_f = bd.arm_w[bd.faces].mean(axis=1) > 0.5
+    sleeve = w[:, arm_cols].sum(1) > 0.5          # garment verts that belong to a sleeve
     out, report = built.copy(), {}
     for pose in POSE_PASSES:
         poses.apply(arm, body, pose, bd.proxy)
-        faces = no_hand_faces if pose == "pocket" else bd.faces   # hand-in-pocket is intended
-        bvh = BVHTree.FromPolygons(bs.evaluated_coords(body).tolist(), faces.tolist())
+        posed_body = bs.evaluated_coords(body).tolist()
+        # Sleeves collide only with the arm, the garment body only with the torso: a sleeve pinched
+        # between forearm and hip must not be shoved into the arm (that shows skin through the sleeve).
+        # (hand-in-pocket needs no special case: the garment body never collides with arm faces)
+        bvh_arm = BVHTree.FromPolygons(posed_body, bd.faces[body_arm_f].tolist())
+        bvh_torso = BVHTree.FromPolygons(posed_body, bd.faces[~body_arm_f].tolist())
         m = np.einsum("vg,gij->vij", w, _bone_skin_matrices(arm, bd.names))
         posed = np.einsum("vij,vj->vi", m[:, :3, :3], out) + m[:, :3, 3]
-        hits = [bvh.find_nearest(Vector(p)) for p in posed]
-        loc = np.array([h[0] for h in hits])
-        nrm = np.array([h[1] for h in hits])
-        bad = ((posed - loc) * nrm).sum(1) < POSE_GAP
+        hits = [(bvh_arm if sv else bvh_torso).find_nearest(Vector(p), POSE_MAX_PUSH) for p, sv in zip(posed, sleeve)]
+        far = np.array([h[0] is None for h in hits])
+        loc = np.array([h[0] if h[0] is not None else Vector(p) for h, p in zip(hits, posed)])
+        nrm = np.array([h[1] if h[1] is not None else Vector((0, 0, 1)) for h in hits])
+        bad = (((posed - loc) * nrm).sum(1) < POSE_GAP) & ~far
         dp = loc[bad] + nrm[bad] * POSE_GAP - posed[bad]
         out[bad] += np.linalg.solve(m[bad, :3, :3], dp[:, :, None])[:, :, 0]
         report[pose] = int(bad.sum())
