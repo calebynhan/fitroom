@@ -1,0 +1,296 @@
+"""body.glb -> web/public/garments/{tee,sweater,pants}.glb (same skeleton, body_0..5 + fit_tight/fit_loose).
+
+Usage:
+    .venv/bin/python pipeline/garments.py --body web/public/models/body.glb --out web/public/garments
+"""
+from __future__ import annotations
+
+import argparse
+import math
+import os
+import sys
+from dataclasses import dataclass
+
+import bpy  # noqa: F401  (must load before bmesh)
+import numpy as np
+from mathutils import Vector
+from mathutils.bvhtree import BVHTree
+from scipy.spatial import cKDTree
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import bl_scene as bs  # noqa: E402
+import garment_geom as gg  # noqa: E402
+import garment_spec as gs  # noqa: E402
+import glb_tools  # noqa: E402
+import render  # noqa: E402
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+FABRIC_RGB = (1.0, 1.0, 1.0)
+RENDER_RGB = {"tee": (0.80, 0.80, 0.78), "sweater": (0.05, 0.08, 0.20), "pants": (0.45, 0.36, 0.25)}
+MAX_INFLUENCES = 4
+MIN_INFLUENCE = 0.01
+TIGHT_GAP = 0.003
+LOOSE_EXTRA = 0.018
+SNAP_TOL = 0.03
+
+
+@dataclass(frozen=True)
+class BodyData:
+    proxy: np.ndarray
+    faces: np.ndarray
+    normals: np.ndarray
+    deltas: np.ndarray
+    default_w: np.ndarray
+    weights: np.ndarray
+    names: list
+    arm_w: np.ndarray
+    bvh: BVHTree
+    landmarks: gs.Landmarks
+
+
+def parse_args() -> argparse.Namespace:
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument("--body", required=True)
+    p.add_argument("--out", required=True)
+    p.add_argument("--shapes", default="tee,sweater,pants")
+    p.add_argument("--renders", default=os.path.join(ROOT, "pipeline/renders"))
+    return p.parse_args()
+
+
+def load_body(path: str):
+    bs.reset_scene()
+    bpy.ops.import_scene.gltf(filepath=path, merge_vertices=True, disable_bone_shape=True)
+    arm, body = bs.find_one("ARMATURE"), bs.find_one("MESH")
+    bs.bake_transforms(arm, body)
+    return arm, body
+
+
+def triangles(mesh) -> np.ndarray:
+    polys = [tuple(p.vertices) for p in mesh.data.polygons]
+    if any(len(p) != 3 for p in polys):
+        raise RuntimeError("body mesh is expected to be triangulated (glTF import)")
+    return np.array(polys, dtype=np.int64)
+
+
+def bone_head(arm, name: str) -> np.ndarray:
+    return np.array(arm.matrix_world @ arm.data.bones[name].head_local)
+
+
+def find_landmarks(arm, co: np.ndarray) -> gs.Landmarks:
+    z0, height = co[:, 2].min(), co[:, 2].max() - co[:, 2].min()
+    centre = np.abs(co[:, 0]) < 0.004
+    crotch = co[centre & (co[:, 2] > z0 + 0.35 * height) & (co[:, 2] < z0 + 0.6 * height), 2].min()
+    neck = bone_head(arm, "c_neck")
+    ring = (np.abs(co[:, 2] - (neck[2] + 0.03)) < 0.012) & (np.abs(co[:, 0]) < 0.1)
+    both = lambda bone: {s: bone_head(arm, f"{s}_{bone}") for s in ("l", "r")}  # noqa: E731
+    return gs.Landmarks(
+        height=height, hips_z=bone_head(arm, "root")[2], crotch_z=crotch, chest_z=z0 + 0.725 * height,
+        neck=neck, neck_xy=co[ring, :2].mean(axis=0), shoulder=both("uparm"), elbow=both("lowarm"), wrist=both("wrist"),
+        hip_joint=both("upleg"), knee=both("lowleg"), ankle=both("talocrural"),
+    )
+
+
+def body_data(arm, body) -> BodyData:
+    keys = body.data.shape_keys.key_blocks
+    names = [f"body_{i}" for i in range(bs.MORPH_COUNT)]
+    base = bs.vertex_coords(body, keys[0])
+    deltas = np.stack([bs.vertex_coords(body, keys[n]) - base for n in names])
+    w0 = np.array([keys[n].value for n in names])
+    proxy = base + np.tensordot(w0, deltas, axes=1)
+    faces = triangles(body)
+    weights, gnames = bs.weight_matrix(body)
+    bvh = BVHTree.FromPolygons(proxy.tolist(), faces.tolist())
+    return BodyData(proxy, faces, gg.vertex_normals(proxy, faces), deltas, w0, weights, gnames,
+                    bs.arm_weight(weights, gnames), bvh, find_landmarks(arm, proxy))
+
+
+def nearest_on_body(v: np.ndarray, bd: BodyData):
+    loc = np.empty_like(v)
+    nrm = np.empty_like(v)
+    tri = np.empty(len(v), dtype=np.int64)
+    for i, p in enumerate(v):
+        l, n, fi, _ = bd.bvh.find_nearest(Vector(p))
+        loc[i], nrm[i], tri[i] = l, n, fi
+    return loc, nrm, tri
+
+
+def anti_clip(v: np.ndarray, bd: BodyData, gap, iters: int = 2) -> tuple[np.ndarray, int]:
+    """Push any vert closer than `gap` (scalar or per-vert) to, or inside, the body back out along the normal."""
+    gap = np.broadcast_to(np.asarray(gap, dtype=np.float64), (len(v),))
+    out, total = v.copy(), 0
+    for _ in range(iters):
+        loc, nrm, _ = nearest_on_body(out, bd)
+        signed = ((out - loc) * nrm).sum(1)
+        bad = signed < gap
+        out[bad] = loc[bad] + nrm[bad] * gap[bad, None]
+        total += int(bad.sum())
+        if not bad.any():
+            break
+    return out, total
+
+
+def build_surface(bd: BodyData, spec: gs.GarmentSpec):
+    L = bd.landmarks
+    mask, planes = gs.region(bd.proxy, bd.arm_w, L, spec)
+    v, f, idx = gg.submesh(bd.proxy, bd.faces, mask[bd.faces].all(axis=1))
+    v, f, idx2 = gg.largest_component(v, f)
+    idx = idx[idx2]
+    v = gg.snap_boundary_to_planes(v, f, planes, SNAP_TOL)
+    v = v + bd.normals[idx] * spec.inflate
+    v = gg.taubin_smooth(v, f, iters=spec.smooth_iters)
+    arm_w = bd.arm_w[idx]
+    if spec.drape:
+        v = gs.drape_torso(v, arm_w, L)
+    if spec.sleeve_flare_r > 0:
+        v = gs.flare_sleeves(v, arm_w, L, spec.sleeve_flare_r)
+    if spec.leg_hem_r > 0:
+        hem_z = planes[1][0][2]
+        v = gs.drape_legs(v, L, spec.leg_hem_r, hem_z)
+    v, _ = anti_clip(v, bd, gs.clearance(v, L, spec))
+    v = gg.taubin_smooth(v, f, iters=4)
+    v, pushed = anti_clip(v, bd, gs.clearance(v, L, spec))
+    (v, f, idx3), dropped = gg.drop_long_edge_faces(v, f)
+    v, f, idx4 = gg.largest_component(v, f)
+    src = idx[idx3[idx4]]
+    print(f"  {spec.shape}: {len(v)} verts, {len(f)} tris, anti-clip pushed {pushed}, spikes dropped {dropped}")
+    return v, f, src
+
+
+def solidify(name: str, v: np.ndarray, f: np.ndarray, thickness: float):
+    me = bpy.data.meshes.new(name)
+    me.from_pydata(v.tolist(), [], f.tolist())
+    me.update()
+    obj = bpy.data.objects.new(name, me)
+    bpy.context.scene.collection.objects.link(obj)
+    mod = obj.modifiers.new("solidify", "SOLIDIFY")
+    mod.thickness = thickness
+    mod.offset = 1.0              # grow outward: inner surface stays at the anti-clipped position
+    mod.use_even_offset = False   # pitfall: even offset divides by fold angle -> spikes
+    mod.thickness_clamp = 1.0
+    mod.use_rim = True
+    bs.select_only([obj])
+    bpy.ops.object.modifier_apply(modifier=mod.name)
+    return obj
+
+
+def skin_and_morphs(v: np.ndarray, src: np.ndarray, bd: BodyData, spec: gs.GarmentSpec):
+    """One transfer from a single source (the body). Each garment vert copies skin weights and body_i deltas
+    from the body vert it was grown from (its nearest point before inflate/drape). Using the post-drape
+    nearest point instead hands flared sleeve verts torso weights, and then sleeves don't follow the arms.
+    """
+    loc, nrm, _ = nearest_on_body(v, bd)
+    w = bd.weights[src].astype(np.float64)
+    order = np.argsort(-w, axis=1)
+    w[np.arange(len(w))[:, None], order[:, MAX_INFLUENCES:]] = 0.0
+    w[w < MIN_INFLUENCE] = 0.0
+    w = w / np.maximum(w.sum(1, keepdims=True), 1e-12)
+    deltas = bd.deltas[:, src]
+    offset = v - loc
+    gap = np.linalg.norm(offset, axis=1)
+    out_dir = np.where(gap[:, None] > 1e-6, offset / np.maximum(gap, 1e-9)[:, None], nrm)
+    tight = -np.maximum(gap - TIGHT_GAP, 0.0)[:, None] * out_dir
+    L = bd.landmarks
+    anchor_z = L.shoulder["l"][2] if spec.slot == "top" else L.hips_z + spec.waist_above_hips
+    loose = LOOSE_EXTRA * gg.smoothstep(0.0, 0.12, anchor_z - v[:, 2])[:, None] * out_dir
+    return w, deltas, tight, loose
+
+
+def set_vertex_groups(obj, w: np.ndarray, names: list) -> None:
+    used = [g for g in range(w.shape[1]) if w[:, g].max() > 0]   # collect used NAMES first
+    groups = {g: obj.vertex_groups.new(name=names[g]) for g in used}
+    for i, row in enumerate(w):
+        for g in np.nonzero(row)[0]:
+            groups[g].add([i], float(row[g]), "REPLACE")
+    unused = [vg.name for vg in obj.vertex_groups if not np.any(w[:, names.index(vg.name)] > 0)]
+    for name in unused:  # remove by name, never by index (indices renumber)
+        obj.vertex_groups.remove(obj.vertex_groups[name])
+
+
+def cylindrical_uvs(obj, height: float) -> None:
+    me = obj.data
+    uv = me.uv_layers.new(name="UVMap")
+    co = bs.vertex_coords(obj)
+    loop_v = np.empty(len(me.loops), dtype=np.int64)
+    me.loops.foreach_get("vertex_index", loop_v)
+    p = co[loop_v]
+    uvs = np.column_stack([np.arctan2(p[:, 0], -p[:, 1]) / (2 * math.pi) + 0.5, p[:, 2] / height])
+    uv.data.foreach_set("uv", uvs.ravel())
+
+
+def add_shape_keys(obj, basis: np.ndarray, keys: list) -> None:
+    obj.shape_key_add(name="Basis", from_mix=False)
+    for name, delta, value in keys:
+        kb = obj.shape_key_add(name=name, from_mix=False)
+        kb.data.foreach_set("co", (basis + delta).ravel())
+        kb.slider_min, kb.slider_max = -3.0, 3.0
+        kb.value = float(value)
+
+
+def make_garment(arm, bd: BodyData, spec: gs.GarmentSpec):
+    v, f, src = build_surface(bd, spec)
+    obj = solidify(spec.shape, v, f, spec.thickness)
+    solid = bs.vertex_coords(obj)
+    dist, nearest = cKDTree(v).query(solid)   # shell (mm) << edge length (cm): unambiguous
+    if dist.max() > 2 * spec.thickness + 1e-4:
+        raise RuntimeError(f"solidified vert {dist.max():.4f} m from any surface vert")
+    built, _ = anti_clip(solid, bd, gs.clearance(solid, bd.landmarks, spec) * 0.9)
+    w, deltas, tight, loose = skin_and_morphs(built, src[nearest], bd, spec)
+    basis = built - np.tensordot(bd.default_w, deltas, axes=1)
+    obj.data.vertices.foreach_set("co", built.ravel())
+    cylindrical_uvs(obj, bd.landmarks.height)
+    obj.data.vertices.foreach_set("co", basis.ravel())
+    for poly in obj.data.polygons:
+        poly.use_smooth = True
+    set_vertex_groups(obj, w, bd.names)
+    obj.data.materials.append(render.make_material("fabric", FABRIC_RGB, 0.85))
+    obj.parent = arm
+    obj.modifiers.new("Armature", "ARMATURE").object = arm
+    bs.assert_all_weighted(obj)
+    keys = [(f"body_{i}", deltas[i], bd.default_w[i]) for i in range(bs.MORPH_COUNT)]
+    keys += [("fit_tight", tight, 0.0), ("fit_loose", loose, 0.0)]
+    add_shape_keys(obj, basis, keys)   # shape keys LAST: no geometry ops after this
+    return obj
+
+
+def render_checks(arm, body, objs: dict, out_dir: str, height: float) -> list:
+    for shape, obj in objs.items():
+        obj.data.materials[0] = render.make_material(f"render_{shape}", RENDER_RGB[shape], 0.85)
+    render.lower_arms(arm)
+    shots = [(s, [s]) for s in objs] + [("outfit", [s for s in ("tee", "pants") if s in objs])]
+    paths = []
+    for label, show in shots:
+        for shape, obj in objs.items():
+            obj.hide_render = shape not in show
+        path = os.path.join(out_dir, f"body_{label}.png")
+        render.render_front(path, height)
+        paths.append(path)
+    return paths
+
+
+def main() -> None:
+    args = parse_args()
+    arm, body = load_body(args.body)
+    bd = body_data(arm, body)
+    L = bd.landmarks
+    print(f"landmarks: height {L.height:.3f} hips_z {L.hips_z:.3f} crotch_z {L.crotch_z:.3f} chest_z {L.chest_z:.3f}")
+    os.makedirs(args.out, exist_ok=True)
+    objs = {}
+    for shape in [s.strip() for s in args.shapes.split(",") if s.strip()]:
+        spec = gs.SPECS[shape]
+        obj = make_garment(arm, bd, spec)
+        for o in objs.values():
+            o.hide_set(True)
+        path = os.path.join(args.out, f"{shape}.glb")
+        bs.export_glb(path, [arm, obj])
+        diff = glb_tools.assert_same_bind(path, args.body)
+        print(f"  wrote {path} {os.path.getsize(path) // 1024} KB, bind diff {diff:.1e}, {glb_tools.summary(path)}")
+        objs[shape] = obj
+    for o in objs.values():
+        o.hide_set(False)
+    if args.renders:
+        for p in render_checks(arm, body, objs, os.path.abspath(args.renders), L.height):
+            print("  rendered", p)
+
+
+if __name__ == "__main__":
+    main()
