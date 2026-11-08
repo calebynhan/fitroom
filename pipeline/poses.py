@@ -20,21 +20,26 @@ STANCE = [  # A-pose legs -> natural hip-width stance, soles kept flat
     ("l_upleg", "Y", 4.5), ("r_upleg", "Y", -4.5), ("l_talocrural", "Y", -4.5), ("r_talocrural", "Y", 4.5),
 ]
 # Catalogue posing tip: keep a little air between arm and waist so the garment silhouette reads.
+# Arms hang close to the sides with soft elbows; palms turn to face the thighs (twist split over the
+# forearm and wrist so neither joint candy-wraps); shoulders drop slightly.
 RELAXED_ARM = {
-    "l": [("l_uparm", "Y", 32), ("l_uparm", "X", -4), ("l_lowarm", "Y", 6), ("l_lowarm", "X", -9)],
-    "r": [("r_uparm", "Y", -32), ("r_uparm", "X", -4), ("r_lowarm", "Y", -6), ("r_lowarm", "X", -9)],
+    "l": [("l_clavicle", "Y", 3), ("l_uparm", "Y", 39), ("l_uparm", "X", -3), ("l_lowarm", "Y", 9),
+          ("l_lowarm", "X", -7)],
+    "r": [("r_clavicle", "Y", -3), ("r_uparm", "Y", -39), ("r_uparm", "X", -3), ("r_lowarm", "Y", -9),
+          ("r_lowarm", "X", -7)],
 }
+WEIGHT_SHIFT = [("r_upleg", "Y", -1.5), ("l_upleg", "X", -3), ("l_lowleg", "X", 6), ("l_talocrural", "X", -3),
+                ("c_spine0", "Y", 1.0), ("c_spine2", "Y", -1.0)]
 
 POSES = {
     # Arms loose at the sides with a soft elbow, feet hip-width, weight even.
-    "relaxed": {"rot": STANCE + RELAXED_ARM["l"] + RELAXED_ARM["r"], "ik": []},
-    # Weight on the right leg, left knee eased forward, left hand in the front pocket, S-curve spine.
+    "relaxed": {"rot": STANCE + WEIGHT_SHIFT + RELAXED_ARM["l"] + RELAXED_ARM["r"], "ik": []},
+    # Both hands in the front pockets (wrists just under the shirt hem, hands inside the pants), elbows
+    # relaxed back, shoulders down, weight on the right leg.
     "pocket": {
-        "rot": STANCE + RELAXED_ARM["r"] + [
-            ("r_upleg", "Y", -2.0), ("l_upleg", "X", -7), ("l_lowleg", "X", 12), ("l_talocrural", "X", -5),
-            ("c_spine0", "Y", 2.0), ("c_spine2", "Y", -3.0), ("c_neck", "Y", 2.0), ("c_head", "Z", 6.0),
-        ],
-        "ik": [("l", "pocket")],
+        "rot": STANCE + WEIGHT_SHIFT + [("l_clavicle", "Y", 4), ("r_clavicle", "Y", -4), ("c_head", "Z", 4.0)],
+        "ik": [("l", "pocket"), ("r", "pocket")],
+        "post": [("l_wrist", "X", 36), ("r_wrist", "X", 36)],   # fingers tuck back into the pocket
     },
     # Mid-stride, left foot forward; arms swing opposite; shoulders counter-rotate.
     "walk": {
@@ -89,12 +94,12 @@ def two_bone_ik(arm, side: str, target: Vector, pole: Vector) -> None:
 def _pocket_target(arm, body_co: np.ndarray, side: str) -> tuple[Vector, Vector]:
     sign = 1.0 if side == "l" else -1.0
     hips_z = arm.pose.bones["root"].head.z
-    z = hips_z + 0.005                      # wrist at the pocket opening on the front hip
+    z = hips_z - 0.045                      # just under the shirt hem, at the front pocket opening
     near = (np.abs(body_co[:, 2] - z) < 0.02) & (np.abs(body_co[:, 0] - sign * 0.15) < 0.02)
     front_y = float(body_co[near, 1].min()) if near.any() else -0.10
-    target = Vector((sign * 0.165, front_y + 0.03, z))
+    target = Vector((sign * 0.16, front_y + 0.04, z))      # wrist sunk behind the pants surface
     shoulder = arm.pose.bones[f"{side}_uparm"].head
-    pole = shoulder + Vector((sign * 0.30, 0.30, -0.20))   # elbow out and back
+    pole = shoulder + Vector((sign * 0.22, 0.35, -0.25))   # elbow relaxed out and back
     return target, pole
 
 
@@ -109,11 +114,19 @@ def ground(arm, mesh) -> None:
 def apply(arm, mesh, name: str, body_co: np.ndarray) -> None:
     reset(arm)
     spec = POSES[name]
-    for bone, axis, deg in spec["rot"]:
-        rotate_about_head(arm, bone, Matrix.Rotation(math.radians(deg), 3, AXES[axis]))
+    for op in spec["rot"]:
+        if op[0] == "twist":                     # rotate a bone about its own length (pronation)
+            _, bone, child, deg = op
+            ax = (arm.pose.bones[child].head - arm.pose.bones[bone].head).normalized()
+            rotate_about_head(arm, bone, Matrix.Rotation(math.radians(deg), 3, ax))
+        else:
+            bone, axis, deg = op
+            rotate_about_head(arm, bone, Matrix.Rotation(math.radians(deg), 3, AXES[axis]))
     for side, kind in spec["ik"]:
         if kind == "pocket":
             two_bone_ik(arm, side, *_pocket_target(arm, body_co, side))
+    for bone, axis, deg in spec.get("post", []):
+        rotate_about_head(arm, bone, Matrix.Rotation(math.radians(deg), 3, AXES[axis]))
     ground(arm, mesh)
 
 
