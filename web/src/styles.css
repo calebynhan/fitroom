@@ -96,3 +96,14 @@ h3 { font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; margin:
   .outfit-panel { width: 260px; }
   .brand-sub { display: none; }
 }
+
+/* Make it real modal */
+.modal-backdrop { position: fixed; inset: 0; background: rgba(8, 9, 12, 0.55); display: grid; place-items: center; z-index: 10; }
+.modal { position: relative; padding: 14px; max-width: min(92vw, 560px); max-height: 92vh; display: grid; gap: 10px; }
+.photo { display: block; max-height: calc(92vh - 90px); max-width: 100%; border-radius: 10px; }
+.modal-actions { display: flex; gap: 8px; align-items: center; justify-content: flex-end; }
+.modal-actions .hint { margin: 0 auto 0 0; }
+.modal-actions a { text-decoration: none; }
+.developing { display: grid; place-items: center; gap: 12px; padding: 40px 60px; font-size: 14px; }
+.spinner { width: 34px; height: 34px; border-radius: 50%; border: 3px solid var(--line); border-top-color: var(--accent); animation: spin 0.9s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }

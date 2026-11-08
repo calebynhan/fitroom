@@ -1,0 +1,11 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "installCommand": "npm install && npm --prefix web install",
+  "buildCommand": "npm --prefix web run build",
+  "outputDirectory": "web/dist",
+  "functions": {
+    "api/product.ts": { "maxDuration": 20 },
+    "api/photoreal.ts": { "maxDuration": 120 }
+  }
+}

@@ -44,8 +44,9 @@ export function PasteLink() {
   const [status, setStatus] = useState<Status>({ kind: 'idle' });
 
   const accept = (item: CatalogItem) => {
+    const linkColor = link.match(/colorDisplayCode=(\d{2})/)?.[1];
     addItem(item);
-    wear(item);
+    wear(item, item.colors.some((c) => c.code === linkColor) ? linkColor : undefined);
     setLink('');
     setPasted('');
     setStatus({ kind: 'idle' });
