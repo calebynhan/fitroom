@@ -15,7 +15,7 @@ COLLAR_FORWARD = 0.010      # crew neck opening sits slightly forward of the nec
 COLLAR_BACK_RISE = 0.01     # neckline height at the sides/back, above the neck joint
 HEAD_CLEAR = 0.045          # everything this far above the neck joint is head
 CROTCH_MARGIN = 0.045       # tops can't hem below the crotch: the body splits into two legs there
-LAYER_GAP = 0.020           # untucked tops clear the pants shell (pants inflate + thickness + margin)
+LAYER_GAP = 0.015           # untucked tops clear the pants shell (pants inflate + thickness + margin)
 LAYER_BLEND = 0.03          # metres above the pants waistband over which top clearance ramps up
 REF_NECK_HALF_WIDTH = 0.058  # male neck the collar radii were tuned on; other necks scale the collar
 
@@ -57,12 +57,12 @@ class GarmentSpec:
 
 # Hem heights follow UNIQLO model photos: tee/sweater hems sit ~8 cm below the belt, at the hip.
 SPECS = {
-    "tee": GarmentSpec("tee", "top", inflate=0.008, thickness=0.0022, hem_below_hips=0.02, collar_rx=0.078,
+    "tee": GarmentSpec("tee", "top", inflate=0.004, thickness=0.0015, hem_below_hips=0.02, collar_rx=0.078,
                        collar_ry=0.068, collar_front_drop=0.016, sleeve="short", sleeve_t=0.50),
-    "sweater": GarmentSpec("sweater", "top", inflate=0.012, thickness=0.0035, hem_below_hips=0.035,
+    "sweater": GarmentSpec("sweater", "top", inflate=0.007, thickness=0.0025, hem_below_hips=0.035,
                            collar_rx=0.070, collar_ry=0.064, collar_front_drop=0.008, sleeve="long",
                            sleeve_t=0.93),
-    "pants": GarmentSpec("pants", "bottom", inflate=0.010, thickness=0.0028, waist_above_hips=0.06,
+    "pants": GarmentSpec("pants", "bottom", inflate=0.007, thickness=0.0022, waist_above_hips=0.06,
                          hem_above_ankle=0.03),
 }
 

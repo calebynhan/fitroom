@@ -37,6 +37,7 @@ LOOSE_EXTRA = 0.018
 SNAP_TOL = 0.03
 POSE_PASSES = ("relaxed", "walk", "pocket", "relaxed")   # default pose last so it ends cleanest
 POSE_GAP = 0.003
+POSE_MAX_PUSH = 0.04   # ignore matches farther than this (wrong body part)
 HAND_TOKENS = ("lowarm", "wrist", "pinky", "ring", "middle", "index", "thumb")
 HEM_SNAP_TOL = 0.05
 
@@ -169,6 +170,8 @@ def shape_fit(v, f, arm_w, bd: BodyData, spec: gs.GarmentSpec, fit: gf.Fit, plan
         v = gf.ease_torso(v, arm_w, L, fit, spec.inflate)
         if fit.hem_band:
             v = gf.hem_band(v, arm_w, gs.top_hem_z(L, spec), spec.inflate)
+        if fit.folds > 0:
+            v = gf.hem_folds(v, arm_w, L, gs.top_hem_z(L, spec), fit.folds)
         if fit.sleeve_flare_r > 0:
             v = gf.flare_sleeves(v, arm_w, L, fit)
         if fit.forearm_ease > 0:
@@ -246,19 +249,25 @@ def _bone_skin_matrices(arm, names: list) -> np.ndarray:
 def pose_correct(built: np.ndarray, w: np.ndarray, arm, body, bd: BodyData) -> tuple[np.ndarray, dict]:
     """Posed anti-clip: in each pose, push garment verts that end up inside the posed body back out, and
     map the correction to rest space through the inverse of each vertex's skinning transform (LBS)."""
-    hand_v = bd.weights[:, [i for i, n in enumerate(bd.names) if any(t in n for t in HAND_TOKENS)]].sum(1) > 0.3
-    no_hand_faces = bd.faces[~hand_v[bd.faces].any(axis=1)]
+    arm_cols = [i for i, n in enumerate(bd.names) if any(t in n for t in bs.ARM_TOKENS)]
+    body_arm_f = bd.arm_w[bd.faces].mean(axis=1) > 0.5
+    sleeve = w[:, arm_cols].sum(1) > 0.5          # garment verts that belong to a sleeve
     out, report = built.copy(), {}
     for pose in POSE_PASSES:
         poses.apply(arm, body, pose, bd.proxy)
-        faces = no_hand_faces if pose == "pocket" else bd.faces   # hand-in-pocket is intended
-        bvh = BVHTree.FromPolygons(bs.evaluated_coords(body).tolist(), faces.tolist())
+        posed_body = bs.evaluated_coords(body).tolist()
+        # Sleeves collide only with the arm, the garment body only with the torso: a sleeve pinched
+        # between forearm and hip must not be shoved into the arm (that shows skin through the sleeve).
+        # (hand-in-pocket needs no special case: the garment body never collides with arm faces)
+        bvh_arm = BVHTree.FromPolygons(posed_body, bd.faces[body_arm_f].tolist())
+        bvh_torso = BVHTree.FromPolygons(posed_body, bd.faces[~body_arm_f].tolist())
         m = np.einsum("vg,gij->vij", w, _bone_skin_matrices(arm, bd.names))
         posed = np.einsum("vij,vj->vi", m[:, :3, :3], out) + m[:, :3, 3]
-        hits = [bvh.find_nearest(Vector(p)) for p in posed]
-        loc = np.array([h[0] for h in hits])
-        nrm = np.array([h[1] for h in hits])
-        bad = ((posed - loc) * nrm).sum(1) < POSE_GAP
+        hits = [(bvh_arm if sv else bvh_torso).find_nearest(Vector(p), POSE_MAX_PUSH) for p, sv in zip(posed, sleeve)]
+        far = np.array([h[0] is None for h in hits])
+        loc = np.array([h[0] if h[0] is not None else Vector(p) for h, p in zip(hits, posed)])
+        nrm = np.array([h[1] if h[1] is not None else Vector((0, 0, 1)) for h in hits])
+        bad = (((posed - loc) * nrm).sum(1) < POSE_GAP) & ~far
         dp = loc[bad] + nrm[bad] * POSE_GAP - posed[bad]
         out[bad] += np.linalg.solve(m[bad, :3, :3], dp[:, :, None])[:, :, 0]
         report[pose] = int(bad.sum())
@@ -277,15 +286,32 @@ def set_vertex_groups(obj, w: np.ndarray, names: list) -> None:
         obj.vertex_groups.remove(obj.vertex_groups[name])
 
 
-def cylindrical_uvs(obj, height: float) -> None:
-    me = obj.data
-    uv = me.uv_layers.new(name="UVMap")
+def cylindrical_uvs(obj, bd: BodyData, src: np.ndarray) -> None:
+    """UVs in metres (1 UV unit = 1 m), unrolled around the body, arm or leg axis, so a fabric texture
+    tiles at the same physical scale everywhere: u = arc length around the axis, v = distance along it."""
+    me, L = obj.data, bd.landmarks
     co = bs.vertex_coords(obj)
+    n = len(co)
+    base = np.tile([0.0, float(np.median(co[:, 1])), 0.0], (n, 1))
+    axis = np.tile([0.0, 0.0, 1.0], (n, 1))
+    side = np.where(co[:, 0] >= 0, "l", "r")
+    arm = bd.arm_w[src] > 0.5
+    leg = (co[:, 2] < L.crotch_z) & ~arm
+    for s in ("l", "r"):
+        a = (side == s) & arm
+        base[a], axis[a] = L.shoulder[s], (L.wrist[s] - L.shoulder[s]) / np.linalg.norm(L.wrist[s] - L.shoulder[s])
+        g = (side == s) & leg
+        base[g], axis[g] = L.hip_joint[s], (L.ankle[s] - L.hip_joint[s]) / np.linalg.norm(L.ankle[s] - L.hip_joint[s])
+    d = co - base
+    along = (d * axis).sum(1)
+    radial = d - along[:, None] * axis
+    ref = np.array([0.0, -1.0, 0.0]) - axis * (-axis[:, 1:2])          # forward, projected off the axis
+    ref /= np.maximum(np.linalg.norm(ref, axis=1, keepdims=True), 1e-9)
+    ang = np.arctan2((np.cross(ref, radial) * axis).sum(1), (ref * radial).sum(1))
+    u_v = np.column_stack([ang * np.linalg.norm(radial, axis=1), np.where(axis[:, 2] > 0.5, co[:, 2], -along)])
     loop_v = np.empty(len(me.loops), dtype=np.int64)
     me.loops.foreach_get("vertex_index", loop_v)
-    p = co[loop_v]
-    uvs = np.column_stack([np.arctan2(p[:, 0], -p[:, 1]) / (2 * math.pi) + 0.5, p[:, 2] / height])
-    uv.data.foreach_set("uv", uvs.ravel())
+    me.uv_layers.new(name="UVMap").data.foreach_set("uv", u_v[loop_v].ravel())
 
 
 def add_shape_keys(obj, basis: np.ndarray, keys: list) -> None:
@@ -319,7 +345,7 @@ def make_garment(arm, body, bd: BodyData, spec: gs.GarmentSpec):
         print(f"  {spec.shape}/{name}: posed anti-clip moved {var_fixed}")
     basis = built - np.tensordot(bd.default_w, deltas, axes=1)
     obj.data.vertices.foreach_set("co", built.ravel())
-    cylindrical_uvs(obj, bd.landmarks.height)
+    cylindrical_uvs(obj, bd, src[nearest])
     obj.data.vertices.foreach_set("co", basis.ravel())
     for poly in obj.data.polygons:
         poly.use_smooth = True

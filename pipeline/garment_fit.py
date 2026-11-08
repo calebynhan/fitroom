@@ -35,12 +35,13 @@ class Fit:
     leg_hem_r: float = 0.0          # pants: hem opening radius (m)
     leg_bulge: float = 0.0          # pants: extra radius peaking at mid leg (barrel)
     leg_outward: float = 0.0        # pants: mid-leg volume shifted to the outer side (barrel)
+    folds: float = 0.0              # soft vertical fold depth at the hem (m)
 
 
 FITS = {
-    "tee": (Fit("base", chest_ease_cm=14, drape=0.6, sleeve_flare_r=0.056),
-            Fit("fit_boxy", chest_ease_cm=21, drape=1.0, sleeve_flare_r=0.066, sleeve_stretch=1.3)),
-    "sweater": (Fit("base", chest_ease_cm=12, drape=0.5, forearm_ease=0.006, hem_band=True),),
+    "tee": (Fit("base", chest_ease_cm=10, drape=0.45, sleeve_flare_r=0.050, folds=0.005),
+            Fit("fit_boxy", chest_ease_cm=16, drape=0.9, sleeve_flare_r=0.058, sleeve_stretch=1.3, folds=0.006)),
+    "sweater": (Fit("base", chest_ease_cm=8, drape=0.35, forearm_ease=0.003, hem_band=True),),
     "pants": (Fit("base", thigh_extra=0.010, leg_hem_r=0.052),
               Fit("fit_barrel", thigh_extra=0.018, leg_hem_r=0.070, leg_bulge=0.016, leg_outward=0.012)),
 }
@@ -92,6 +93,21 @@ def ease_torso(v, arm_w, L, fit: Fit, inflate: float) -> np.ndarray:
     r_new = np.maximum(r_eased, r_eased + below * np.maximum(hang - r_eased, 0.0))
     out = v.copy()
     out[:, :2] = v[:, :2] + unit * ((r_new - r) * torso_w)[:, None]
+    return out
+
+
+def hem_folds(v, arm_w, L, hem_z: float, depth: float, count: int = 11) -> np.ndarray:
+    """Soft vertical folds hanging from the chest to the hem (outward-only, so they never clip)."""
+    torso = (arm_w < 0.2).astype(float)
+    band = (arm_w < 0.2) & (np.abs(v[:, 2] - L.chest_z) < 0.03)
+    cy = float(np.median(v[band, 1])) if band.any() else 0.0
+    d = v[:, :2] - np.array([0.0, cy])
+    r = np.linalg.norm(d, axis=1)
+    ang = np.arctan2(d[:, 0], -d[:, 1])
+    wave = 0.5 + 0.5 * np.sin(count * ang + 1.7 * np.sin(3 * ang))
+    fall = 1.0 - gg.smoothstep(hem_z, hem_z + 0.22, v[:, 2])
+    out = v.copy()
+    out[:, :2] += d / np.maximum(r, 1e-9)[:, None] * (depth * wave * fall * torso)[:, None]
     return out
 
 
