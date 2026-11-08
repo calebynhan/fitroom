@@ -12,18 +12,14 @@ import { applyBodyWeights, buildRig, groundOffset, readBodyWeights, type BodyRig
 import { useAssetAvailable } from './useAssetAvailable';
 import { useOutfitLooks } from './useOutfitLooks';
 
+// Matte store-mannequin ivory, so the head and hands read as intentional.
+export const MANNEQUIN_COLOR = '#EDEAE4';
+const MANNEQUIN_ROUGHNESS = 0.55;
+
 function styleBody(mesh: THREE.SkinnedMesh): void {
   mesh.castShadow = true;
   mesh.frustumCulled = false;
-  const current = mesh.material as THREE.MeshStandardMaterial;
-  if (!current.map) {
-    mesh.material = new THREE.MeshPhysicalMaterial({
-      color: '#c99a7e',
-      roughness: 0.55,
-      sheen: 0.25,
-      sheenColor: new THREE.Color('#ffd9c4'),
-    });
-  }
+  mesh.material = new THREE.MeshStandardMaterial({ color: MANNEQUIN_COLOR, roughness: MANNEQUIN_ROUGHNESS, metalness: 0 });
 }
 
 function Outfit({ rig }: { rig: BodyRig }) {

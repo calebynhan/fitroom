@@ -2,7 +2,7 @@
 // Torso/legs take the selected top/bottom colours so the picker is testable early.
 import { useOutfitLooks } from './useOutfitLooks';
 
-const SKIN = '#c9a08a';
+const SKIN = '#EDEAE4'; // mannequin ivory, matches the real body
 
 interface LimbProps {
   position: [number, number, number];
