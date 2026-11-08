@@ -15,6 +15,8 @@ export interface ModelConfig {
   defaultBuild: number;
   /** The user's own glasses (male default body is styled from their photo). */
   glasses: boolean;
+  /** Shown in the switch but not selectable yet. */
+  comingSoon: boolean;
 }
 
 // Girth presets for the Build slider (cm). defaultBuild matches each GLB's exported body.
@@ -34,6 +36,7 @@ export const MODELS: Record<ModelId, ModelConfig> = {
     ],
     defaultBuild: 1,
     glasses: true,
+    comingSoon: false,
   },
   female: {
     label: 'Women',
@@ -50,6 +53,7 @@ export const MODELS: Record<ModelId, ModelConfig> = {
     ],
     defaultBuild: 1,
     glasses: false,
+    comingSoon: true, // hidden for now; flip to false to bring Women back
   },
 };
 

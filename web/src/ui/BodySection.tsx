@@ -46,7 +46,12 @@ export function BodySection() {
         <h2 className="eyebrow">Your body</h2>
         <WordTabs
           label="Model"
-          options={MODEL_IDS.map((id) => ({ id, label: MODELS[id].label }))}
+          options={MODEL_IDS.map((id) => ({
+            id,
+            label: MODELS[id].label,
+            disabled: MODELS[id].comingSoon,
+            note: MODELS[id].comingSoon ? 'coming soon' : undefined,
+          }))}
           value={model}
           onChange={setModel}
         />

@@ -75,6 +75,9 @@ input[type='text']:focus, textarea:focus { outline: 1px solid var(--brass); outl
 .word-tabs button { padding: 4px 0; background: transparent; border: 0; border-bottom: 1px solid transparent; font: 400 13px var(--sans); color: var(--muted); }
 .word-tabs button.active { color: var(--ink); border-bottom-color: var(--ink); }
 .word-tabs button:hover:not(.active) { color: var(--ink-2); }
+.word-tabs button:disabled { color: #a39f97; cursor: default; border-bottom-color: transparent; }
+.word-tabs button:disabled:hover { color: #a39f97; }
+.word-note { margin-left: 6px; font: 500 9px var(--sans); letter-spacing: 0.14em; text-transform: uppercase; color: var(--brass); }
 .pose-picker { position: absolute; top: 16px; right: 24px; gap: 18px; padding: 2px 14px; background: rgba(250, 249, 246, 0.88); border: 1px solid #d8d3c8; }
 .viewer-chrome .pose-picker.word-tabs button { color: var(--muted); text-shadow: none; }
 .viewer-chrome .pose-picker.word-tabs button.active { color: var(--ink); border-bottom-color: var(--ink); font-weight: 400; }
