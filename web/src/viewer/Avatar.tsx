@@ -1,16 +1,16 @@
 import { useGLTF } from '@react-three/drei';
-import { Suspense, useEffect, useMemo } from 'react';
+import { useFrame } from '@react-three/fiber';
+import { Suspense, useEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
-import { BASE_HEIGHT_CM } from '../body/measurements';
+import { MODELS } from '../body/models';
 import { useFit } from '../state/store';
 import { AssetBoundary } from './AssetBoundary';
 import { Garment } from './Garment';
 import { PlaceholderBody } from './PlaceholderBody';
+import { POSE_FADE_S } from './poses';
 import { applyBodyWeights, buildRig, groundOffset, readBodyWeights, type BodyRig } from './rig';
 import { useAssetAvailable } from './useAssetAvailable';
 import { useOutfitLooks } from './useOutfitLooks';
-
-export const BODY_URL = '/models/body.glb';
 
 function styleBody(mesh: THREE.SkinnedMesh): void {
   mesh.castShadow = true;
@@ -36,12 +36,42 @@ function Outfit({ rig }: { rig: BodyRig }) {
   );
 }
 
-function BodyModel() {
-  const gltf = useGLTF(BODY_URL);
+/** Plays the selected pose clip (single keyframe each) and crossfades on change. */
+function usePose(root: THREE.Object3D, clips: THREE.AnimationClip[]): void {
+  const pose = useFit((s) => s.pose);
+  const mixer = useMemo(() => new THREE.AnimationMixer(root), [root]);
+  const current = useRef<THREE.AnimationAction | null>(null);
+
+  useEffect(() => {
+    const clip = THREE.AnimationClip.findByName(clips, pose);
+    if (!clip) return;
+    const next = mixer.clipAction(clip);
+    const prev = current.current;
+    if (prev === next) return;
+    next.reset().play();
+    if (prev) prev.crossFadeTo(next, POSE_FADE_S, false);
+    else mixer.update(0);
+    current.current = next;
+  }, [mixer, clips, pose]);
+
+  useEffect(
+    () => () => {
+      mixer.stopAllAction();
+      current.current = null;
+    },
+    [mixer],
+  );
+
+  useFrame((_, delta) => mixer.update(delta));
+}
+
+function BodyModel({ url }: { url: string }) {
+  const gltf = useGLTF(url);
   const rig = useMemo(() => buildRig(gltf.scene), [gltf.scene]);
   const offset = useMemo(() => groundOffset(gltf.scene), [gltf.scene]);
   const weights = useFit((s) => s.weights);
   const initWeights = useFit((s) => s.initWeights);
+  usePose(gltf.scene, gltf.animations);
 
   useEffect(() => {
     if (!rig) return;
@@ -62,15 +92,17 @@ function BodyModel() {
 }
 
 export function Avatar() {
-  const status = useAssetAvailable(BODY_URL);
+  const model = useFit((s) => s.model);
+  const config = MODELS[model];
+  const status = useAssetAvailable(config.bodyUrl);
   const heightCm = useFit((s) => s.heightCm);
-  const scale = heightCm / BASE_HEIGHT_CM;
+  const scale = heightCm / config.baseHeightCm;
   return (
     <group scale={scale}>
       {status === 'ok' && (
-        <AssetBoundary name={BODY_URL} fallback={<PlaceholderBody />}>
+        <AssetBoundary key={model} name={config.bodyUrl} fallback={<PlaceholderBody />}>
           <Suspense fallback={<PlaceholderBody />}>
-            <BodyModel />
+            <BodyModel url={config.bodyUrl} />
           </Suspense>
         </AssetBoundary>
       )}

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { fitsUrl } from './body/models';
 import { parseFits } from './catalog/fits';
 import { parseCatalog } from './catalog/types';
 import { usePhoto } from './state/photo';
@@ -12,16 +13,19 @@ import { ViewerChrome } from './ui/ViewerChrome';
 import { Viewer } from './viewer/Viewer';
 
 const CATALOG_URL = '/catalog.json';
-const FITS_URL = '/garments/fits.json';
-
 function useFitsLoader(): void {
   const setFits = useFit((s) => s.setFits);
+  const model = useFit((s) => s.model);
   useEffect(() => {
-    fetch(FITS_URL)
+    let alive = true;
+    fetch(fitsUrl(model))
       .then((r) => (r.ok && r.headers.get('content-type')?.includes('json') ? r.json() : null))
-      .then((data: unknown) => setFits(parseFits(data)))
+      .then((data: unknown) => alive && setFits(parseFits(data)))
       .catch((err: unknown) => console.error('[fits] fits.json failed to load', err));
-  }, [setFits]);
+    return () => {
+      alive = false;
+    };
+  }, [setFits, model]);
 }
 
 function useCatalogLoader(): string | null {

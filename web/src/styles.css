@@ -69,6 +69,17 @@ input[type='text']:focus, textarea:focus { outline: 1px solid var(--brass); outl
 .generating-title { font: italic 400 22px var(--serif); }
 .error-note { position: absolute; left: 50%; bottom: 84px; transform: translateX(-50%); display: flex; gap: 14px; align-items: baseline; max-width: 520px; padding: 10px 14px; background: var(--paper); border: 1px solid var(--ink); color: var(--ink); font: 400 13px var(--sans); }
 
+/* Word tabs (design: "scene as words") */
+.word-tabs { display: flex; gap: 18px; }
+.word-tabs button { padding: 4px 0; background: transparent; border: 0; border-bottom: 1px solid transparent; font: 400 13px var(--sans); color: var(--muted); }
+.word-tabs button.active { color: var(--ink); border-bottom-color: var(--ink); }
+.word-tabs button:hover:not(.active) { color: var(--ink-2); }
+.pose-picker { position: absolute; top: 18px; right: 28px; gap: 22px; }
+.on-dark .word-tabs button { color: rgba(255, 255, 255, 0.82); text-shadow: 0 1px 6px rgba(0, 0, 0, 0.5); }
+.on-dark .word-tabs button.active { color: #fff; border-bottom-color: #fff; font-weight: 500; }
+.section-head { display: flex; justify-content: space-between; align-items: center; }
+.section-head .word-tabs button { font-size: 12px; padding: 2px 0; }
+
 /* Rail sections */
 .rail-section { padding: 22px 24px 20px; display: flex; flex-direction: column; gap: 14px; border-bottom: 1px solid var(--rule); }
 .rail-section:last-child { border-bottom: 0; }

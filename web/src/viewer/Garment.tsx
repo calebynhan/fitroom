@@ -1,14 +1,13 @@
 import { useGLTF } from '@react-three/drei';
 import { Suspense, useEffect, useMemo } from 'react';
 import type { FitMorphs } from '../catalog/fits';
+import { garmentUrl } from '../body/models';
 import type { Shape } from '../catalog/types';
 import { useFit } from '../state/store';
 import { AssetBoundary } from './AssetBoundary';
 import { makeFabricMaterial, tintFabric } from './fabric';
 import { applyBodyWeights, applyFitMorphs, findSkinnedMesh, rebindToRig, type BodyRig } from './rig';
 import { useAssetAvailable } from './useAssetAvailable';
-
-export const garmentUrl = (shape: Shape): string => `/garments/${shape}.glb`;
 
 interface GarmentProps {
   rig: BodyRig;
@@ -19,7 +18,8 @@ interface GarmentProps {
 }
 
 function GarmentModel({ rig, shape, fabric, hex, fitMorphs }: GarmentProps) {
-  const gltf = useGLTF(garmentUrl(shape));
+  const model = useFit((s) => s.model);
+  const gltf = useGLTF(garmentUrl(model, shape));
   const source = useMemo(() => findSkinnedMesh(gltf.scene), [gltf.scene]);
   const mesh = useMemo(() => (source ? rebindToRig(source, rig) : null), [source, rig]);
   const material = useMemo(() => makeFabricMaterial(fabric, source?.material), [fabric, source]);
@@ -50,10 +50,12 @@ function GarmentModel({ rig, shape, fabric, hex, fitMorphs }: GarmentProps) {
 }
 
 export function Garment(props: GarmentProps) {
-  const status = useAssetAvailable(garmentUrl(props.shape));
+  const model = useFit((s) => s.model);
+  const url = garmentUrl(model, props.shape);
+  const status = useAssetAvailable(url);
   if (status !== 'ok') return null;
   return (
-    <AssetBoundary name={garmentUrl(props.shape)}>
+    <AssetBoundary key={url} name={url}>
       <Suspense fallback={null}>
         <GarmentModel {...props} />
       </Suspense>

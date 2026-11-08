@@ -1,9 +1,11 @@
 import { useEffect, useRef } from 'react';
 import { usePhoto } from '../state/photo';
 import { useFit } from '../state/store';
+import { POSE_IDS, POSE_LABEL } from '../viewer/poses';
 import { SCENES } from '../viewer/scenes';
 import { onAngle, resetView, turnBy } from '../viewer/viewerBus';
 import { useProgress } from './useProgress';
+import { WordTabs } from './WordTabs';
 
 const TURN_STEP = 45;
 
@@ -85,6 +87,20 @@ function ViewControls() {
   );
 }
 
+function PosePicker() {
+  const pose = useFit((s) => s.pose);
+  const setPose = useFit((s) => s.setPose);
+  return (
+    <WordTabs
+      className="pose-picker"
+      label="Pose"
+      options={POSE_IDS.map((id) => ({ id, label: POSE_LABEL[id] }))}
+      value={pose}
+      onChange={setPose}
+    />
+  );
+}
+
 function Generating() {
   const progress = useProgress();
   const scene = useFit((s) => s.scene);
@@ -122,6 +138,7 @@ export function ViewerChrome() {
         <AngleLabel />
         <span>SCENE — {SCENES[scene].label.toUpperCase()}</span>
       </div>
+      <PosePicker />
       <div className="viewer-hint">Drag to rotate · scroll to zoom</div>
       <ViewControls />
       <Generating />

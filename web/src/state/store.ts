@@ -1,8 +1,9 @@
 import { create } from 'zustand';
-import { BUILDS, DEFAULT_BUILD } from '../body/builds';
-import { BASE_HEIGHT_CM, weightsForGirths, type BodyMeasure, type Girths } from '../body/measurements';
+import { weightsForGirths, type BodyMeasure, type Girths } from '../body/measurements';
+import { DEFAULT_MODEL, MODELS, type ModelId } from '../body/models';
 import type { FitsFile } from '../catalog/fits';
 import type { CatalogItem, Selection, Slot } from '../catalog/types';
+import { DEFAULT_POSE, type PoseId } from '../viewer/poses';
 import { DEFAULT_SCENE, type SceneId } from '../viewer/scenes';
 
 export const DEFAULT_TOP_ID = 'E453754-000'; // Washable Milano Ribbed Sweater
@@ -10,18 +11,22 @@ export const DEFAULT_BOTTOM_ID = 'E475598-000'; // Ultra Stretch Pants
 const DEFAULT_COLORS: Record<string, string> = { [DEFAULT_TOP_ID]: '67', [DEFAULT_BOTTOM_ID]: '09' }; // blue over black
 
 interface FitState {
+  model: ModelId;
+  pose: PoseId;
   scene: SceneId;
   autoRotate: boolean;
   catalog: CatalogItem[];
   outfit: Record<Slot, Selection | null>;
   heightCm: number;
   girths: Girths;
-  /** Linear girth model from the pipeline; null until body_measure.json loads. */
+  /** Linear girth model from the pipeline; null until the model's measure json loads. */
   measure: BodyMeasure | null;
-  /** Morph weights body_0..body_n; null until body.glb provides its defaults. */
+  /** Morph weights body_0..body_n; null until the body GLB provides its defaults. */
   weights: number[] | null;
   fits: FitsFile | null;
 
+  setModel: (model: ModelId) => void;
+  setPose: (pose: PoseId) => void;
   setScene: (scene: SceneId) => void;
   setAutoRotate: (on: boolean) => void;
   setCatalog: (items: CatalogItem[]) => void;
@@ -42,17 +47,29 @@ function defaultSelection(items: CatalogItem[], id: string, slot: Slot): Selecti
   return { itemId: item.id, colorCode: (preferred ?? item.colors[0]).code };
 }
 
+/** Body state that resets whenever the model (and so the GLB set) changes. */
+function bodyDefaults(model: ModelId) {
+  const config = MODELS[model];
+  return {
+    model,
+    heightCm: config.baseHeightCm,
+    girths: { ...config.builds[config.defaultBuild].girths },
+    measure: null,
+    weights: null,
+    fits: null,
+  };
+}
+
 export const useFit = create<FitState>()((set) => ({
+  ...bodyDefaults(DEFAULT_MODEL),
+  pose: DEFAULT_POSE,
   scene: DEFAULT_SCENE,
   autoRotate: true,
   catalog: [],
   outfit: { top: null, bottom: null },
-  heightCm: BASE_HEIGHT_CM,
-  girths: { ...BUILDS[DEFAULT_BUILD].girths },
-  measure: null,
-  weights: null,
-  fits: null,
 
+  setModel: (model) => set((s) => (s.model === model ? {} : bodyDefaults(model))),
+  setPose: (pose) => set({ pose }),
   setScene: (scene) => set({ scene }),
   setAutoRotate: (autoRotate) => set({ autoRotate }),
   setCatalog: (items) =>
