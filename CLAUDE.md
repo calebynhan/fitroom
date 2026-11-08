@@ -73,6 +73,11 @@ jacobian_cm_per_unit {chest,waist,hips}[6] = cm change per unit of body_i. MHR P
 (body_0 ~ overall girth/Build: +14 chest, +17 waist, +7.5 hips per unit). To map typed measurements -> weights:
 w = default + pinv(J) @ (target_cm - measured_cm_at_default), clamp to -3..3.
 
+**Female model (added by A)**: web/public/models/body_female.glb (+ body_female_measure.json), same skeleton,
+same body_0..5 morph names, 1.72 m, model proportions (bust 86 / underbust 66 / waist 65.5 / hips 89). Its garments
+are web/public/garments/female/{tee,sweater,pants}.glb (+ fits.json), same morphs. Swap body + garment folder
+together; never mix male garments on the female body.
+
 **Body controls (viewer)**: Height scales the avatar root. Sliders Build / Chest / Waist / Hips drive
 body_0..body_3 on the body AND every garment at once. Measurement inputs map to slider values.
 

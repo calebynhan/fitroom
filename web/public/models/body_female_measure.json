@@ -1,0 +1,58 @@
+{
+  "sex": "female",
+  "height_cm": 172.0,
+  "morphs": [
+    "body_0",
+    "body_1",
+    "body_2",
+    "body_3",
+    "body_4",
+    "body_5"
+  ],
+  "slider_range": [
+    -3.0,
+    3.0
+  ],
+  "default_weights": [
+    -1.9554,
+    1.5537,
+    3.0,
+    -0.6829,
+    2.8638,
+    -0.2521
+  ],
+  "measured_cm_at_default": {
+    "chest": 86.0,
+    "underbust": 65.48,
+    "waist": 65.48,
+    "hips": 89.16,
+    "inseam": 81.07
+  },
+  "jacobian_cm_per_unit": {
+    "chest": [
+      14.0753,
+      -1.9179,
+      1.5975,
+      -1.4628,
+      0.0047,
+      0.4892
+    ],
+    "waist": [
+      15.5097,
+      -3.3623,
+      1.7145,
+      -0.108,
+      0.9053,
+      -0.2563
+    ],
+    "hips": [
+      8.2638,
+      3.9546,
+      -2.7053,
+      -0.2085,
+      -0.1874,
+      0.3367
+    ]
+  },
+  "note": "Linear model: measurement ~= measured_cm_at_default + J @ (w - default_weights)."
+}

@@ -1,8 +1,10 @@
-"""MHR lod2.fbx -> web/public/models/body.glb (skinned, metres, morphs body_0..body_5 at Caleb's body).
+"""MHR lod2.fbx -> skinned body GLB (metres, morphs body_0..body_5 at the target body) + measure JSON.
 
 Usage:
     .venv/bin/python pipeline/body.py --fbx assets/mhr/assets/lod2.fbx --height 178 \
         --out web/public/models/body.glb
+    .venv/bin/python pipeline/body.py --fbx assets/mhr/assets/lod2.fbx --sex female \
+        --out web/public/models/body_female.glb
 """
 from __future__ import annotations
 
@@ -18,8 +20,14 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import bl_scene as bs  # noqa: E402
 import body_measure as bm  # noqa: E402
 import render  # noqa: E402
+import sculpt  # noqa: E402
 
-DEFAULT_TARGET = {"chest": 92.0, "waist": 75.0, "hips": 90.0, "inseam": 84.0}
+# Male: Caleb. Female: classic fashion-model proportions (WHR ~0.69, bust ~= hips, ~1:8 head).
+PRESETS = {
+    "male": {"height": 178.0, "chest": 92.0, "waist": 75.0, "hips": 90.0, "fit_pcs": 6},
+    "female": {"height": 172.0, "chest": 86.0, "underbust": 70.0, "waist": 61.0, "hips": 89.0, "fit_pcs": 20,
+               "shoulder_width": 45.0, "hip_width": 36.5, "bust_projection": 4.5},
+}
 SKIN_RGB = (0.52, 0.34, 0.25)
 SLIDER_RANGE = (-3.0, 3.0)
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -28,13 +36,21 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--fbx", required=True)
-    p.add_argument("--height", type=float, default=178.0, help="standing height in cm")
-    p.add_argument("--chest", type=float, default=DEFAULT_TARGET["chest"])
-    p.add_argument("--waist", type=float, default=DEFAULT_TARGET["waist"])
-    p.add_argument("--hips", type=float, default=DEFAULT_TARGET["hips"])
+    p.add_argument("--sex", choices=sorted(PRESETS), default="male")
+    p.add_argument("--height", type=float, help="standing height in cm (default from --sex preset)")
+    for name in ("chest", "underbust", "waist", "hips"):
+        p.add_argument(f"--{name}", type=float, help=f"{name} circumference in cm (default from preset)")
     p.add_argument("--out", required=True)
-    p.add_argument("--render", default=os.path.join(ROOT, "pipeline/renders/body_front.png"))
+    p.add_argument("--render", help="front render PNG (default pipeline/renders/<out stem>_front.png)")
     return p.parse_args()
+
+
+def resolve_targets(args) -> dict:
+    preset = dict(PRESETS[args.sex])
+    for name in ("height", "chest", "underbust", "waist", "hips"):
+        if getattr(args, name) is not None:
+            preset[name] = getattr(args, name)
+    return preset
 
 
 def load_mhr(fbx: str):
@@ -48,21 +64,45 @@ def load_mhr(fbx: str):
     return arm, mesh
 
 
-def keep_body_morphs(mesh) -> np.ndarray:
-    """Drop every shape key except shape_0..5; rename them body_0..5. Returns deltas (k, n, 3)."""
+def add_to_all_keys(mesh, delta: np.ndarray) -> None:
+    """Bake a displacement into the base shape: every key block (absolute coords) moves together."""
+    for kb in mesh.data.shape_keys.key_blocks:
+        kb.data.foreach_set("co", (bs.vertex_coords(mesh, kb) + delta).ravel())
+    mesh.data.vertices.foreach_set("co", bs.vertex_coords(mesh, mesh.data.shape_keys.key_blocks[0]).ravel())
+
+
+def sculpt_face(arm, mesh, sex: str) -> None:
+    bone = lambda n: np.array(arm.data.bones[n].head_local)  # noqa: E731  (armature space == world)
+    eye = (bone("l_eye") + bone("r_eye")) / 2
+    base = bs.vertex_coords(mesh, mesh.data.shape_keys.key_blocks[0])
+    add_to_all_keys(mesh, sculpt.displacement(base, eye, bone("c_neck"), sculpt.STYLES[sex]))
+
+
+def keep_pcs(mesh, count: int) -> np.ndarray:
+    """Drop every shape key except shape_0..count-1. Returns their deltas (count, n, 3)."""
     keys = mesh.data.shape_keys.key_blocks
-    keep = {f"shape_{i}" for i in range(bs.MORPH_COUNT)}
-    drop = [k.name for k in keys if k.name not in keep and k != keys[0]]
-    for name in drop:  # remove by name: indices shift as we go
-        mesh.shape_key_remove(mesh.data.shape_keys.key_blocks[name])
+    keep = {f"shape_{i}" for i in range(count)}
+    for name in [k.name for k in keys if k.name not in keep and k != keys[0]]:
+        mesh.shape_key_remove(mesh.data.shape_keys.key_blocks[name])  # by name: indices shift
     base = bs.vertex_coords(mesh, keys[0])
-    deltas = []
+    return np.stack([bs.vertex_coords(mesh, keys[f"shape_{i}"]) - base for i in range(count)])
+
+
+def bake_extra_pcs(mesh, weights: np.ndarray, deltas: np.ndarray) -> None:
+    """PCs beyond the 6 exported morphs are baked into the base shape, then removed."""
+    extra = np.tensordot(weights[bs.MORPH_COUNT:], deltas[bs.MORPH_COUNT:], axes=1)
+    for i in range(bs.MORPH_COUNT, len(weights)):
+        mesh.shape_key_remove(mesh.data.shape_keys.key_blocks[f"shape_{i}"])
+    if len(weights) > bs.MORPH_COUNT:
+        add_to_all_keys(mesh, extra)
+
+
+def finish_morphs(mesh, weights: np.ndarray) -> None:
     for i in range(bs.MORPH_COUNT):
-        kb = keys[f"shape_{i}"]
+        kb = mesh.data.shape_keys.key_blocks[f"shape_{i}"]
         kb.name = f"body_{i}"
         kb.slider_min, kb.slider_max = SLIDER_RANGE
-        deltas.append(bs.vertex_coords(mesh, kb) - base)
-    return np.stack(deltas)
+        kb.value = float(weights[i])
 
 
 def clear_custom_normals(mesh) -> None:
@@ -80,13 +120,15 @@ def scale_to_height(arm, mesh, factor: float) -> None:
     bs.bake_transforms(arm, mesh)
 
 
-def write_measure_json(path, weights, measured, jac, height_cm) -> None:
+def write_measure_json(path, sex, weights, measured, jac, height_cm) -> None:
     payload = {
+        "sex": sex,
         "height_cm": height_cm,
         "morphs": [f"body_{i}" for i in range(bs.MORPH_COUNT)],
         "slider_range": list(SLIDER_RANGE),
-        "default_weights": [round(float(w), 4) for w in weights],
-        "measured_cm_at_default": {k: round(float(measured[k]), 2) for k in ("chest", "waist", "hips", "inseam")},
+        "default_weights": [round(float(w), 4) for w in weights[: bs.MORPH_COUNT]],
+        "measured_cm_at_default": {k: round(float(measured[k]), 2)
+                                   for k in ("chest", "underbust", "waist", "hips", "inseam")},
         "jacobian_cm_per_unit": jac,
         "note": "Linear model: measurement ~= measured_cm_at_default + J @ (w - default_weights).",
     }
@@ -96,40 +138,46 @@ def write_measure_json(path, weights, measured, jac, height_cm) -> None:
 
 def main() -> None:
     args = parse_args()
-    target_h = args.height / 100.0
-    target = {"chest": args.chest, "waist": args.waist, "hips": args.hips}
+    t = resolve_targets(args)
+    target_h = t["height"] / 100.0
+    target = {k: t[k] for k in ("chest", "underbust", "waist", "hips", "shoulder_width", "hip_width",
+                                "bust_projection") if k in t}
 
     arm, mesh = load_mhr(args.fbx)
-    deltas = keep_body_morphs(mesh)
+    sculpt_face(arm, mesh, args.sex)
+    deltas = keep_pcs(mesh, t["fit_pcs"])
     w_mat, names = bs.weight_matrix(mesh)
+    edges, arm_w = bs.edge_array(mesh), bs.arm_weight(w_mat, names)
     base = bs.vertex_coords(mesh, mesh.data.shape_keys.key_blocks[0])
-    geo = bm.make_geometry(base, deltas, bs.edge_array(mesh), bs.arm_weight(w_mat, names))
-
-    print("MHR mean body @%.0fcm:" % args.height, {k: round(v, 1) for k, v in bm.measure(base, geo, target_h).items()})
+    geo = bm.make_geometry(base, deltas, edges, arm_w)
+    print(f"MHR mean @{t['height']:.0f}cm:", {k: round(v, 1) for k, v in bm.measure(base, geo, target_h).items()})
     weights, measured = bm.fit_weights(geo, target, target_h)
-    print("fitted weights:", np.round(weights, 3))
+    print("fitted weights:", np.round(weights, 2))
     print("fitted body:", {k: round(v, 1) for k, v in measured.items()})
 
-    co = geo.coords(weights)
+    bake_extra_pcs(mesh, weights, deltas)
+    finish_morphs(mesh, weights)
+    base6 = bs.vertex_coords(mesh, mesh.data.shape_keys.key_blocks[0])
+    geo6 = bm.make_geometry(base6, deltas[: bs.MORPH_COUNT], edges, arm_w)
+    co = geo6.coords(weights[: bs.MORPH_COUNT])
     scale_to_height(arm, mesh, target_h / (co[:, 2].max() - co[:, 2].min()))
-    for i, w in enumerate(weights):
-        mesh.data.shape_keys.key_blocks[f"body_{i}"].value = float(w)
+    jac = bm.jacobian(geo6, weights[: bs.MORPH_COUNT], target_h)
 
-    jac = bm.jacobian(geo, weights, target_h)
     mesh.data.materials.clear()
-    mesh.data.materials.append(render.make_material("skin", SKIN_RGB, 0.55))
+    mesh.data.materials.append(render.make_material("skin", SKIN_RGB, 0.45))
     clear_custom_normals(mesh)
     bs.assert_all_weighted(mesh)
 
-    os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
+    out_dir = os.path.dirname(os.path.abspath(args.out))
+    stem = os.path.splitext(os.path.basename(args.out))[0]
+    os.makedirs(out_dir, exist_ok=True)
     bs.export_glb(args.out, [arm, mesh])
-    write_measure_json(os.path.join(os.path.dirname(args.out), "body_measure.json"), weights, measured, jac, args.height)
+    write_measure_json(os.path.join(out_dir, f"{stem}_measure.json"), args.sex, weights, measured, jac, t["height"])
     print("wrote", args.out, os.path.getsize(args.out) // 1024, "KB")
 
-    if args.render:
-        render.lower_arms(arm)
-        eng = render.render_front(os.path.abspath(args.render), target_h)
-        print("rendered", args.render, "with", eng)
+    render_path = args.render or os.path.join(ROOT, f"pipeline/renders/{stem}_front.png")
+    render.lower_arms(arm)
+    print("rendered", render_path, "with", render.render_front(os.path.abspath(render_path), target_h))
 
 
 if __name__ == "__main__":

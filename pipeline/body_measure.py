@@ -15,6 +15,7 @@ from scipy.spatial import ConvexHull
 CHEST_BAND = (0.70, 0.745)
 WAIST_BAND = (0.60, 0.70)
 HIPS_BAND = (0.47, 0.56)
+UNDERBUST_BAND = (0.665, 0.695)  # just below the bust (female fit only)
 BAND_SAMPLES = 17
 ARM_WEIGHT_CUTOFF = 0.15
 REGULARISATION = 0.15  # cm-equivalent penalty per unit of PCA weight
@@ -26,6 +27,7 @@ class BodyGeometry:
     deltas: np.ndarray      # (k, n, 3) morph deltas, metres
     edges: np.ndarray       # (e, 2)
     torso_edge: np.ndarray  # (e,) bool, both endpoints off the arms
+    torso_v: np.ndarray     # (n,) bool, vert off the arms
 
     def coords(self, weights: np.ndarray) -> np.ndarray:
         return self.base + np.tensordot(weights, self.deltas, axes=1)
@@ -34,7 +36,7 @@ class BodyGeometry:
 def make_geometry(base, deltas, edges, arm_w) -> BodyGeometry:
     torso_v = arm_w < ARM_WEIGHT_CUTOFF
     torso_e = torso_v[edges[:, 0]] & torso_v[edges[:, 1]]
-    return BodyGeometry(base, deltas, edges, torso_e)
+    return BodyGeometry(base, deltas, edges, torso_e, torso_v)
 
 
 def slice_perimeter(co: np.ndarray, edges: np.ndarray, z0: float) -> float:
@@ -64,6 +66,8 @@ def measure(co: np.ndarray, geo: BodyGeometry, target_height_m: float) -> dict:
     chest, zc = _band(co, edges, z_min, height, CHEST_BAND, np.argmax)
     waist, zw = _band(co, edges, z_min, height, WAIST_BAND, np.argmin)
     hips, zh = _band(co, edges, z_min, height, HIPS_BAND, np.argmax)
+    underbust, _ = _band(co, edges, z_min, height, UNDERBUST_BAND, np.argmin)
+    shape = shape_features(co, geo, z_min, height)
     centre = np.abs(co[:, 0]) < 0.004
     crotch = co[centre & (co[:, 2] > z_min + 0.35 * height) & (co[:, 2] < z_min + 0.6 * height), 2]
     inseam = (crotch.min() - z_min) if crotch.size else np.nan
@@ -72,6 +76,8 @@ def measure(co: np.ndarray, geo: BodyGeometry, target_height_m: float) -> dict:
         "chest": chest * s * 100,
         "waist": waist * s * 100,
         "hips": hips * s * 100,
+        "underbust": underbust * s * 100,
+        **{k: v * s * 100 for k, v in shape.items()},
         "inseam": inseam * s * 100,
         "z_chest": (zc - z_min) / height,
         "z_waist": (zw - z_min) / height,
@@ -79,8 +85,25 @@ def measure(co: np.ndarray, geo: BodyGeometry, target_height_m: float) -> dict:
     }
 
 
+def shape_features(co: np.ndarray, geo: BodyGeometry, z_min: float, height: float) -> dict:
+    """Silhouette widths (m): bideltoid shoulder width, hip width, and bust projection over the underbust."""
+    z = (co[:, 2] - z_min) / height
+    sh = (np.abs(z - 0.815) < 0.008) & (np.abs(co[:, 0]) < 0.30)
+    hp = (np.abs(z - 0.51) < 0.01) & geo.torso_v
+    side = (np.abs(co[:, 0]) > 0.03) & (np.abs(co[:, 0]) < 0.12) & geo.torso_v
+    bust_front = co[side & (np.abs(z - 0.725) < 0.012), 1].min()
+    under_front = co[side & (np.abs(z - 0.68) < 0.008), 1].min()
+    return {
+        "shoulder_width": float(np.ptp(co[sh, 0])),
+        "hip_width": float(np.ptp(co[hp, 0])),
+        "bust_projection": float(under_front - bust_front),
+    }
+
+
 def fit_weights(geo: BodyGeometry, target: dict, target_height_m: float, bound: float = 3.0):
-    keys = ("chest", "waist", "hips")
+    """Fit all morphs in geo to the target measurements present in `target` (cm)."""
+    keys = tuple(n for n in ("chest", "underbust", "waist", "hips", "shoulder_width", "hip_width",
+                             "bust_projection") if n in target)
     k = geo.deltas.shape[0]
 
     def residual(w):
