@@ -2,6 +2,9 @@ import { useEffect, useState } from 'react';
 
 export type AssetStatus = 'checking' | 'ok' | 'missing';
 
+// Remember positive answers so remounts (e.g. swapping garments) don't blink while re-probing.
+const known = new Set<string>();
+
 /** True only for a real binary/JSON file (Vite dev answers missing paths with index.html). */
 export async function assetExists(url: string): Promise<boolean> {
   try {
@@ -13,11 +16,18 @@ export async function assetExists(url: string): Promise<boolean> {
 }
 
 export function useAssetAvailable(url: string): AssetStatus {
-  const [status, setStatus] = useState<AssetStatus>('checking');
+  const [status, setStatus] = useState<AssetStatus>(known.has(url) ? 'ok' : 'checking');
   useEffect(() => {
+    if (known.has(url)) {
+      setStatus('ok');
+      return undefined;
+    }
     let alive = true;
     setStatus('checking');
-    assetExists(url).then((ok) => alive && setStatus(ok ? 'ok' : 'missing'));
+    assetExists(url).then((ok) => {
+      if (ok) known.add(url);
+      if (alive) setStatus(ok ? 'ok' : 'missing');
+    });
     return () => {
       alive = false;
     };

@@ -97,7 +97,8 @@ colors: [{ code, name, hex, swatch }], sizes: [..] }`
 **POST /api/product** `{ url }` -> catalog item, or `{ error }`. If UNIQLO blocks server requests, fall back
 to a "paste product JSON" box (user runs a console snippet on uniqlo.com).
 
-**POST /api/photoreal** `{ image: <PNG data URL>, scene }` -> `{ image }`. OpenAI images.edit,
+**POST /api/photoreal** `{ image: <PNG or JPEG data URL>, scene, outfit? }` -> `{ image, remaining }` (B: client sends JPEG
+to stay under Vercel's 4.5 MB body cap). OpenAI images.edit,
 input_fidelity "high". Prompt: keep every garment, colour, silhouette and the pose exactly; realistic fabric;
 the chosen setting; full body; no logos or text. Limit ~5 calls per visitor.
 

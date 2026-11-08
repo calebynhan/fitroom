@@ -45,6 +45,10 @@ async function post(body: object): Promise<PhotorealResponse> {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
+    if (res.status === 413) return { error: 'That snapshot was too large to send. Try a smaller window.' };
+    if (!(res.headers.get('content-type') ?? '').includes('json')) {
+      return { error: `The server answered ${res.status}. Try again in a moment.` };
+    }
     return (await res.json()) as PhotorealResponse;
   } catch {
     return { error: 'Could not reach the server. Check your connection and try again.' };
@@ -60,14 +64,18 @@ export async function makeItReal(): Promise<void> {
     photo.fail('The 3D view is not ready yet.', null);
     return;
   }
+  let image: string;
+  try {
+    image = snapshotPortrait(canvas); // before start(), so a failure can't leave us stuck in "working"
+  } catch (err: unknown) {
+    console.error('[photoreal] snapshot failed', err);
+    photo.fail('Could not capture the 3D view. Try again.', null);
+    return;
+  }
   const pieces = wornPieces();
   const caption = buildCaption(pieces);
   photo.start();
-  const data = await post({
-    image: snapshotPortrait(canvas),
-    scene: useFit.getState().scene,
-    outfit: [pieces.top, pieces.bottom].filter(Boolean),
-  });
+  const data = await post({ image, scene: useFit.getState().scene, outfit: [pieces.top, pieces.bottom].filter(Boolean) });
   const remaining = typeof data.remaining === 'number' ? data.remaining : null;
   if (data.image) usePhoto.getState().succeed(data.image, caption, remaining);
   else usePhoto.getState().fail(data.error ?? 'Something went wrong.', remaining);

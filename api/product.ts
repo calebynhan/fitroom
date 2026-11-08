@@ -14,7 +14,13 @@ import {
 
 const UPSTREAM_TIMEOUT_MS = 8000;
 const MAX_INPUT_LENGTH = 500;
+const NEGATIVE_TTL_MS = 60_000;
+const MAX_NEGATIVE = 500;
 const cache = new Map<string, CatalogItem>();
+const failures = new Map<string, { at: number; status: number; body: { error: string; code: string } }>();
+const pending = new Map<string, Promise<Lookup>>();
+
+type Lookup = { ok: true; item: CatalogItem } | { ok: false; status: number; body: { error: string; code: string } };
 
 type Upstream = { ok: true; result: UniqloDetails } | { ok: false; status: number; code: string; error: string };
 
@@ -45,6 +51,25 @@ async function sampleColors(id: string, codes: string[]): Promise<Map<string, st
   return new Map(pairs);
 }
 
+async function lookup(id: string): Promise<Lookup> {
+  const upstream = await fetchDetails(id);
+  if (!upstream.ok) return { ok: false, status: upstream.status, body: { error: upstream.error, code: upstream.code } };
+  const codes = (upstream.result.colors ?? []).map((c) => c.displayCode).filter((c): c is string => Boolean(c));
+  const hexes = await sampleColors(id, codes);
+  const mapped = toCatalogItem(id, upstream.result, (code) => hexes.get(code) ?? fallbackHex(code));
+  if ('error' in mapped) return { ok: false, status: 422, body: { error: mapped.error, code: 'unsupported' } };
+  return { ok: true, item: mapped.item };
+}
+
+function remember(id: string, result: Lookup): void {
+  if (result.ok) {
+    cache.set(id, result.item);
+    return;
+  }
+  if (failures.size >= MAX_NEGATIVE) failures.clear();
+  failures.set(id, { at: Date.now(), status: result.status, body: result.body });
+}
+
 export async function POST(request: Request): Promise<Response> {
   const body = await readJson(request);
   const input = typeof body?.url === 'string' ? body.url.slice(0, MAX_INPUT_LENGTH) : '';
@@ -53,15 +78,16 @@ export async function POST(request: Request): Promise<Response> {
 
   const cached = cache.get(id);
   if (cached) return json(cached);
+  const failed = failures.get(id);
+  if (failed && Date.now() - failed.at < NEGATIVE_TTL_MS) return json(failed.body, failed.status);
 
-  const upstream = await fetchDetails(id);
-  if (!upstream.ok) return json({ error: upstream.error, code: upstream.code }, upstream.status);
-
-  const codes = (upstream.result.colors ?? []).map((c) => c.displayCode).filter((c): c is string => Boolean(c));
-  const hexes = await sampleColors(id, codes);
-  const mapped = toCatalogItem(id, upstream.result, (code) => hexes.get(code) ?? fallbackHex(code));
-  if ('error' in mapped) return json({ error: mapped.error, code: 'unsupported' }, 422);
-
-  cache.set(id, mapped.item);
-  return json(mapped.item);
+  // Share one upstream lookup between concurrent requests for the same product.
+  let inFlight = pending.get(id);
+  if (!inFlight) {
+    inFlight = lookup(id).finally(() => pending.delete(id));
+    pending.set(id, inFlight);
+  }
+  const result = await inFlight;
+  remember(id, result);
+  return result.ok ? json(result.item) : json(result.body, result.status);
 }

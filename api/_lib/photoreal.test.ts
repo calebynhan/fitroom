@@ -1,8 +1,22 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { buildPrompt, isScene, parseOutfit } from './photorealPrompt';
-import { COOKIE_NAME, currentUsage, decodeCount, encodeCount, readCookie, recordUse } from './rateLimit';
+import {
+  begin,
+  check,
+  COOKIE_NAME,
+  currentUsage,
+  decodeCount,
+  encodeCount,
+  end,
+  IP_CONCURRENCY,
+  PHOTOREAL_LIMIT,
+  readCookie,
+  recordUse,
+} from './rateLimit';
 
 const SECRET = 'test-secret';
+const req = (ip: string, cookie?: string) =>
+  new Request('http://x', { headers: { 'x-forwarded-for': ip, ...(cookie ? { cookie } : {}) } });
 
 describe('rate limit cookie', () => {
   it('round-trips a signed count', () => {
@@ -19,14 +33,41 @@ describe('rate limit cookie', () => {
     expect(readCookie('a=1; fr_pr=2.x; b=3', COOKIE_NAME)).toBe('2.x');
     expect(readCookie(null, COOKIE_NAME)).toBeUndefined();
   });
-  it('counts per visitor across cookie and IP', () => {
-    const req = new Request('http://x', { headers: { 'x-forwarded-for': '1.2.3.4' } });
-    const first = currentUsage(req, SECRET);
-    expect(first.used).toBe(0);
-    const cookie = recordUse(first, SECRET);
+});
+
+describe('rate limit policy', () => {
+  afterEach(() => {
+    delete process.env.PHOTOREAL_DISABLED;
+  });
+
+  it('limits each visitor by their signed cookie', () => {
+    const atLimit = req('9.9.9.1', `${COOKIE_NAME}=${encodeCount(PHOTOREAL_LIMIT, SECRET)}`);
+    expect(check(currentUsage(atLimit, SECRET))).toMatchObject({ ok: false, status: 429 });
+  });
+
+  it('does not lock out other visitors on the same IP', () => {
+    const first = currentUsage(req('1.2.3.4'), SECRET);
+    for (let i = 0; i < PHOTOREAL_LIMIT; i += 1) recordUse({ ...first, used: i }, SECRET);
+    expect(check(currentUsage(req('1.2.3.4'), SECRET))).toEqual({ ok: true });
+  });
+
+  it('caps concurrent generations per IP', () => {
+    const usage = currentUsage(req('5.5.5.5'), SECRET);
+    for (let i = 0; i < IP_CONCURRENCY; i += 1) begin(usage.ip);
+    expect(check(usage)).toMatchObject({ ok: false, status: 429 });
+    end(usage.ip);
+    expect(check(usage)).toEqual({ ok: true });
+  });
+
+  it('honours the kill switch', () => {
+    process.env.PHOTOREAL_DISABLED = '1';
+    expect(check(currentUsage(req('7.7.7.7'), SECRET))).toMatchObject({ ok: false, status: 503 });
+  });
+
+  it('sets an HttpOnly cookie with the next count', () => {
+    const cookie = recordUse(currentUsage(req('8.8.8.8'), SECRET), SECRET);
     expect(cookie).toContain('HttpOnly');
-    // Same IP without the cookie still counts.
-    expect(currentUsage(req, SECRET).used).toBe(1);
+    expect(decodeCount(cookie.split(';')[0].split('=')[1], SECRET)).toBe(1);
   });
 });
 

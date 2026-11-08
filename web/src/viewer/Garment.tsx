@@ -35,6 +35,7 @@ function GarmentModel({ rig, shape, fabric, hex, fitMorphs }: GarmentProps) {
     rig.armature.add(mesh);
     return () => {
       rig.armature.remove(mesh);
+      mesh.skeleton.dispose(); // bone texture; geometry is shared with the useGLTF cache
     };
   }, [mesh, material, rig]);
 
