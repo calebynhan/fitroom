@@ -23,6 +23,7 @@ import poses  # noqa: E402
 import render  # noqa: E402
 import sculpt  # noqa: E402
 import skin_paint  # noqa: E402
+import garment_geom as gg  # noqa: E402
 
 # Male: Caleb. Female: classic fashion-model proportions (WHR ~0.69, bust ~= hips, ~1:8 head).
 PRESETS = {
@@ -78,6 +79,10 @@ def sculpt_face(arm, mesh, sex: str) -> None:
     eye = (bone("l_eye") + bone("r_eye")) / 2
     base = bs.vertex_coords(mesh, mesh.data.shape_keys.key_blocks[0])
     add_to_all_keys(mesh, sculpt.displacement(base, eye, bone("c_neck"), sculpt.STYLES[sex]))
+    base = bs.vertex_coords(mesh, mesh.data.shape_keys.key_blocks[0])
+    faces = np.array([tuple(p.vertices)[:3] for p in mesh.data.polygons])
+    normals = gg.vertex_normals(base, faces)
+    add_to_all_keys(mesh, skin_paint.hair_displacement(base, normals, bone("l_eye"), skin_paint.LOOKS[sex]))
 
 
 def keep_pcs(mesh, count: int) -> np.ndarray:

@@ -26,12 +26,15 @@ class Look:
     blush: float
     brow_thick: float = 0.006   # m
     brow_arch: float = 0.004    # m
+    hair_volume: float = 0.0    # m of scalp displacement on top of the head (0 = painted only)
 
 
 LOOKS = {
-    "male": Look(skin=(0.86, 0.66, 0.54), hair=(0.16, 0.11, 0.08), iris=(0.33, 0.22, 0.14),
-                 lips=(0.72, 0.45, 0.42), lip_strength=0.55, hair_front=0.052, hair_side=0.012,
-                 hair_back=-0.075, blush=0.04),
+    # Male = Caleb (from his photo): near-black mop cut, bangs to the brows, sides over the ear tops,
+    # light-medium warm skin, dark brown eyes, straight dark brows.
+    "male": Look(skin=(0.851, 0.635, 0.518), hair=(0.114, 0.122, 0.141), iris=(0.18, 0.12, 0.08),
+                 lips=(0.70, 0.45, 0.42), lip_strength=0.5, hair_front=0.021, hair_side=-0.010,
+                 hair_back=-0.060, blush=0.05, brow_thick=0.0055, brow_arch=0.0015, hair_volume=0.018),
     "female": Look(skin=(0.90, 0.71, 0.60), hair=(0.12, 0.08, 0.06), iris=(0.30, 0.20, 0.13),
                    lips=(0.74, 0.38, 0.40), lip_strength=0.75, hair_front=0.046, hair_side=0.004,
                    hair_back=-0.085, blush=0.10, brow_thick=0.0042, brow_arch=0.0065),
@@ -81,6 +84,35 @@ def rasterise(uv_tri: np.ndarray, pos_tri: np.ndarray, res: int):
     return pos, filled
 
 
+def hair_weight(p: np.ndarray, eye_l: np.ndarray, look: Look) -> np.ndarray:
+    """0..1 hair coverage. Hairline height varies with the angle around the head (front -> temple -> nape)."""
+    x, y, z = np.abs(p[:, 0]), p[:, 1], p[:, 2]
+    _, ey, ez = eye_l
+    ang = np.arctan2(x, -(y - (ey + 0.085)))                           # 0 front, pi back
+    t = ang / np.pi
+    front_curve = np.sqrt(np.clip(np.cos(ang), 0, 1))                 # rounded forehead hairline, no peak
+    line = np.where(t < 0.5, look.hair_side + (look.hair_front - look.hair_side) * front_curve,
+                    look.hair_side + (look.hair_back - look.hair_side) * _smooth(0.5, 1.0, t))
+    ear_top = min(ez + 0.003, ez + look.hair_side - 0.004)              # hair may cover the ear tops
+    ear = (x > 0.055) & ((((y - (ey + 0.10)) / 0.032) ** 2 + ((z - (ear_top - 0.028)) / 0.028) ** 2) < 1.0)
+    return _smooth(-0.003, 0.004, z - (ez + line)) * (z < ez + 0.2) * ~ear
+
+
+def hair_displacement(p: np.ndarray, normals: np.ndarray, eye_l: np.ndarray, look: Look) -> np.ndarray:
+    """Push the scalp out along its normals: full volume on top, thinner bangs/sides, soft at the hairline."""
+    if look.hair_volume <= 0:
+        return np.zeros_like(p)
+    w = hair_weight(p, eye_l, look)
+    ez = eye_l[2]
+    top = _smooth(ez + 0.02, ez + 0.09, p[:, 2])                       # crown carries the volume
+    thick = look.hair_volume * (0.55 + 0.45 * top) * _smooth(0.0, 0.6, w)
+    ey = eye_l[1]
+    ear = ((np.abs(p[:, 0]) > 0.058) & ((((p[:, 1] - (ey + 0.10)) / 0.036) ** 2
+                                        + ((p[:, 2] - (ez - 0.012)) / 0.042) ** 2) < 1.0))
+    thick *= ~ear                                                     # thin ear shells would spike
+    return normals * thick[:, None]
+
+
 def colour(p: np.ndarray, eye_l: np.ndarray, look: Look) -> np.ndarray:
     """RGB in [0,1] (linear-ish) for points p (n,3). eye_l = left eye joint (x>0)."""
     x, y, z = np.abs(p[:, 0]), p[:, 1], p[:, 2]
@@ -91,15 +123,7 @@ def colour(p: np.ndarray, eye_l: np.ndarray, look: Look) -> np.ndarray:
     cheek = np.exp(-(((x - 0.045) / 0.02) ** 2 + ((z - (ez - 0.035)) / 0.018) ** 2)) * face
     rgb = rgb * (1 - look.blush * cheek[:, None]) + np.array([0.85, 0.45, 0.42]) * (look.blush * cheek)[:, None]
 
-    # Hair: hairline height varies with the angle around the head (front -> temple -> nape).
-    head_c = np.array([0.0, ey + 0.085])
-    ang = np.arctan2(np.abs(p[:, 0] - head_c[0]), -(y - head_c[1]))   # 0 front, pi back
-    t = ang / np.pi
-    front_curve = np.sqrt(np.clip(np.cos(ang), 0, 1))                 # rounded forehead hairline, no peak
-    line = np.where(t < 0.5, look.hair_side + (look.hair_front - look.hair_side) * front_curve,
-                    look.hair_side + (look.hair_back - look.hair_side) * _smooth(0.5, 1.0, t))
-    ear = (x > 0.055) & ((((y - (ey + 0.10)) / 0.032) ** 2 + ((z - (ez - 0.025)) / 0.028) ** 2) < 1.0)
-    hair_w = _smooth(-0.003, 0.004, z - (ez + line)) * (z < ez + 0.2) * ~ear
+    hair_w = hair_weight(p, eye_l, look)
     strands = 0.8 + 0.4 * _noise(p * np.array([1, 1, 0.3]), 600.0)
     rgb = rgb * (1 - hair_w[:, None]) + (np.array(look.hair) * strands[:, None]) * hair_w[:, None]
 
