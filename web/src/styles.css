@@ -166,6 +166,7 @@ input[type='text']:focus, textarea:focus { outline: 1px solid var(--brass); outl
   .viewer-pane { flex: none; height: 62vh; }
   .rail { width: 100%; border-left: 0; border-top: 1px solid var(--rule); }
   .viewer-hint { display: none; }
+  .pose-picker { top: auto; right: auto; left: 50%; bottom: 80px; transform: translateX(-50%); }
   .result { position: fixed; top: 48px; }
   .result-foot { grid-template-columns: 1fr; gap: 16px; }
 }
