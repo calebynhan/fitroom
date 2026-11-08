@@ -3,6 +3,7 @@ import { Canvas } from '@react-three/fiber';
 import { Suspense } from 'react';
 import { useFit } from '../state/store';
 import { Avatar } from './Avatar';
+import { CameraRig } from './CameraRig';
 import { setViewerCanvas } from './canvasRef';
 import { SceneSetup } from './SceneSetup';
 
@@ -16,13 +17,14 @@ export function Viewer() {
       className="viewer"
       dpr={[1, 2]}
       gl={{ preserveDrawingBuffer: true, antialias: true }}
-      camera={{ position: [0, 1.15, 4.3], fov: 30, near: 0.05, far: 100 }}
+      camera={{ position: [0, 1.1, 4.6], fov: 30, near: 0.05, far: 100 }}
       onCreated={({ gl }) => setViewerCanvas(gl.domElement)}
     >
       <Suspense fallback={null}>
         <SceneSetup />
       </Suspense>
       <Avatar />
+      <CameraRig />
       <OrbitControls
         makeDefault
         target={CAMERA_TARGET}

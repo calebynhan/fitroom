@@ -40,6 +40,16 @@ export function applyBodyWeights(mesh: THREE.Mesh, weights: number[]): void {
   });
 }
 
+/** Sets every fit_* morph: listed ones to their weight, the rest to 0 (CLAUDE.md fits contract). */
+export function applyFitMorphs(mesh: THREE.Mesh, morphs: Record<string, number>): void {
+  const dict = mesh.morphTargetDictionary;
+  const influences = mesh.morphTargetInfluences;
+  if (!dict || !influences) return;
+  Object.entries(dict).forEach(([name, idx]) => {
+    if (name.startsWith('fit_')) influences[idx] = morphs[name] ?? 0;
+  });
+}
+
 /** Offset that puts the model's feet on y=0 and centres it on x/z. */
 export function groundOffset(root: THREE.Object3D): THREE.Vector3 {
   root.updateMatrixWorld(true);

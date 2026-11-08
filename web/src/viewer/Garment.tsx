@@ -1,10 +1,11 @@
 import { useGLTF } from '@react-three/drei';
 import { Suspense, useEffect, useMemo } from 'react';
+import type { FitMorphs } from '../catalog/fits';
 import type { Shape } from '../catalog/types';
 import { useFit } from '../state/store';
 import { AssetBoundary } from './AssetBoundary';
 import { makeFabricMaterial, tintFabric } from './fabric';
-import { applyBodyWeights, findSkinnedMesh, rebindToRig, type BodyRig } from './rig';
+import { applyBodyWeights, applyFitMorphs, findSkinnedMesh, rebindToRig, type BodyRig } from './rig';
 import { useAssetAvailable } from './useAssetAvailable';
 
 export const garmentUrl = (shape: Shape): string => `/garments/${shape}.glb`;
@@ -14,9 +15,10 @@ interface GarmentProps {
   shape: Shape;
   fabric: string;
   hex: string;
+  fitMorphs: FitMorphs;
 }
 
-function GarmentModel({ rig, shape, fabric, hex }: GarmentProps) {
+function GarmentModel({ rig, shape, fabric, hex, fitMorphs }: GarmentProps) {
   const gltf = useGLTF(garmentUrl(shape));
   const source = useMemo(() => findSkinnedMesh(gltf.scene), [gltf.scene]);
   const mesh = useMemo(() => (source ? rebindToRig(source, rig) : null), [source, rig]);
@@ -39,6 +41,10 @@ function GarmentModel({ rig, shape, fabric, hex }: GarmentProps) {
   useEffect(() => {
     if (mesh && weights) applyBodyWeights(mesh, weights);
   }, [mesh, weights]);
+
+  useEffect(() => {
+    if (mesh) applyFitMorphs(mesh, fitMorphs);
+  }, [mesh, fitMorphs]);
 
   return null;
 }

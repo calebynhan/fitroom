@@ -13,6 +13,8 @@ export interface ScenePreset {
   rimLight: number;
   rimColor: string;
   shadowOpacity: number;
+  /** Viewer labels switch to light text over dark backdrops. */
+  chromeDark: boolean;
   /** Words for the photoreal prompt. */
   setting: string;
 }
@@ -25,7 +27,7 @@ export const SCENES: Record<SceneId, ScenePreset> = {
     label: 'Studio',
     hdri: '/hdri/studio_small_03_1k.hdr',
     showBackground: false,
-    backgroundColor: '#ebe8e3',
+    backgroundColor: '#f7f6f2',
     backgroundBlurriness: 0,
     backgroundIntensity: 1,
     environmentIntensity: 0.9,
@@ -34,6 +36,7 @@ export const SCENES: Record<SceneId, ScenePreset> = {
     rimLight: 0.6,
     rimColor: '#ffffff',
     shadowOpacity: 0.45,
+    chromeDark: false,
     setting: 'a bright, minimal photo studio with a seamless light-grey backdrop and soft even lighting',
   },
   city: {
@@ -49,6 +52,7 @@ export const SCENES: Record<SceneId, ScenePreset> = {
     rimLight: 0.5,
     rimColor: '#cfe0ff',
     shadowOpacity: 0.5,
+    chromeDark: true,
     setting: 'a city street in daylight, shallow depth of field with softly blurred buildings behind',
   },
   night: {
@@ -64,6 +68,7 @@ export const SCENES: Record<SceneId, ScenePreset> = {
     rimLight: 1.6,
     rimColor: '#7fa6ff',
     shadowOpacity: 0.6,
+    chromeDark: true,
     setting: 'outdoors at night under a starry sky, warm key light and a cool blue rim light',
   },
 };
