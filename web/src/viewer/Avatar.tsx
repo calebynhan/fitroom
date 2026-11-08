@@ -6,6 +6,7 @@ import { MODELS } from '../body/models';
 import { useFit } from '../state/store';
 import { AssetBoundary } from './AssetBoundary';
 import { Garment } from './Garment';
+import { Glasses } from './Glasses';
 import { PlaceholderBody } from './PlaceholderBody';
 import { POSE_FADE_S } from './poses';
 import { applyBodyWeights, buildRig, groundOffset, readBodyWeights, type BodyRig } from './rig';
@@ -71,7 +72,7 @@ function usePose(root: THREE.Object3D, clips: THREE.AnimationClip[]): void {
   useFrame((_, delta) => mixer.update(delta));
 }
 
-function BodyModel({ url }: { url: string }) {
+function BodyModel({ url, glasses }: { url: string; glasses: boolean }) {
   const gltf = useGLTF(url);
   const rig = useMemo(() => buildRig(gltf.scene), [gltf.scene]);
   const offset = useMemo(() => groundOffset(gltf.scene), [gltf.scene]);
@@ -93,6 +94,7 @@ function BodyModel({ url }: { url: string }) {
     <group position={offset}>
       <primitive object={gltf.scene} />
       {rig && <Outfit rig={rig} />}
+      {rig && glasses && <Glasses rig={rig} />}
     </group>
   );
 }
@@ -108,7 +110,7 @@ export function Avatar() {
       {status === 'ok' && (
         <AssetBoundary key={model} name={config.bodyUrl} fallback={<PlaceholderBody />}>
           <Suspense fallback={<PlaceholderBody />}>
-            <BodyModel url={config.bodyUrl} />
+            <BodyModel url={config.bodyUrl} glasses={config.glasses} />
           </Suspense>
         </AssetBoundary>
       )}

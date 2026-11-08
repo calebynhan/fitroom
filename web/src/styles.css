@@ -56,9 +56,9 @@ input[type='text']:focus, textarea:focus { outline: 1px solid var(--brass); outl
 /* Viewer chrome */
 .viewer-chrome { position: absolute; inset: 0; pointer-events: none; color: var(--muted); }
 .viewer-chrome > * { pointer-events: auto; }
-.viewer-labels { position: absolute; top: 24px; left: 28px; display: flex; gap: 24px; pointer-events: none; }
-.viewer-hint { position: absolute; left: 28px; bottom: 32px; font: 400 12px var(--sans); pointer-events: none; }
-.on-dark { color: #ebe7de; text-shadow: 0 1px 6px rgba(0, 0, 0, 0.35); }
+.viewer-labels { position: absolute; top: 16px; left: 24px; display: flex; gap: 20px; padding: 9px 14px; background: rgba(250, 249, 246, 0.88); border: 1px solid #d8d3c8; color: var(--muted); text-shadow: none; pointer-events: none; }
+.viewer-hint { position: absolute; left: 24px; bottom: 28px; padding: 6px 12px; background: rgba(250, 249, 246, 0.88); border: 1px solid #d8d3c8; color: var(--muted); text-shadow: none; font: 400 12px var(--sans); pointer-events: none; }
+.on-dark { color: #f3f0ea; text-shadow: 0 1px 6px rgba(0, 0, 0, 0.6); }
 .view-controls { position: absolute; left: 50%; bottom: 28px; transform: translateX(-50%); display: flex; border: 1px solid #d8d3c8; background: var(--paper); color: var(--ink); }
 .view-controls button { width: 40px; height: 40px; border: 0; border-right: 1px solid #d8d3c8; background: transparent; display: grid; place-items: center; }
 .view-controls button:last-child { border-right: 0; }
@@ -74,7 +74,9 @@ input[type='text']:focus, textarea:focus { outline: 1px solid var(--brass); outl
 .word-tabs button { padding: 4px 0; background: transparent; border: 0; border-bottom: 1px solid transparent; font: 400 13px var(--sans); color: var(--muted); }
 .word-tabs button.active { color: var(--ink); border-bottom-color: var(--ink); }
 .word-tabs button:hover:not(.active) { color: var(--ink-2); }
-.pose-picker { position: absolute; top: 18px; right: 28px; gap: 22px; }
+.pose-picker { position: absolute; top: 16px; right: 24px; gap: 18px; padding: 2px 14px; background: rgba(250, 249, 246, 0.88); border: 1px solid #d8d3c8; }
+.viewer-chrome .pose-picker.word-tabs button { color: var(--muted); text-shadow: none; }
+.viewer-chrome .pose-picker.word-tabs button.active { color: var(--ink); border-bottom-color: var(--ink); font-weight: 400; }
 .on-dark .word-tabs button { color: rgba(255, 255, 255, 0.82); text-shadow: 0 1px 6px rgba(0, 0, 0, 0.5); }
 .on-dark .word-tabs button.active { color: #fff; border-bottom-color: #fff; font-weight: 500; }
 .section-head { display: flex; justify-content: space-between; align-items: center; }

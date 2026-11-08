@@ -13,6 +13,8 @@ export interface ModelConfig {
   baseHeightCm: number;
   builds: BuildPreset[];
   defaultBuild: number;
+  /** The user's own glasses (male default body is styled from their photo). */
+  glasses: boolean;
 }
 
 // Girth presets for the Build slider (cm). defaultBuild matches each GLB's exported body.
@@ -31,6 +33,7 @@ export const MODELS: Record<ModelId, ModelConfig> = {
       { label: 'Broad', girths: { chest: 112, waist: 98, hips: 106 } },
     ],
     defaultBuild: 1,
+    glasses: true,
   },
   female: {
     label: 'Women',
@@ -46,6 +49,7 @@ export const MODELS: Record<ModelId, ModelConfig> = {
       { label: 'Full', girths: { chest: 106, waist: 88, hips: 110 } },
     ],
     defaultBuild: 1,
+    glasses: false,
   },
 };
 

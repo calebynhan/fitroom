@@ -15,6 +15,8 @@ export interface ScenePreset {
   shadowOpacity: number;
   groundColor: string;
   groundRoughness: number;
+  /** Project the photo's own floor under the avatar (sharp, real location) instead of a plain disc. */
+  groundProjection: { height: number; radius: number } | null;
   /** Viewer labels switch to light text over dark backdrops. */
   chromeDark: boolean;
   /** Words for the photoreal prompt. */
@@ -40,15 +42,16 @@ export const SCENES: Record<SceneId, ScenePreset> = {
     shadowOpacity: 0.45,
     groundColor: '#ebe8e1', // seamless studio floor
     groundRoughness: 1,
+    groundProjection: null,
     chromeDark: false,
     setting: 'a bright, minimal photo studio with a seamless light-grey backdrop and soft even lighting',
   },
   city: {
     label: 'City',
-    hdri: '/hdri/potsdamer_platz_1k.hdr',
+    hdri: '/hdri/potsdamer_platz_4k.hdr', // Potsdamer Platz, Berlin (Poly Haven, CC0)
     showBackground: true,
     backgroundColor: '#9aa3ad',
-    backgroundBlurriness: 0.12,
+    backgroundBlurriness: 0,
     backgroundIntensity: 0.9,
     environmentIntensity: 0.9,
     keyLight: 1.2,
@@ -58,15 +61,16 @@ export const SCENES: Record<SceneId, ScenePreset> = {
     shadowOpacity: 0.45,
     groundColor: '#8d8c88', // pavement
     groundRoughness: 0.95,
-    chromeDark: false, // light sky behind the labels
-    setting: 'a city street in daylight, shallow depth of field with softly blurred buildings behind',
+    groundProjection: { height: 1.7, radius: 40 },
+    chromeDark: true, // light text with a shadow reads over the photo
+    setting: 'Potsdamer Platz in Berlin in daylight, modern buildings and a wide plaza behind',
   },
   night: {
     label: 'Night',
-    hdri: '/hdri/dikhololo_night_1k.hdr',
+    hdri: '/hdri/shanghai_bund_4k.hdr', // The Bund, Shanghai at night (Poly Haven, CC0)
     showBackground: true,
     backgroundColor: '#0d1220',
-    backgroundBlurriness: 0.25,
+    backgroundBlurriness: 0,
     backgroundIntensity: 0.32,
     environmentIntensity: 1.15,
     keyLight: 1.5,
@@ -76,7 +80,8 @@ export const SCENES: Record<SceneId, ScenePreset> = {
     shadowOpacity: 0.45,
     groundColor: '#1d2027', // dark wet asphalt
     groundRoughness: 0.45,
+    groundProjection: { height: 1.7, radius: 40 },
     chromeDark: true,
-    setting: 'outdoors at night under a starry sky, warm key light and a cool blue rim light',
+    setting: 'the Shanghai Bund waterfront at night, neon skyline behind, warm key light and a cool rim light',
   },
 };

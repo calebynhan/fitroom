@@ -5,7 +5,7 @@ import * as THREE from 'three';
 import { useFit } from '../state/store';
 import { Avatar } from './Avatar';
 import { CameraRig } from './CameraRig';
-import { CAMERA_POSITION, CAMERA_TARGET } from './camera';
+import { CAMERA_FOV, CAMERA_POSITION, CAMERA_TARGET } from './camera';
 import { setViewerCanvas } from './canvasRef';
 import { SceneSetup } from './SceneSetup';
 
@@ -18,7 +18,7 @@ export function Viewer() {
       className="viewer"
       dpr={[1, 2]}
       gl={{ preserveDrawingBuffer: true, antialias: true, toneMapping: THREE.ACESFilmicToneMapping }}
-      camera={{ position: CAMERA_POSITION, fov: 30, near: 0.05, far: 100 }}
+      camera={{ position: CAMERA_POSITION, fov: CAMERA_FOV, near: 0.05, far: 200 }}
       onCreated={({ gl }) => setViewerCanvas(gl.domElement)}
     >
       <Suspense fallback={null}>
@@ -32,7 +32,7 @@ export function Viewer() {
         autoRotate={autoRotate}
         autoRotateSpeed={AUTO_ROTATE_SPEED}
         enablePan={false}
-        minDistance={1.6}
+        minDistance={1.4}
         maxDistance={7}
         minPolarAngle={0.25}
         maxPolarAngle={Math.PI / 2 - 0.04}
