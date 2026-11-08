@@ -35,6 +35,9 @@ MIN_INFLUENCE = 0.01
 TIGHT_GAP = 0.003
 LOOSE_EXTRA = 0.018
 SNAP_TOL = 0.03
+POSE_PASSES = ("relaxed", "walk", "pocket", "relaxed")   # default pose last so it ends cleanest
+POSE_GAP = 0.003
+HAND_TOKENS = ("lowarm", "wrist", "pinky", "ring", "middle", "index", "thumb")
 HEM_SNAP_TOL = 0.05
 
 
@@ -228,6 +231,38 @@ def skin_and_morphs(v: np.ndarray, src: np.ndarray, bd: BodyData, spec: gs.Garme
     return w, deltas, tight, loose
 
 
+def _bone_skin_matrices(arm, names: list) -> np.ndarray:
+    """(groups, 4, 4) posed-from-rest matrix for each vertex-group bone (armature space == world)."""
+    out = np.zeros((len(names), 4, 4))
+    for g, name in enumerate(names):
+        pb = arm.pose.bones.get(name)
+        out[g] = np.array(pb.matrix @ pb.bone.matrix_local.inverted()) if pb else np.eye(4)
+    return out
+
+
+def pose_correct(built: np.ndarray, w: np.ndarray, arm, body, bd: BodyData) -> tuple[np.ndarray, dict]:
+    """Posed anti-clip: in each pose, push garment verts that end up inside the posed body back out, and
+    map the correction to rest space through the inverse of each vertex's skinning transform (LBS)."""
+    hand_v = bd.weights[:, [i for i, n in enumerate(bd.names) if any(t in n for t in HAND_TOKENS)]].sum(1) > 0.3
+    no_hand_faces = bd.faces[~hand_v[bd.faces].any(axis=1)]
+    out, report = built.copy(), {}
+    for pose in POSE_PASSES:
+        poses.apply(arm, body, pose, bd.proxy)
+        faces = no_hand_faces if pose == "pocket" else bd.faces   # hand-in-pocket is intended
+        bvh = BVHTree.FromPolygons(bs.evaluated_coords(body).tolist(), faces.tolist())
+        m = np.einsum("vg,gij->vij", w, _bone_skin_matrices(arm, bd.names))
+        posed = np.einsum("vij,vj->vi", m[:, :3, :3], out) + m[:, :3, 3]
+        hits = [bvh.find_nearest(Vector(p)) for p in posed]
+        loc = np.array([h[0] for h in hits])
+        nrm = np.array([h[1] for h in hits])
+        bad = ((posed - loc) * nrm).sum(1) < POSE_GAP
+        dp = loc[bad] + nrm[bad] * POSE_GAP - posed[bad]
+        out[bad] += np.linalg.solve(m[bad, :3, :3], dp[:, :, None])[:, :, 0]
+        report[pose] = int(bad.sum())
+    poses.reset(arm)
+    return out, report
+
+
 def set_vertex_groups(obj, w: np.ndarray, names: list) -> None:
     used = [g for g in range(w.shape[1]) if w[:, g].max() > 0]   # collect used NAMES first
     groups = {g: obj.vertex_groups.new(name=names[g]) for g in used}
@@ -259,7 +294,7 @@ def add_shape_keys(obj, basis: np.ndarray, keys: list) -> None:
         kb.value = float(value)
 
 
-def make_garment(arm, bd: BodyData, spec: gs.GarmentSpec):
+def make_garment(arm, body, bd: BodyData, spec: gs.GarmentSpec):
     f, src, variants = build_surface(bd, spec)
     v = variants["base"]
     obj = solidify(spec.shape, v, f, spec.thickness)
@@ -271,6 +306,14 @@ def make_garment(arm, bd: BodyData, spec: gs.GarmentSpec):
     fit_deltas = {name: solid_variant(spec, f, pos, len(solid), bd) - built
                   for name, pos in variants.items() if name != "base"}
     w, deltas, tight, loose = skin_and_morphs(built, src[nearest], bd, spec)
+    built, fixed = pose_correct(built, w, arm, body, bd)
+    built, _ = anti_clip(built, bd, gs.clearance(built, bd.landmarks, spec) * 0.9)   # rest stays clean too
+    print(f"  {spec.shape}: posed anti-clip moved {fixed}")
+    for name, delta in list(fit_deltas.items()):   # fit morphs get the same posed clean-up
+        var, var_fixed = pose_correct(built + delta, w, arm, body, bd)
+        var, _ = anti_clip(var, bd, gs.clearance(var, bd.landmarks, spec) * 0.9)
+        fit_deltas[name] = var - built
+        print(f"  {spec.shape}/{name}: posed anti-clip moved {var_fixed}")
     basis = built - np.tensordot(bd.default_w, deltas, axes=1)
     obj.data.vertices.foreach_set("co", built.ravel())
     cylindrical_uvs(obj, bd.landmarks.height)
@@ -346,7 +389,7 @@ def main() -> None:
     objs = {}
     for shape in [s.strip() for s in args.shapes.split(",") if s.strip()]:
         spec = gs.SPECS[shape]
-        obj = make_garment(arm, bd, spec)
+        obj = make_garment(arm, body, bd, spec)
         for o in objs.values():
             o.hide_set(True)
         path = os.path.join(args.out, f"{shape}.glb")
