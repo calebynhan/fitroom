@@ -4,10 +4,10 @@ import { Suspense } from 'react';
 import { useFit } from '../state/store';
 import { Avatar } from './Avatar';
 import { CameraRig } from './CameraRig';
+import { CAMERA_POSITION, CAMERA_TARGET } from './camera';
 import { setViewerCanvas } from './canvasRef';
 import { SceneSetup } from './SceneSetup';
 
-const CAMERA_TARGET: [number, number, number] = [0, 0.95, 0];
 const AUTO_ROTATE_SPEED = 0.6; // slow showroom spin
 
 export function Viewer() {
@@ -17,7 +17,7 @@ export function Viewer() {
       className="viewer"
       dpr={[1, 2]}
       gl={{ preserveDrawingBuffer: true, antialias: true }}
-      camera={{ position: [0, 1.1, 4.6], fov: 30, near: 0.05, far: 100 }}
+      camera={{ position: CAMERA_POSITION, fov: 30, near: 0.05, far: 100 }}
       onCreated={({ gl }) => setViewerCanvas(gl.domElement)}
     >
       <Suspense fallback={null}>

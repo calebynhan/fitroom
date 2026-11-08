@@ -1,6 +1,7 @@
 import { useFrame, useThree } from '@react-three/fiber';
 import { useRef } from 'react';
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
+import { DEFAULT_AZIMUTH_DEG } from './camera';
 import { publishAngle, takeCommands } from './viewerBus';
 
 const TURN_EASE = 6; // higher = snappier
@@ -16,7 +17,7 @@ export function CameraRig() {
     if (!controls) return;
     const cmd = takeCommands();
     if (cmd.reset) {
-      remaining.current = -controls.getAzimuthalAngle();
+      remaining.current = DEFAULT_AZIMUTH_DEG * DEG - controls.getAzimuthalAngle();
     }
     remaining.current += cmd.turn * DEG;
     if (Math.abs(remaining.current) > 1e-4) {

@@ -20,7 +20,7 @@ export interface ScenePreset {
 }
 
 export const SCENE_IDS: SceneId[] = ['studio', 'city', 'night'];
-export const DEFAULT_SCENE: SceneId = 'city';
+export const DEFAULT_SCENE: SceneId = 'studio';
 
 export const SCENES: Record<SceneId, ScenePreset> = {
   studio: {
