@@ -1,14 +1,16 @@
 import { useEffect, useState } from 'react';
 import { EXPECTED_SHOT_MS, usePhoto } from '../state/photo';
+import { useLookKey } from '../state/store';
 
 const TICK_MS = 200;
 const CAP = 0.95; // never claim 100% before the image arrives
 
-/** Estimated progress (0..1) of the current photoreal shot, or null when idle. */
+/** Estimated progress (0..1) of the photograph being composed for the look on screen, or null. */
 export function useProgress(): number | null {
   const photo = usePhoto((s) => s.photo);
+  const key = useLookKey();
   const [now, setNow] = useState(Date.now());
-  const working = photo.kind === 'working';
+  const working = photo.kind === 'working' && photo.key === key;
 
   useEffect(() => {
     if (!working) return undefined;
@@ -16,7 +18,7 @@ export function useProgress(): number | null {
     return () => clearInterval(t);
   }, [working]);
 
-  if (photo.kind !== 'working') return null;
+  if (!working || photo.kind !== 'working') return null;
   const t = (now - photo.startedAt) / EXPECTED_SHOT_MS;
   return Math.min(CAP, 1 - Math.exp(-2.2 * t)); // fast start, eases toward the cap
 }

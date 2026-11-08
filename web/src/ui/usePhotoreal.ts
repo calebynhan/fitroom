@@ -1,8 +1,9 @@
 import { findColor, type Slot } from '../catalog/types';
 import { usePhoto, type PhotoCaption } from '../state/photo';
-import { useFit } from '../state/store';
+import { currentLookKey, useFit } from '../state/store';
 import { getViewerCanvas } from '../viewer/canvasRef';
 import { SCENES } from '../viewer/scenes';
+import { faceFront } from '../viewer/viewerBus';
 import { snapshotPortrait } from './snapshot';
 
 interface PhotorealResponse {
@@ -55,28 +56,42 @@ async function post(body: object): Promise<PhotorealResponse> {
   }
 }
 
-/** Snapshots the viewer and asks /api/photoreal for a photograph. */
-export async function makeItReal(): Promise<void> {
-  const photo = usePhoto.getState();
-  if (photo.photo.kind === 'working') return;
+let composing = false; // covers the camera turn before "working" is set
+
+/**
+ * Snapshots the viewer and asks /api/photoreal for a photograph of the current look.
+ * Automatic shots turn the camera to the front first and fail quietly (auto then stops for the session).
+ */
+export async function makeItReal({ auto = false }: { auto?: boolean } = {}): Promise<void> {
+  if (composing || usePhoto.getState().photo.kind === 'working') return;
   const canvas = getViewerCanvas();
   if (!canvas) {
-    photo.fail('The 3D view is not ready yet.', null);
+    if (!auto) usePhoto.getState().fail('The 3D view is not ready yet.', null, false);
     return;
   }
+  composing = true;
   let image: string;
+  let key: string;
   try {
+    if (auto) await faceFront();
+    key = currentLookKey(); // the look actually captured, even if it changed during the turn
     image = snapshotPortrait(canvas); // before start(), so a failure can't leave us stuck in "working"
   } catch (err: unknown) {
     console.error('[photoreal] snapshot failed', err);
-    photo.fail('Could not capture the 3D view. Try again.', null);
+    usePhoto.getState().fail('Could not capture the 3D view. Try again.', null, auto);
     return;
+  } finally {
+    composing = false;
   }
   const pieces = wornPieces();
   const caption = buildCaption(pieces);
-  photo.start();
+  usePhoto.getState().start(key, auto);
   const data = await post({ image, scene: useFit.getState().scene, outfit: [pieces.top, pieces.bottom].filter(Boolean) });
   const remaining = typeof data.remaining === 'number' ? data.remaining : null;
-  if (data.image) usePhoto.getState().succeed(data.image, caption, remaining);
-  else usePhoto.getState().fail(data.error ?? 'Something went wrong.', remaining);
+  if (data.image) {
+    usePhoto.getState().succeed(key, { image: data.image, caption }, remaining);
+    return;
+  }
+  if (auto) console.warn('[photoreal] automatic shot failed; auto shots are off for this visit:', data.error);
+  usePhoto.getState().fail(data.error ?? 'Something went wrong.', remaining, auto);
 }

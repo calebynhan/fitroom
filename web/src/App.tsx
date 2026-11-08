@@ -2,13 +2,13 @@ import { useEffect, useState } from 'react';
 import { fitsUrl } from './body/models';
 import { parseFits } from './catalog/fits';
 import { parseCatalog } from './catalog/types';
-import { usePhoto } from './state/photo';
 import { useFit } from './state/store';
 import { BodySection } from './ui/BodySection';
 import { Header } from './ui/Header';
 import { OutfitSection } from './ui/OutfitSection';
 import { ResultView } from './ui/ResultView';
 import { SceneSection } from './ui/SceneSection';
+import { useAutoPhotoreal } from './ui/useAutoPhotoreal';
 import { ViewerChrome } from './ui/ViewerChrome';
 import { Viewer } from './viewer/Viewer';
 
@@ -50,22 +50,22 @@ function useCatalogLoader(): string | null {
 export function App() {
   const catalogError = useCatalogLoader();
   useFitsLoader();
-  const working = usePhoto((s) => s.photo.kind === 'working');
+  useAutoPhotoreal();
 
   return (
     <div className="app">
       <Header />
       <main className="stage">
-        <div className={`viewer-pane ${working ? 'dimmed' : ''}`}>
+        <div className="viewer-pane">
           <Viewer />
           <ViewerChrome />
+          <ResultView />
         </div>
-        <aside className={`rail ${working ? 'dimmed' : ''}`} aria-label="Controls">
+        <aside className="rail" aria-label="Controls">
           <BodySection />
           <OutfitSection loadError={catalogError} />
           <SceneSection />
         </aside>
-        <ResultView />
       </main>
     </div>
   );

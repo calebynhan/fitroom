@@ -3,6 +3,7 @@ import { weightsForGirths, type BodyMeasure, type Girths } from '../body/measure
 import { DEFAULT_MODEL, MODELS, type ModelId } from '../body/models';
 import type { FitsFile } from '../catalog/fits';
 import type { CatalogItem, Selection, Slot } from '../catalog/types';
+import { lookKey } from './lookKey';
 import { DEFAULT_POSE, type PoseId } from '../viewer/poses';
 import { DEFAULT_SCENE, type SceneId } from '../viewer/scenes';
 
@@ -105,3 +106,7 @@ export const useFit = create<FitState>()((set) => ({
   setFits: (fits) => set({ fits }),
   setDressed: (dressed) => set({ dressed }),
 }));
+
+/** Key of the look on screen right now (outfit, colours, scene, pose, body). */
+export const useLookKey = (): string => useFit(lookKey);
+export const currentLookKey = (): string => lookKey(useFit.getState());
