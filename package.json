@@ -1,0 +1,16 @@
+{
+  "name": "fitroom",
+  "private": true,
+  "description": "Root package: Vercel functions in api/ (the web app lives in web/)",
+  "scripts": {
+    "test": "vitest run api"
+  },
+  "dependencies": {
+    "jpeg-js": "^0.4.4"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.2.0"
+  }
+}
