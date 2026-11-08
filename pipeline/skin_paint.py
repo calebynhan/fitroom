@@ -95,7 +95,9 @@ def hair_weight(p: np.ndarray, eye_l: np.ndarray, look: Look) -> np.ndarray:
                     look.hair_side + (look.hair_back - look.hair_side) * _smooth(0.5, 1.0, t))
     ear_top = min(ez + 0.003, ez + look.hair_side - 0.004)              # hair may cover the ear tops
     ear = (x > 0.055) & ((((y - (ey + 0.10)) / 0.032) ** 2 + ((z - (ear_top - 0.028)) / 0.028) ** 2) < 1.0)
-    return _smooth(-0.003, 0.004, z - (ez + line)) * (z < ez + 0.2) * ~ear
+    fringe = np.clip(1 - t / 0.3, 0, 1)                                 # break the bangs edge into tips
+    tips = 0.0045 * fringe * (np.abs(np.sin(x * 260.0 + 0.6 * np.sin(x * 47.0))) ** 0.6)
+    return _smooth(-0.0025, 0.003, z - (ez + line - tips)) * (z < ez + 0.2) * ~ear
 
 
 def hair_displacement(p: np.ndarray, normals: np.ndarray, eye_l: np.ndarray, look: Look) -> np.ndarray:
@@ -113,6 +115,21 @@ def hair_displacement(p: np.ndarray, normals: np.ndarray, eye_l: np.ndarray, loo
     return normals * thick[:, None]
 
 
+def hair_colour(p: np.ndarray, eye_l: np.ndarray, look: Look) -> np.ndarray:
+    """Strands radiating from the crown, a soft overhead sheen band and darker roots near the hairline."""
+    _, ey, ez = eye_l
+    crown = np.array([0.0, ey + 0.10, ez + 0.11])
+    d = p - crown
+    phi = np.arctan2(d[:, 0], -d[:, 1])                                 # azimuth around the crown
+    wobble = 0.8 * np.sin(np.hypot(d[:, 0], d[:, 1]) * 90.0)
+    jitter = 2.5 * _noise(p, 220.0) + 1.5 * _noise(p * 1.7, 520.0)      # irregular, not knit-like
+    strands = (0.86 + 0.08 * np.sin(phi * 140.0 + wobble + jitter) + 0.06 * np.sin(phi * 61.0 + 2 * jitter)
+               + 0.22 * (_noise(p, 1400.0) - 0.5))
+    sheen = 0.55 * np.exp(-(((p[:, 2] - (ez + 0.085)) / 0.018) ** 2)) * (p[:, 1] < ey + 0.14)
+    shade = np.clip(strands + sheen, 0.55, 1.9)
+    return np.clip(np.array(look.hair)[None, :] * shade[:, None] + 0.03 * sheen[:, None], 0, 1)
+
+
 def colour(p: np.ndarray, eye_l: np.ndarray, look: Look) -> np.ndarray:
     """RGB in [0,1] (linear-ish) for points p (n,3). eye_l = left eye joint (x>0)."""
     x, y, z = np.abs(p[:, 0]), p[:, 1], p[:, 2]
@@ -124,8 +141,7 @@ def colour(p: np.ndarray, eye_l: np.ndarray, look: Look) -> np.ndarray:
     rgb = rgb * (1 - look.blush * cheek[:, None]) + np.array([0.85, 0.45, 0.42]) * (look.blush * cheek)[:, None]
 
     hair_w = hair_weight(p, eye_l, look)
-    strands = 0.8 + 0.4 * _noise(p * np.array([1, 1, 0.3]), 600.0)
-    rgb = rgb * (1 - hair_w[:, None]) + (np.array(look.hair) * strands[:, None]) * hair_w[:, None]
+    rgb = rgb * (1 - hair_w[:, None]) + hair_colour(p, eye_l, look) * hair_w[:, None]
 
     # Eyebrows: arched band above each eye, tapering toward the tail.
     dx = x - ex
