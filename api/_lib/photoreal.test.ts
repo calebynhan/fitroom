@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { parseLookRequest, parsePieces, type BodySpec, type LookPiece } from './look';
-import { angleAllowed, issueLookToken, lookDigest, MAX_ATTEMPTS, recordAngle, TOKEN_TTL_MS, verifyLookToken } from './lookToken';
+import { claimAngle, issueLookToken, lookDigest, MAX_ATTEMPTS, settleAngle, TOKEN_TTL_MS, verifyLookToken } from './lookToken';
 import { buildLookPrompt, describeImages, describePiece } from './photorealPrompt';
 import {
   begin,
@@ -11,10 +11,12 @@ import {
   encodeCount,
   end,
   IP_CONCURRENCY,
+  IP_IMAGE_CEILING,
   LOOK_LIMIT,
   lookCookie,
   looksLeft,
   readCookie,
+  recordImage,
 } from './rateLimit';
 
 const SECRET = 'test-secret';
@@ -153,10 +155,17 @@ describe('rate limit policy', () => {
     expect(looksLeft(usage)).toBe(0);
   });
 
-  it('caps concurrent generations per IP', () => {
+  it('needs room for a whole look before charging the front', () => {
+    const usage = currentUsage(req('6.6.6.6'), SECRET);
+    for (let i = 0; i < IP_IMAGE_CEILING - 3; i += 1) recordImage(usage.ip);
+    expect(check(usage, true)).toMatchObject({ ok: false, status: 429, retryable: false });
+    expect(check(usage, false)).toEqual({ ok: true }); // the angles of a started look can still finish
+  });
+
+  it('caps concurrent generations per IP, and says a retry will help', () => {
     const usage = currentUsage(req('5.5.5.5'), SECRET);
     for (let i = 0; i < IP_CONCURRENCY; i += 1) begin(usage.ip);
-    expect(check(usage, false)).toMatchObject({ ok: false, status: 429 });
+    expect(check(usage, false)).toMatchObject({ ok: false, status: 429, retryable: true, retryAfterS: 5 });
     end(usage.ip);
     expect(check(usage, false)).toEqual({ ok: true });
     for (let i = 1; i < IP_CONCURRENCY; i += 1) end(usage.ip);
@@ -190,13 +199,21 @@ describe('look token', () => {
     expect(verifyLookToken(token, SECRET, lookDigest({ ...look }))).not.toBeNull();
   });
 
-  it('lets each angle succeed once and caps billed failures', () => {
+  it('lets each angle succeed once, refuses duplicates in flight, and caps billed failures', () => {
     const id = verifyLookToken(issueLookToken(SECRET, DIGEST), SECRET, DIGEST)!;
-    expect(angleAllowed(id, 'back')).toEqual({ ok: true });
-    recordAngle(id, 'back', true);
-    expect(angleAllowed(id, 'back')).toMatchObject({ ok: false, status: 409 });
-    for (let i = 0; i < MAX_ATTEMPTS; i += 1) recordAngle(id, 'side', false);
-    expect(angleAllowed(id, 'side')).toMatchObject({ ok: false, status: 429 });
-    expect(angleAllowed(id, 'three_quarter')).toEqual({ ok: true });
+    expect(claimAngle(id, 'back')).toEqual({ ok: true });
+    expect(claimAngle(id, 'back')).toMatchObject({ ok: false, status: 409, error: expect.stringMatching(/developing/) });
+    settleAngle(id, 'back', 'done');
+    expect(claimAngle(id, 'back')).toMatchObject({ ok: false, status: 409, retryable: false });
+
+    for (let i = 0; i < MAX_ATTEMPTS; i += 1) {
+      expect(claimAngle(id, 'side')).toEqual({ ok: true });
+      settleAngle(id, 'side', 'billed');
+    }
+    expect(claimAngle(id, 'side')).toMatchObject({ ok: false, status: 429 });
+
+    expect(claimAngle(id, 'three_quarter')).toEqual({ ok: true });
+    settleAngle(id, 'three_quarter', 'free'); // a failure that cost nothing frees the angle for a retry
+    expect(claimAngle(id, 'three_quarter')).toEqual({ ok: true });
   });
 });

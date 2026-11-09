@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { VIEW_LABEL, VIEWS, type View } from '@api/look';
 import type { LookInput } from '../look/request';
 import { retryView } from '../look/shoot';
@@ -19,18 +19,18 @@ function Frame({ look, view, onOpen }: { look: Look; view: View; onOpen: () => v
     case 'done':
       body = (
         <button type="button" className="frame-photo" onClick={onOpen} aria-label={`Open the ${VIEW_LABEL[view].toLowerCase()} photo`}>
-          <img src={state.image} alt={`You, ${VIEW_LABEL[view].toLowerCase()} view`} />
+          <img src={state.image} alt={`You, ${VIEW_LABEL[view].toLowerCase()} view`} width={1024} height={1536} />
         </button>
       );
       break;
     case 'working':
       body = (
         <div className="frame-status">
-          <span className="frame-title">Developing</span>
+          <span className="frame-title">Developing…</span>
           <span className="frame-bar">
-            <span style={{ width: `${Math.round(viewProgress(state, now) * 100)}%` }} />
+            <span style={{ transform: `scaleX(${viewProgress(state, now).toFixed(3)})` }} />
           </span>
-          <span className="eyebrow muted">{view === 'front' ? 'ABOUT 30 SECONDS' : 'MATCHING THE FRONT SHOT'}</span>
+          <span className="eyebrow muted">{view === 'front' ? 'Usually under a minute' : 'Matching the front shot'}</span>
         </div>
       );
       break;
@@ -50,7 +50,7 @@ function Frame({ look, view, onOpen }: { look: Look; view: View; onOpen: () => v
     default:
       body = (
         <div className="frame-status">
-          <span className="eyebrow muted">{frontDone || view === 'front' ? 'UP NEXT' : 'AFTER THE FRONT SHOT'}</span>
+          <span className="eyebrow muted">{frontDone || view === 'front' ? 'Up next' : 'After the front shot'}</span>
         </div>
       );
   }
@@ -84,9 +84,15 @@ function downloadAll(look: Look) {
 }
 
 function Shots({ look, stale }: { look: Look; stale: boolean }) {
+  const remaining = useLooks((s) => s.remaining);
+  const busy = useLooks((s) => s.busy === look.key);
   const [open, setOpen] = useState<View | null>(null);
   const { caption } = look;
   const done = doneCount(look);
+  const openDone = open !== null && look.views[open].kind === 'done';
+  useEffect(() => {
+    if (open !== null && !openDone) setOpen(null); // its photo went away (e.g. a reshoot started)
+  }, [open, openDone]);
   return (
     <div className="lookbook">
       <div className="lookbook-head">
@@ -100,6 +106,11 @@ function Shots({ look, stale }: { look: Look; stale: boolean }) {
           )}
           {caption.bottom}
         </h1>
+        {look.notice && (
+          <p className="stale-note" role="status">
+            {look.notice}
+          </p>
+        )}
         {stale && <p className="stale-note">You changed something since these were shot. Make new shots to see it.</p>}
       </div>
       <div className="frames">
@@ -107,15 +118,28 @@ function Shots({ look, stale }: { look: Look; stale: boolean }) {
           <Frame key={view} look={look} view={view} onOpen={() => setOpen(view)} />
         ))}
       </div>
+      <p className="sr-only" aria-live="polite">
+        {busy ? `${done} of 4 photos ready.` : done === 4 ? 'All 4 photos are ready.' : ''}
+      </p>
       <div className="lookbook-foot">
         {done > 1 && (
           <button type="button" className="btn btn-outline" onClick={() => downloadAll(look)}>
-            DOWNLOAD ALL
+            Download All
           </button>
         )}
-        <p className="note">AI-generated from your photos and measurements. Fit and length follow the size chart; check the product page before you buy.</p>
+        <div className="foot-notes">
+          <p className="note">
+            AI-generated from your photos and measurements. Fit and length follow the size chart; check the product page before
+            you buy. Photos are not saved: download the ones you want to keep.
+          </p>
+          {done > 0 && remaining !== null && remaining > 0 && (
+            <p className="note">
+              Shooting again uses one of your {remaining} remaining {remaining === 1 ? 'look' : 'looks'}.
+            </p>
+          )}
+        </div>
       </div>
-      {open && <Lightbox look={look} view={open} onClose={() => setOpen(null)} onNavigate={setOpen} />}
+      {open && openDone && <Lightbox look={look} view={open} onClose={() => setOpen(null)} onNavigate={setOpen} />}
     </div>
   );
 }
@@ -130,13 +154,13 @@ function Intro({ input }: { input: LookInput }) {
   return (
     <div className="lookbook intro">
       <div className="lookbook-head">
-        <div className="eyebrow muted">YOUR FITTING ROOM</div>
+        <div className="eyebrow muted">Your fitting room</div>
         <h1 className="lookbook-title">
           See it on <em>you</em>.
         </h1>
         <p className="intro-copy">
-          Three photos and your measurements. We shoot the outfit on you from four angles, like the model on a product page, in
-          the size that fits you.
+          Three photos and your measurements become four shots of you in the outfit, from the front, three-quarter, side and
+          back, like the model on a product page, in the size that fits you.
         </p>
         <ol className="checklist">
           {steps.map((s) => (
@@ -150,10 +174,10 @@ function Intro({ input }: { input: LookInput }) {
           ))}
         </ol>
         {input.ready ? (
-          <p className="intro-ready">Ready. Press Make my shots.</p>
+          <p className="intro-ready">Ready. Press Make My Shots.</p>
         ) : (
           <a className="btn btn-dark intro-start" href="#you">
-            ADD YOUR PHOTOS
+            Add Your Photos
           </a>
         )}
       </div>

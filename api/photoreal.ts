@@ -7,7 +7,7 @@
 import { json, readJson } from './_lib/http';
 import { extension, fetchProductImage, decodeDataUrl, type ImageInput } from './_lib/images';
 import { parseLookRequest, type LookRequest } from './_lib/look';
-import { angleAllowed, issueLookToken, lookDigest, recordAngle, verifyLookToken } from './_lib/lookToken';
+import { claimAngle, issueLookToken, lookDigest, settleAngle, verifyLookToken, type AngleOutcome } from './_lib/lookToken';
 import { buildLookPrompt } from './_lib/photorealPrompt';
 import { begin, check, currentUsage, end, lookCookie, looksLeft, recordImage } from './_lib/rateLimit';
 import { describeNetworkError, describeTimeout, describeUpstreamError, type UpstreamFailure } from './_lib/upstreamError';
@@ -15,7 +15,9 @@ import { describeNetworkError, describeTimeout, describeUpstreamError, type Upst
 const OPENAI_EDITS_URL = 'https://api.openai.com/v1/images/edits';
 const DEFAULT_MODEL = 'gpt-image-1.5';
 const DEFAULT_QUALITY = 'medium';
-const UPSTREAM_TIMEOUT_MS = 110_000;
+// vercel.json gives this function 120 s; the OpenAI call gets what is left of this budget (at least 15 s).
+const FUNCTION_BUDGET_MS = 112_000;
+const MIN_UPSTREAM_MS = 15_000;
 const LOG_BODY_CHARS = 1_000; // full upstream error in the function logs
 
 interface OpenAIImageResponse {
@@ -46,13 +48,13 @@ async function readBody(res: Response): Promise<unknown> {
   }
 }
 
-async function callOpenAI(key: string, form: FormData): Promise<Upstream> {
+async function callOpenAI(key: string, form: FormData, timeoutMs: number): Promise<Upstream> {
   try {
     const res = await fetch(OPENAI_EDITS_URL, {
       method: 'POST',
       headers: { Authorization: `Bearer ${key}` },
       body: form,
-      signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+      signal: AbortSignal.timeout(timeoutMs),
     });
     const data = await readBody(res);
     const b64 = (data as OpenAIImageResponse | null)?.data?.[0]?.b64_json;
@@ -80,6 +82,7 @@ async function gatherImages(req: LookRequest): Promise<{ images: ImageInput[]; p
 }
 
 export async function POST(request: Request): Promise<Response> {
+  const started = Date.now();
   const key = process.env.OPENAI_API_KEY;
   if (!key) {
     console.error('[api/photoreal] OPENAI_API_KEY is not set');
@@ -95,43 +98,49 @@ export async function POST(request: Request): Promise<Response> {
   let lookId: string | null = null;
   if (!newLook) {
     lookId = verifyLookToken(req.lookToken, key, lookDigest(req));
-    if (!lookId) return json({ error: 'This look has expired or changed. Make the shots again.', retryable: false, remaining: looksLeft(usage) }, 403);
-    const angle = angleAllowed(lookId, req.view);
-    if (!angle.ok) return json({ error: angle.error, retryable: false, remaining: looksLeft(usage) }, angle.status);
+    if (!lookId) return json({ error: 'This look has expired or changed. Shoot it again.', retryable: false, remaining: looksLeft(usage) }, 403);
   }
 
   const verdict = check(usage, newLook);
-  if (!verdict.ok) return json({ error: verdict.error, retryable: false, remaining: looksLeft(usage) }, verdict.status);
+  if (!verdict.ok) {
+    const headers: Record<string, string> = verdict.retryAfterS ? { 'Retry-After': String(verdict.retryAfterS) } : {};
+    return json({ error: verdict.error, retryable: verdict.retryable, remaining: looksLeft(usage) }, verdict.status, headers);
+  }
+  if (lookId) {
+    const angle = claimAngle(lookId, req.view);
+    if (!angle.ok) return json({ error: angle.error, retryable: angle.retryable, remaining: looksLeft(usage) }, angle.status);
+  }
 
+  let outcome: AngleOutcome = 'free';
   begin(usage.ip);
   try {
     const { images, products } = await gatherImages(req);
     const prompt = buildLookPrompt({ ...req, roles: { reference: Boolean(req.reference), products } });
     const model = process.env.OPENAI_IMAGE_MODEL || DEFAULT_MODEL;
     const quality = process.env.OPENAI_IMAGE_QUALITY || DEFAULT_QUALITY;
-    const result = await callOpenAI(key, buildForm(images, prompt, model, quality));
+    const timeoutMs = Math.max(MIN_UPSTREAM_MS, FUNCTION_BUDGET_MS - (Date.now() - started));
+    const result = await callOpenAI(key, buildForm(images, prompt, model, quality), timeoutMs);
 
     if ('error' in result) {
       const { billable, status, ...failure } = result;
       if (billable) {
         recordImage(usage.ip);
-        if (lookId) recordAngle(lookId, req.view, false);
+        outcome = 'billed';
       }
       return json({ ...failure, remaining: looksLeft(usage) }, status);
     }
 
     recordImage(usage.ip);
+    outcome = 'done';
     const image = `data:image/jpeg;base64,${result.b64}`;
-    if (lookId) {
-      recordAngle(lookId, req.view, true);
-      return json({ image, view: req.view, remaining: looksLeft(usage) });
-    }
+    if (lookId) return json({ image, view: req.view, remaining: looksLeft(usage) });
     return json(
       { image, view: req.view, lookToken: issueLookToken(key, lookDigest(req)), remaining: looksLeft({ ...usage, looks: usage.looks + 1 }) },
       200,
       { 'Set-Cookie': lookCookie(usage, key) },
     );
   } finally {
+    if (lookId) settleAngle(lookId, req.view, outcome);
     end(usage.ip);
   }
 }

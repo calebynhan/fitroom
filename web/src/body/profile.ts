@@ -55,6 +55,16 @@ export function estimate(heightCm: number, weightKg: number): Record<OptionalKey
   return out;
 }
 
+/** A body for sizing: which optional measurements were typed in (true) rather than estimated. */
+export type SizingBody = BodySpec & { measured?: Partial<Record<OptionalKey, boolean>> };
+
+export function sizingBody(p: Profile): SizingBody | null {
+  const body = completeBody(p);
+  if (!body) return null;
+  const measured = Object.fromEntries(OPTIONAL.map((k) => [k, inRange(k, p[k])])) as Record<OptionalKey, boolean>;
+  return { ...body, measured };
+}
+
 /** Full body for the photo request (entered values, estimates for the blanks), or null without height + weight. */
 export function completeBody(p: Profile): BodySpec | null {
   if (!inRange('heightCm', p.heightCm) || !inRange('weightKg', p.weightKg)) return null;
@@ -75,7 +85,7 @@ export const CM_PER_IN = 2.54;
 export const KG_PER_LB = 0.45359237;
 
 export function toDisplay(key: MeasureKey, metric: number, units: Units): number {
-  if (units === 'metric') return Math.round(metric);
+  if (units === 'metric') return Math.round(metric * 10) / 10;
   return key === 'weightKg' ? Math.round(metric / KG_PER_LB) : Math.round((metric / CM_PER_IN) * 2) / 2;
 }
 

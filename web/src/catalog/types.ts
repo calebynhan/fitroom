@@ -30,8 +30,14 @@ export function formatSizes(sizes: CatalogItem['sizes']): string {
   return sizes.length > 2 ? `${sizes[0]}-${sizes[sizes.length - 1]}` : sizes.join(', ');
 }
 
+const USD = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
+
+export function formatMoney(amount: number): string {
+  return USD.format(amount);
+}
+
 export function formatPrice(item: CatalogItem): string {
-  return `$${(item.salePrice ?? item.price).toFixed(2)}`;
+  return formatMoney(item.salePrice ?? item.price);
 }
 
 export function findColor(item: CatalogItem, code: string): CatalogColor {

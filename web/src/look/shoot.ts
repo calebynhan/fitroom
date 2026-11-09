@@ -2,12 +2,13 @@
 // all four show the same person, outfit, shoes and light. Each view is its own request and can be retried alone.
 import { VIEWS, type LookFailure, type LookSuccess, type View } from '@api/look';
 import { downscaleDataUrl } from '../photos/prepare';
-import { useLooks } from '../state/looks';
+import { doneCount, useLooks } from '../state/looks';
 import { useApp } from '../state/store';
 import { lookInput, type LookBase } from './request';
 
 const OTHER_VIEWS = VIEWS.filter((v) => v !== 'front');
 const REFERENCE_MAX_SIDE = 1024;
+const REFERENCE_MAX_CHARS = 900_000; // with the three photos' budgets, stays under MAX_BODY_CHARS
 const MAX_BODY_CHARS = 4_000_000; // Vercel rejects request bodies over 4.5 MB
 
 interface Session {
@@ -58,7 +59,7 @@ async function shootFront(key: string, session: Session): Promise<boolean> {
   if (!report(key, 'front', answer)) return false;
   session.token = answer.lookToken;
   try {
-    session.reference = await downscaleDataUrl(answer.image, REFERENCE_MAX_SIDE);
+    session.reference = await downscaleDataUrl(answer.image, REFERENCE_MAX_SIDE, REFERENCE_MAX_CHARS);
   } catch {
     session.reference = answer.image;
   }
@@ -94,10 +95,22 @@ export function makeLook(): Promise<void> {
   if (!input.ready) return Promise.resolve();
   const { key, base, caption } = input;
   return exclusive(key, async () => {
+    const previous = useLooks.getState().looks[key];
+    const previousSession = sessions.get(key);
     const session: Session = { base };
     sessions.set(key, session);
     useLooks.getState().start(key, caption);
-    if (await shootFront(key, session)) await shootRemaining(key, session);
+    if (await shootFront(key, session)) {
+      await shootRemaining(key, session);
+      return;
+    }
+    // A reshoot whose front failed: put the earlier photos back rather than leave a failed, empty look.
+    if (previous && doneCount(previous) > 0) {
+      const failed = useLooks.getState().looks[key]?.views.front;
+      const reason = failed?.kind === 'error' ? failed.message : 'The new shot failed.';
+      useLooks.getState().restore(previous, `Couldn't shoot this look again: ${reason} Your earlier photos are kept.`);
+      if (previousSession) sessions.set(key, previousSession);
+    }
   });
 }
 

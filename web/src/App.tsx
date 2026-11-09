@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { parseCatalog } from './catalog/types';
+import { hasUnsavedPhotos, useLooks } from './state/looks';
 import { useApp } from './state/store';
 import { Header } from './ui/Header';
 import { Lookbook } from './ui/Lookbook';
@@ -29,10 +30,28 @@ function useCatalogLoader(): string | null {
   return error;
 }
 
+/** Photos live only in this tab (never stored), so warn before a reload or close throws them away. */
+function useLeaveWarning(): void {
+  const unsaved = useLooks(hasUnsavedPhotos);
+  useEffect(() => {
+    if (!unsaved) return undefined;
+    const warn = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = ''; // older browsers need this to show the prompt
+    };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [unsaved]);
+}
+
 export function App() {
   const catalogError = useCatalogLoader();
+  useLeaveWarning();
   return (
     <div className="app">
+      <a className="skip-link" href="#you">
+        Skip to your photos and measurements
+      </a>
       <Header />
       <main className="stage">
         <section className="lookbook-pane" aria-label="Your photos">

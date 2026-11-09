@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { completeBody } from '../body/profile';
-import { colorImage, findColor, formatPrice, type CatalogItem, type Selection, type Slot } from '../catalog/types';
+import { sizingBody } from '../body/profile';
+import { colorImage, findColor, formatMoney, formatPrice, type CatalogItem, type Selection, type Slot } from '../catalog/types';
 import { chartSizes, easeFor, fitSummary, formatSize, lengthFor, shortSize, sizeAdvice } from '../fit/sizing';
 import { useApp } from '../state/store';
 import { PasteLink } from './PasteLink';
+import { onRadioKeys, rovingTab } from './radioKeys';
 
 const CUT_LABEL: Record<CatalogItem['fit'], string> = { slim: 'Slim cut', regular: 'Regular cut', relaxed: 'Relaxed cut' };
 
@@ -15,7 +16,7 @@ function Thumb({ item, code, slot }: { item: CatalogItem; code: string; slot: Sl
   const src = sources[count];
   return (
     <div className="thumb">
-      {src ? <img src={src} alt="" loading="lazy" onError={() => setFailures({ code, count: count + 1 })} /> : <span>{slot}</span>}
+      {src ? <img src={src} alt="" width={64} height={85} loading="lazy" onError={() => setFailures({ code, count: count + 1 })} /> : <span>{slot}</span>}
     </div>
   );
 }
@@ -23,7 +24,7 @@ function Thumb({ item, code, slot }: { item: CatalogItem; code: string; slot: Sl
 function SizePicker({ item, selection }: { item: CatalogItem; selection: Selection }) {
   const profile = useApp((s) => s.profile);
   const setSize = useApp((s) => s.setSize);
-  const body = completeBody(profile);
+  const body = sizingBody(profile);
   const sizes = chartSizes(item);
   const advice = body ? sizeAdvice(item, body) : null;
   const chosen = selection.size ?? advice?.size;
@@ -32,22 +33,24 @@ function SizePicker({ item, selection }: { item: CatalogItem; selection: Selecti
   if (sizes.length === 0) return <p className="size-note">No size chart for this item, so the shots show your usual size.</p>;
   return (
     <div className="sizes">
-      <div className="size-chips" role="radiogroup" aria-label={`${item.name} size`}>
-        {sizes.map((s) => (
+      <div className="size-chips" role="radiogroup" aria-label={`${item.name} size`} onKeyDown={onRadioKeys}>
+        {sizes.map((s, i) => (
           <button
             key={s}
             type="button"
             role="radio"
             aria-checked={s === chosen}
+            tabIndex={rovingTab(s === chosen, i, chosen !== undefined && sizes.includes(chosen))}
             className={`size-chip ${s === chosen ? 'active' : ''} ${s === advice?.size ? 'yours' : ''}`}
             title={s === advice?.size ? 'Your size' : undefined}
             onClick={() => setSize(item.slot, s === advice?.size ? undefined : s)}
           >
             {shortSize(s)}
+            {s === advice?.size && <span className="sr-only"> (your size)</span>}
           </button>
         ))}
       </div>
-      <p className="size-note">
+      <p className={`size-note ${advice && !advice.fits ? 'warn' : ''}`}>
         {advice ? advice.text : 'Add your height and weight to get your size.'}
         {summary && chosen && (
           <>
@@ -73,24 +76,28 @@ function ProductCard({ item, selection }: { item: CatalogItem; selection: Select
           <span>{item.slot === 'top' ? 'Top' : 'Bottoms'}</span>
           <span>{color.name}</span>
         </div>
-        <div className="product-name">{item.name}</div>
+        <div className="product-name" translate="no">
+          {item.name}
+        </div>
         <div className="product-price">
-          {item.salePrice !== null && <s>${item.price.toFixed(2)}</s>} {formatPrice(item)}
+          {item.salePrice !== null && <s>{formatMoney(item.price)}</s>} {formatPrice(item)}
           <span className="product-fit"> · {CUT_LABEL[item.fit] ?? 'Regular cut'}</span>
         </div>
         <div className="product-foot">
-          <div className="swatches" role="radiogroup" aria-label={`${item.name} colour`}>
-            {item.colors.map((c) => (
+          <div className="swatches" role="radiogroup" aria-label={`${item.name} colour`} onKeyDown={onRadioKeys}>
+            {item.colors.map((c, i) => (
               <button
                 key={c.code}
                 type="button"
                 role="radio"
                 aria-checked={c.code === color.code}
+                aria-label={c.name}
+                tabIndex={rovingTab(c.code === color.code, i, true)}
                 title={c.name}
                 className={`swatch ${c.code === color.code ? 'active' : ''}`}
                 onClick={() => setColor(item.slot, c.code)}
               >
-                <span style={{ background: c.hex }} />
+                <span style={{ background: c.hex }} aria-hidden />
               </button>
             ))}
           </div>
@@ -123,7 +130,9 @@ function SlotGroup({ slot }: { slot: Slot }) {
             {others.map((item) => (
               <li key={item.id}>
                 <button type="button" onClick={() => wear(item)}>
-                  <span className="alt-name">{item.name}</span>
+                  <span className="alt-name" translate="no">
+                    {item.name}
+                  </span>
                   <span className="alt-price">{formatPrice(item)}</span>
                 </button>
               </li>
@@ -137,7 +146,7 @@ function SlotGroup({ slot }: { slot: Slot }) {
 
 export function OutfitSection({ loadError }: { loadError: string | null }) {
   return (
-    <section className="rail-section" aria-labelledby="outfit-title">
+    <section className="rail-section" id="outfit" aria-labelledby="outfit-title">
       <h2 className="eyebrow" id="outfit-title">
         Outfit
       </h2>

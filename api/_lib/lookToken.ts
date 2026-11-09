@@ -13,6 +13,8 @@ const MAX_TRACKED = 5000;
 interface AngleUse {
   done: boolean;
   billed: number;
+  /** A request for this angle is in flight (so a duplicate can't run alongside it). */
+  busy: boolean;
 }
 const uses = new Map<string, AngleUse>();
 
@@ -46,21 +48,28 @@ export function verifyLookToken(token: string | undefined, secret: string, diges
   return Number(exp) > now ? id : null;
 }
 
-export type AngleVerdict = { ok: true } | { ok: false; status: number; error: string };
+export type AngleVerdict = { ok: true } | { ok: false; status: number; error: string; retryable: boolean };
+export type AngleOutcome = 'done' | 'billed' | 'free';
 
-export function angleAllowed(lookId: string, view: View): AngleVerdict {
-  const use = uses.get(`${lookId}:${view}`);
-  if (use?.done) return { ok: false, status: 409, error: 'This angle is already done.' };
-  if (use && use.billed >= MAX_ATTEMPTS) {
-    return { ok: false, status: 429, error: 'This angle failed too many times. Make the look again.' };
+/** Reserves an angle of a look for one request. Settle it with settleAngle when the request ends. */
+export function claimAngle(lookId: string, view: View): AngleVerdict {
+  const id = `${lookId}:${view}`;
+  const use = uses.get(id);
+  if (use?.done) {
+    return { ok: false, status: 409, error: "This angle was already made. If it didn't arrive, shoot the look again.", retryable: false };
   }
+  if (use?.busy) return { ok: false, status: 409, error: 'This angle is already developing.', retryable: false };
+  if (use && use.billed >= MAX_ATTEMPTS) {
+    return { ok: false, status: 429, error: 'This angle failed too many times. Shoot the look again.', retryable: false };
+  }
+  if (!use && uses.size >= MAX_TRACKED) uses.clear();
+  uses.set(id, { done: false, billed: use?.billed ?? 0, busy: true });
   return { ok: true };
 }
 
-/** Records a billed attempt at an angle; `done` when it produced a photo. */
-export function recordAngle(lookId: string, view: View, done: boolean): void {
+/** Releases a claimed angle: `done` produced a photo, `billed` may have cost money without one, `free` did not. */
+export function settleAngle(lookId: string, view: View, outcome: AngleOutcome): void {
   const id = `${lookId}:${view}`;
-  if (!uses.has(id) && uses.size >= MAX_TRACKED) uses.clear();
-  const use = uses.get(id) ?? { done: false, billed: 0 };
-  uses.set(id, { done: use.done || done, billed: use.billed + 1 });
+  const use = uses.get(id) ?? { done: false, billed: 0, busy: false };
+  uses.set(id, { done: use.done || outcome === 'done', billed: use.billed + (outcome === 'free' ? 0 : 1), busy: false });
 }

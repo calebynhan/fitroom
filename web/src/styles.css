@@ -12,6 +12,7 @@
   --sale: #8e2a21;
   --serif: 'Cormorant Garamond', 'Times New Roman', serif;
   --sans: Inter, system-ui, -apple-system, sans-serif;
+  color-scheme: light;
   font-family: var(--sans);
   color: var(--ink);
   -webkit-font-smoothing: antialiased;
@@ -19,6 +20,7 @@
 
 * { box-sizing: border-box; }
 html, body, #root { margin: 0; height: 100%; background: var(--paper); }
+html { touch-action: manipulation; }
 body { overflow: hidden; }
 button { font: inherit; color: inherit; cursor: pointer; border-radius: 0; -webkit-tap-highlight-color: transparent; }
 button:disabled { cursor: not-allowed; }
@@ -28,11 +30,13 @@ a:hover { color: var(--graphite); }
 button:focus-visible, a:focus-visible, summary:focus-visible { outline: 1px solid var(--ink); outline-offset: 2px; }
 input[type='text']:focus, textarea:focus { outline: 1px solid var(--ink); outline-offset: -1px; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.skip-link { position: absolute; left: 16px; top: -48px; z-index: 20; padding: 8px 16px; background: var(--ink); color: var(--paper); font: 500 12px var(--sans); }
+.skip-link:focus { top: 8px; color: var(--paper); }
 
 .eyebrow { font: 500 10px var(--sans); letter-spacing: 0.22em; text-transform: uppercase; margin: 0; }
 .muted { color: var(--muted); }
 
-.btn { display: inline-flex; align-items: center; justify-content: center; height: 32px; padding: 0 16px; border: 1px solid var(--ink); font: 500 11px var(--sans); letter-spacing: 0.18em; text-decoration: none; white-space: nowrap; }
+.btn { display: inline-flex; align-items: center; justify-content: center; height: 32px; padding: 0 16px; border: 1px solid var(--ink); font: 500 11px var(--sans); letter-spacing: 0.18em; text-transform: uppercase; text-decoration: none; white-space: nowrap; }
 .btn-dark { background: var(--ink); color: var(--paper); }
 .btn-dark:hover { color: var(--paper); background: var(--graphite); }
 .btn-dark:disabled { background: var(--muted); border-color: var(--muted); }
@@ -40,6 +44,7 @@ input[type='text']:focus, textarea:focus { outline: 1px solid var(--ink); outlin
 .btn-outline:hover { background: var(--bone); color: var(--ink); }
 .btn-outline:disabled { color: var(--muted); border-color: var(--hairline); background: var(--paper); }
 .link-btn { background: none; border: 0; padding: 0; font-size: 12px; text-decoration: underline; text-underline-offset: 3px; }
+.link-btn:hover:not(:disabled) { color: var(--graphite); }
 .link-btn:disabled { color: var(--muted); }
 
 /* Layout: lookbook on the left, controls in the rail. */
@@ -48,7 +53,7 @@ input[type='text']:focus, textarea:focus { outline: 1px solid var(--ink); outlin
 .wordmark { font: 500 28px/1 var(--serif); letter-spacing: -0.01em; }
 .topbar-actions { display: flex; align-items: center; gap: 16px; }
 .progress-line { position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; background: var(--stone); }
-.progress-line > div { height: 2px; background: var(--ink); transition: width 0.25s linear; }
+.progress-line > div { height: 2px; background: var(--ink); transform-origin: left center; transform: scaleX(0); transition: transform 0.25s linear; }
 
 .stage { display: flex; min-height: 0; }
 .lookbook-pane { flex: 1; min-width: 0; overflow-y: auto; background: var(--paper); }
@@ -77,19 +82,21 @@ input[type='text']:focus, textarea:focus { outline: 1px solid var(--ink); outlin
 .frame figcaption { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
 .frame-dl { font: 400 11px var(--sans); }
 .frame-photo { display: block; width: 100%; height: 100%; padding: 0; border: 0; background: none; cursor: zoom-in; }
-.frame-photo img { display: block; width: 100%; height: 100%; object-fit: cover; animation: develop 0.8s ease-out; }
-@keyframes develop { from { opacity: 0; filter: saturate(0.2); } to { opacity: 1; filter: none; } }
+.frame-photo img { display: block; width: 100%; height: 100%; object-fit: cover; animation: develop 0.8s ease-out; transition: opacity 0.2s; }
+.frame-photo:hover img { opacity: 0.92; }
+@keyframes develop { from { opacity: 0; } to { opacity: 1; } }
 .frame-status { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 16px; text-align: center; }
 .frame-title { font: italic 400 22px var(--serif); }
 .frame-bar { width: 60%; height: 2px; background: var(--stone); }
-.frame-bar > span { display: block; height: 2px; background: var(--ink); transition: width 0.25s linear; }
+.frame-bar > span { display: block; height: 2px; background: var(--ink); transform-origin: left center; transform: scaleX(0); transition: transform 0.25s linear; }
 .frame-fail { background: var(--paper); font: 400 13px/1.4 var(--sans); color: var(--sale); }
 .error-detail { font-size: 11px; line-height: 1.4; color: var(--muted); overflow-wrap: anywhere; }
 .lookbook-foot { display: flex; align-items: center; gap: 24px; }
-.lookbook-foot .note { max-width: 520px; }
+.lookbook-foot .note { max-width: 560px; }
+.foot-notes { display: flex; flex-direction: column; gap: 4px; }
 
 /* Lightbox */
-.lightbox { position: fixed; inset: 0; z-index: 10; background: rgba(17, 17, 17, 0.88); display: flex; align-items: center; justify-content: center; padding: 24px; animation: fade-in 0.2s ease-out; }
+.lightbox { position: fixed; inset: 0; z-index: 10; overflow: auto; overscroll-behavior: contain; background: rgba(17, 17, 17, 0.88); display: flex; align-items: center; justify-content: center; padding: 24px; animation: fade-in 0.2s ease-out; }
 @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
 .lightbox-inner { display: flex; flex-direction: column; gap: 16px; max-height: 100%; background: var(--paper); padding: 16px; }
 .lightbox-inner img { display: block; max-width: min(640px, 100%); max-height: calc(100dvh - 140px); object-fit: contain; margin: 0 auto; }
@@ -132,6 +139,7 @@ input[type='text']:focus, textarea:focus { outline: 1px solid var(--ink); outlin
 .field label { font: 500 12px var(--sans); }
 .field-opt { font-weight: 400; color: var(--muted); }
 .field-error { font: 400 11px var(--sans); color: var(--sale); }
+.field-error:empty { margin-top: -4px; }
 .num-pair { display: flex; gap: 8px; }
 .num-pair .num-box { flex: 1; }
 .num-box { display: flex; align-items: center; height: 40px; min-width: 0; background: var(--paper); border: 1px solid var(--hairline); }
@@ -149,6 +157,7 @@ input[type='text']:focus, textarea:focus { outline: 1px solid var(--ink); outlin
 .fallback { margin-top: 8px; font: 400 12px/1.5 var(--sans); }
 .fallback summary { cursor: pointer; font-weight: 500; }
 .fallback ol { padding-left: 16px; margin: 4px 0; }
+.copy-btn { margin-top: 4px; font-size: 11px; }
 .snippet { display: block; margin-top: 4px; padding: 4px 8px; background: var(--paper); border: 1px solid var(--hairline); font: 10px ui-monospace, Menlo, monospace; word-break: break-all; cursor: copy; }
 .fallback textarea { width: 100%; border: 1px solid var(--hairline); background: var(--paper); padding: 4px 8px; font: 11px ui-monospace, Menlo, monospace; margin-bottom: 8px; }
 
@@ -179,6 +188,7 @@ input[type='text']:focus, textarea:focus { outline: 1px solid var(--ink); outlin
 .size-chip.active { background: var(--ink); border-color: var(--ink); color: var(--paper); }
 .size-chip.yours::after { content: ''; position: absolute; left: 50%; bottom: 3px; width: 4px; height: 4px; margin-left: -2px; border-radius: 999px; background: var(--khaki); }
 .size-note { margin: 0; font: 400 12px/1.45 var(--sans); color: var(--graphite); }
+.size-note.warn { color: var(--sale); }
 .size-fit { color: var(--muted); }
 
 .alternates { border: 1px solid var(--hairline); border-top: 0; background: rgba(255, 255, 255, 0.5); }
@@ -205,6 +215,16 @@ input[type='text']:focus, textarea:focus { outline: 1px solid var(--ink); outlin
   .lookbook { padding: 24px 24px 48px; }
 }
 
+/* Touch screens: 16px inputs, or iOS Safari zooms the page on focus. */
+@media (max-width: 900px), (pointer: coarse) {
+  .num-box input, .paste-input, .fallback textarea { font-size: 16px; }
+}
+
+/* Reduced motion: no fades, no animated bars. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
+}
+
 /* Narrow screens: photos on top, controls below. */
 @media (max-width: 900px) {
   body { overflow: auto; }
@@ -212,7 +232,7 @@ input[type='text']:focus, textarea:focus { outline: 1px solid var(--ink); outlin
   .topbar { position: sticky; top: 0; height: 56px; padding: 0 16px; }
   .wordmark { font-size: 24px; }
   .topbar-actions { gap: 8px; }
-  .topbar-actions .eyebrow { display: none; }
+  .looks-left { letter-spacing: 0.12em; }
   .stage { flex-direction: column; }
   .lookbook-pane { overflow: visible; }
   .lookbook { padding: 24px 16px 24px; }

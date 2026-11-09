@@ -5,3 +5,7 @@ pipeline
 node_modules
 web/node_modules
 web/dist
+# Legacy 3D assets (pipeline output), unused by the app since 2026-11-09; kept in git, not deployed.
+web/public/hdri
+web/public/models
+web/public/garments

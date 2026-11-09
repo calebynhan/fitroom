@@ -9,6 +9,7 @@ import { makeLook, postView, retryView } from './shoot';
 
 vi.mock('../photos/prepare', () => ({ downscaleDataUrl: async (d: string) => d }));
 
+
 const PHOTO = { dataUrl: 'data:image/jpeg;base64,/9j/4AAQSkZJRg==', width: 600, height: 900 };
 const SHOT = 'data:image/jpeg;base64,QUJD';
 
@@ -65,7 +66,7 @@ describe('lookInput', () => {
       expect.objectContaining({ slot: 'top', name: 'Washable Milano Ribbed Sweater', size: 'S', ease: 'regular', length: 'regular', image: expect.stringContaining('usgoods_67_453754') }),
       expect.objectContaining({ slot: 'bottom', name: 'Ultra Stretch Pants', color: 'Black', size: 'S', ease: 'regular', length: 'ankle' }),
     ]);
-    expect(input.caption.meta).toBe('TOP S · BOTTOMS S · STUDIO · 178 CM');
+    expect(input.caption.meta).toBe('Top S · Bottoms S · Studio · 178\u00a0cm');
   });
 
   it('changes key when anything in the photo would change', () => {
@@ -123,6 +124,21 @@ describe('makeLook', () => {
     await retryView(key, 'back');
     expect(calls.map((c) => c.view).slice(4)).toEqual(['back']);
     expect(useLooks.getState().looks[key].views.back.kind).toBe('done');
+  });
+
+  it('keeps the earlier photos when shooting the same look again fails', async () => {
+    let failFront = false;
+    serve((b) => {
+      if (b.view === 'front' && failFront) return { status: 422, json: { error: 'The safety filter declined this one.', retryable: true } };
+      return { json: { image: SHOT, view: b.view, lookToken: 'tok', remaining: 2 } };
+    });
+    await makeLook();
+    const key = useLooks.getState().latest!;
+    failFront = true;
+    await makeLook();
+    const look = useLooks.getState().looks[key];
+    expect(Object.values(look.views).every((v) => v.kind === 'done')).toBe(true);
+    expect(look.notice).toMatch(/earlier photos are kept/);
   });
 
   it('does nothing until the look is ready, and one look at a time', async () => {

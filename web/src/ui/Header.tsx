@@ -3,6 +3,26 @@ import { useLookInput } from '../look/useLookInput';
 import { makeLook } from '../look/shoot';
 import { lookProgress, useNow } from './progress';
 
+/** Where each missing part is filled in, so the button can take the shopper there. */
+const MISSING_TARGET: Record<string, { section: string; focus?: string }> = {
+  'front photo': { section: 'you', focus: '.photo-drop' },
+  'side photo': { section: 'you', focus: '.photo-tile:nth-child(2) .photo-drop' },
+  'face profile': { section: 'you', focus: '.photo-tile:nth-child(3) .photo-drop' },
+  'height and weight': { section: 'measure', focus: 'input' },
+  'something to wear': { section: 'outfit', focus: 'input' },
+};
+
+const scrollBehavior = (): ScrollBehavior =>
+  window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth';
+
+function revealMissing(missing: string): void {
+  const target = MISSING_TARGET[missing];
+  const section = target && document.getElementById(target.section);
+  if (!section) return;
+  section.scrollIntoView({ behavior: scrollBehavior(), block: 'start' });
+  section.querySelector<HTMLElement>(target.focus ?? 'button, input')?.focus({ preventScroll: true });
+}
+
 function ShootButton() {
   const input = useLookInput();
   const key = input.ready ? input.key : null;
@@ -12,32 +32,36 @@ function ShootButton() {
   const busyDone = useLooks((s) => (s.busy ? doneCount(s.looks[s.busy]) : 0));
   const outOfLooks = remaining !== null && remaining <= 0;
 
-  let label = doneCount(look) > 0 ? 'SHOOT AGAIN' : 'MAKE MY SHOTS';
-  let title = doneCount(look) > 0 ? 'Shoot this look again (uses one more look)' : 'Shoot this outfit on you from four angles';
-  if (busy) {
-    label = `DEVELOPING ${busyDone}/4`;
-    title = 'Your photos are developing';
-  } else if (!input.ready) {
-    title = `Add your ${input.missing.join(', ')} first`;
-  } else if (outOfLooks) {
-    label = 'NO LOOKS LEFT';
-    title = 'You have used all your looks';
-  }
+  const again = doneCount(look) > 0;
+  let label = again ? 'Shoot Again' : 'Make My Shots';
+  if (busy) label = `Developing… ${busyDone}/4`;
+  else if (outOfLooks) label = 'No Looks Left';
+
+  const onClick = () => {
+    // Not ready: take the shopper to the first thing missing instead of a silent disabled button.
+    if (!input.ready) return revealMissing(input.missing[0]);
+    // On phones the photos sit above the form: bring them into view so the shoot is visible.
+    if (window.scrollY > 0) window.scrollTo({ top: 0, behavior: scrollBehavior() });
+    void makeLook();
+  };
 
   return (
-    <button
-      type="button"
-      className={`btn ${doneCount(look) > 0 && !busy ? 'btn-outline' : 'btn-dark'}`}
-      onClick={() => {
-        // On phones the photos sit above the form: bring them into view so the shoot is visible.
-        if (window.scrollY > 0) window.scrollTo({ top: 0, behavior: 'smooth' });
-        void makeLook();
-      }}
-      disabled={Boolean(busy) || !input.ready || outOfLooks}
-      title={title}
-    >
-      {label}
-    </button>
+    <>
+      <button
+        type="button"
+        className={`btn ${again && !busy ? 'btn-outline' : 'btn-dark'}`}
+        onClick={onClick}
+        disabled={Boolean(busy) || outOfLooks}
+        aria-describedby={input.ready ? undefined : 'shoot-missing'}
+      >
+        {label}
+      </button>
+      {!input.ready && (
+        <span className="sr-only" id="shoot-missing">
+          First add your {input.missing.join(', ')}.
+        </span>
+      )}
+    </>
   );
 }
 
@@ -47,7 +71,7 @@ function ProgressLine() {
   if (!look) return null;
   return (
     <div className="progress-line" aria-hidden>
-      <div style={{ width: `${Math.round(lookProgress(look, now) * 100)}%` }} />
+      <div style={{ transform: `scaleX(${lookProgress(look, now).toFixed(3)})` }} />
     </div>
   );
 }
@@ -56,11 +80,13 @@ export function Header() {
   const remaining = useLooks((s) => s.remaining);
   return (
     <header className="topbar">
-      <div className="wordmark">FitRoom</div>
+      <div className="wordmark" translate="no">
+        FitRoom
+      </div>
       <div className="topbar-actions">
         {remaining !== null && (
-          <span className="eyebrow muted">
-            {remaining} {remaining === 1 ? 'LOOK' : 'LOOKS'} LEFT
+          <span className="eyebrow muted looks-left">
+            {remaining} {remaining === 1 ? 'look' : 'looks'} left
           </span>
         )}
         <ShootButton />

@@ -77,8 +77,10 @@ export interface LookFailure {
 }
 
 export const PHOTO_DATA_URL_RE = /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+=*$/;
-/** Per image: ~1.1 MB decoded. Four images stay well under Vercel's 4.5 MB request cap. */
+/** Per image ceiling (~1.1 MB decoded). The browser aims far lower (photos/prepare.ts budgets). */
 export const MAX_PHOTO_CHARS = 1_500_000;
+/** All images of one request together; Vercel rejects request bodies over 4.5 MB. */
+export const MAX_TOTAL_PHOTO_CHARS = 4_000_000;
 export const PRODUCT_IMAGE_RE = /^https:\/\/image\.uniqlo\.com\/[A-Za-z0-9/_\-.]+\.(jpg|jpeg|png|webp)$/i;
 
 const BODY_RANGES: Record<keyof BodySpec, [number, number]> = {
@@ -168,6 +170,8 @@ export function parseLookRequest(body: Record<string, unknown> | null): Parsed<L
     items,
     photos: { front: photos.front, side: photos.side, face: photos.face },
   };
+  const total = request.photos.front.length + request.photos.side.length + request.photos.face.length + (typeof body.reference === 'string' ? body.reference.length : 0);
+  if (total > MAX_TOTAL_PHOTO_CHARS) return fail('Your photos are too large to send together. Use smaller photos.');
   if (view !== 'front') {
     if (!isPhoto(body.reference)) return fail('The other angles need the finished front shot. Make the front shot first.');
     if (typeof body.lookToken !== 'string' || body.lookToken.length > 200) return fail('This angle needs the front shot of the same look first.');

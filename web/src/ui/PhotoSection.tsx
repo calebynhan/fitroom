@@ -70,7 +70,7 @@ function PhotoTile({ slot }: { slot: PhotoSlot }) {
         aria-label={`${photo ? 'Replace' : 'Add'} ${guide.label.toLowerCase()} photo: ${guide.hint}`}
         disabled={loading}
       >
-        {photo ? <img src={photo.dataUrl} alt="" /> : GUIDE_ART[slot]}
+        {photo ? <img src={photo.dataUrl} alt="" width={photo.width} height={photo.height} /> : GUIDE_ART[slot]}
         {!photo && <span className="photo-plus">{loading ? 'Reading…' : '+ Add'}</span>}
       </button>
       <div className="photo-label">
@@ -116,8 +116,8 @@ export function PhotoSection() {
         Plain wall, good light, fitted clothes. Whole body in frame for front and side; arms a little away from your sides.
       </p>
       <p className="note fine">
-        Only photos of yourself. They stay in this tab and go to our image model (OpenAI) only to make your shots; FitRoom
-        never stores them.
+        Only photos of yourself. They stay in this tab and go to OpenAI's image model only to make your shots; FitRoom never
+        stores them.
       </p>
     </section>
   );

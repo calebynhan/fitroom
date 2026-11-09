@@ -41,7 +41,8 @@ the Blender pipeline is kept in the repo but no longer used (see Legacy). Qualit
 
 **Production**
 - [ ] Rate limit /api/photoreal and cap total daily spend (in place: 3 looks per visitor cookie, 48 photos per IP and
-      200 per instance per day, both in memory; verify on the live URL).
+      200 per instance per day, both in memory per warm instance, so best effort; next: shared counters (Vercel KV /
+      Upstash) and a hard monthly budget on the OpenAI project; verify on the live URL).
 - [ ] Error handling on every API call; loading states.
 - [ ] OG image + metadata, Vercel Analytics, a short About / how-it-works section.
 
@@ -112,25 +113,32 @@ waist only. Garment chest minus the user's chest = real ease, if you want to dri
 waistCm, hipsCm, inseamCm }, items: [{ slot, name, color, fabric, size?, ease?, length?, image? }], photos: { front,
 side, face }, reference?, lookToken? }` -> `{ image, view, lookToken?, remaining }` or `{ error, detail?, retryable,
 remaining? }`.
-- photos / reference: JPEG/PNG/WebP data URLs, ≤ 1.5 M chars each (the browser sends ~1024 px JPEGs, far under
-  Vercel's 4.5 MB body cap). `body` is complete (the client fills estimates). `ease` = close|regular|relaxed|oversized,
+- photos / reference: JPEG/PNG/WebP data URLs, ≤ 1.5 M chars each and ≤ 4 M together (Vercel rejects bodies over
+  4.5 MB). The browser budgets front/side 900 K, face 450 K and the finished front shot 900 K (photos/prepare.ts,
+  look/shoot.ts), lowering JPEG quality, then size, to fit. `body` is complete (the client fills estimates). `ease` = close|regular|relaxed|oversized,
   `length` = cropped|regular|long (tops) or cropped|ankle|full|long (bottoms). `image` = UNIQLO product photo, accepted
   only from https://image.uniqlo.com/ and fetched server-side without redirects; if it fails the garment is described
   in words. Item text is sanitised to letters, digits and plain punctuation before it reaches the prompt.
 - Front: costs one look (signed HttpOnly cookie `fr_looks`, LOOK_LIMIT 3) when it succeeds, and returns `lookToken`
-  (HMAC, 30 min, bound to a digest of photos + body + items + scene). Other views need `lookToken` + `reference` (the finished front shot, ≤ 1024 px) and cost no look;
-  each angle succeeds once per token (409 after), at most 3 billed attempts. 403 = expired/forged token.
-  `remaining` = looks left. 400 bad input (message is shopper-facing), 429 limits, 503 not configured / paused.
+  (HMAC, 30 min, bound to a digest of photos + body + items + scene). A front is refused unless all 4 photos of the
+  look still fit under today's IP and instance caps. Other views need `lookToken` + `reference` (the finished front
+  shot, ≤ 1024 px) and cost no look; each angle is claimed while it develops (a duplicate gets 409), succeeds once per
+  token (409 after), and gets at most 3 billed attempts. 403 = expired/forged token or a different look.
+  `remaining` = looks left. 400 bad input (message is shopper-facing); 429 limits (the "already developing on your
+  network" one is `retryable` with `Retry-After`); 503 not configured / paused. The OpenAI call gets what is left of a
+  112 s budget (vercel.json maxDuration 120); the product-photo fetch times out at 4 s.
 - OpenAI images.edit, multipart `image[]` in this order: front photo, side photo, face profile, [front shot],
   [top product photo], [bottoms product photo]; the prompt names them "Image 1..n" (high input fidelity favours the
   first, so the front photo leads). input_fidelity high, 1024x1536, JPEG. Prompt (api/_lib/photorealPrompt.ts): keep
   identity and real proportions with the body numbers, never slimmer/taller/younger; each garment exactly as its
   product photo with size and fit on this body; plain white sneakers; per-view direction; setting; no logos or text.
 
-**Size recommendation** (web/src/fit/sizing.ts): the smallest size whose body ranges cover the user's (tops: chest and,
-when listed, waist; bottoms: waist and, when listed, hips); the largest if none does. Ease of the chosen size = garment
-circumference - body (tops chest: <8 close, <16 regular, <25 relaxed, else oversized; bottoms hips: <6, <14, <24);
-without garment numbers, steps from the recommended size. Length: tops vs 0.39 x height (±5 cm), pants vs
+**Size recommendation** (web/src/fit/sizing.ts): the smallest size whose body ranges cover the user's. Tops go by
+chest, plus waist only when the user typed one (an ANSUR estimate, SD 4.4 cm, must not push a size up); bottoms go
+by waist (estimated if blank), plus hips only when typed. If no size covers the body, the largest is shown as "Runs
+small for you" and rendered tight. Ease of the chosen size: more than 4 cm over its body range = close; otherwise
+garment circumference - body (tops chest: <8 close, <16 regular, <25 relaxed, else oversized; bottoms hips: <6, <14,
+<24); without garment numbers, steps from the recommended size. Length: tops vs 0.39 x height (±5 cm), pants vs
 inseam - 4 cm (≤ -10 cropped, ≤ -4 ankle, ≤ +5 full, else long). Both go into the prompt.
 
 ## Pitfalls (learned so far)
@@ -145,6 +153,9 @@ inseam - 4 cm (≤ -10 cropped, ≤ -4 ankle, ≤ +5 full, else long). Both go i
 | Parallel angles under-count the visitor's looks | each response sets the cookie to the count it read + 1 | one look = the front shot; the angles ride on the signed look token and never touch the cookie |
 | App freezes / "getSnapshot should be cached" | a zustand selector returned a new object every render | select slices, derive with useMemo (look/useLookInput.ts) |
 | Imperial value drifts on blur (178 cm -> 177.8) | re-committing a rounded display value | commit only when the typed text differs from the stored value (MeasureSection NumberBox) |
+| A paid front whose angles then hit "a lot of photos today" | the cap check only made room for 1 photo | a new look needs room for all 4 (rateLimit.check) |
+| Shoot Again wiped 4 paid photos when the new front failed | the look was reset before the front succeeded | restore the earlier look with a notice (look/shoot.ts) |
+| Every deploy uploads 57 MB of unused 3D assets | web/public is copied into dist | .vercelignore excludes web/public/{hdri,models,garments} |
 
 ## Commands
     cd web && npm run dev          # frontend + /api (vite serves api/*.ts; reads OPENAI_API_KEY from ../.env.local)
@@ -163,7 +174,8 @@ inseam - 4 cm (≤ -10 cropped, ≤ -4 ankle, ≤ +5 full, else long). Both go i
 
 ## Legacy: 3D pipeline (unused by the app since 2026-11-09)
 The web app no longer loads any of this; it is kept until the photo flow is proven on the live URL, then can be
-deleted (pipeline/, web/public/models, web/public/garments, web/public/hdri). The 3D viewer code lives in git history
+deleted (pipeline/, web/public/models, web/public/garments, web/public/hdri; .vercelignore already keeps the last
+three out of deploys). The 3D viewer code lives in git history
 (before the photo pivot commit). web/src/body/profile.ts copies the ANSUR `estimate` block from fit_model.json.
 Fitted morph weights for the default body (lod1 mannequin): body_0 -1.62, body_1 -1.28, body_2 0.74, body_3 0.16,
 body_4 0.12, body_5 -0.18. body_1 positive adds a bust (female direction); keep it ≤ 0 for men.

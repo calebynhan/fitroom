@@ -5,6 +5,8 @@ import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 export const LOOK_LIMIT = 3; // looks per visitor (signed cookie)
 export const IP_IMAGE_CEILING = 48; // photos per IP per instance-day, high enough for shared venue wifi
 export const IP_CONCURRENCY = 4; // generations in flight per IP (a look runs three angles at once)
+export const PHOTOS_PER_LOOK = 4;
+const BUSY_RETRY_AFTER_S = 5;
 const DEFAULT_INSTANCE_DAILY_CAP = 200; // photos per warm instance per day; override with PHOTOREAL_DAILY_CAP
 export const COOKIE_NAME = 'fr_looks';
 const COOKIE_MAX_AGE_S = 60 * 60 * 24 * 30;
@@ -65,7 +67,7 @@ export interface Usage {
   ip: string;
 }
 
-export type Verdict = { ok: true } | { ok: false; status: number; error: string };
+export type Verdict = { ok: true } | { ok: false; status: number; error: string; retryable: boolean; retryAfterS?: number };
 
 export function currentUsage(request: Request, secret: string): Usage {
   return { looks: decodeCount(readCookie(request.headers.get('cookie'), COOKIE_NAME), secret), ip: clientIp(request) };
@@ -75,18 +77,22 @@ export function looksLeft(usage: Usage): number {
   return Math.max(0, LOOK_LIMIT - usage.looks);
 }
 
-/** Decides whether this visitor may start a photo now. `newLook` is true for the front shot. */
+/**
+ * Decides whether this visitor may start a photo now. `newLook` is true for the front shot, which must leave room
+ * for all four photos of the look today, so nobody pays for a front whose angles can't be made.
+ */
 export function check(usage: Usage, newLook: boolean): Verdict {
-  if (process.env.PHOTOREAL_DISABLED === '1') return { ok: false, status: 503, error: 'Photos are paused right now.' };
+  if (process.env.PHOTOREAL_DISABLED === '1') return { ok: false, status: 503, error: 'Photos are paused right now.', retryable: false };
   if (newLook && usage.looks >= LOOK_LIMIT) {
-    return { ok: false, status: 429, error: `You have made all ${LOOK_LIMIT} looks. Thanks for trying FitRoom!` };
+    return { ok: false, status: 429, error: `You have made all ${LOOK_LIMIT} looks. Thanks for trying FitRoom!`, retryable: false };
   }
   const d = today();
-  if ((d.ips.get(usage.ip) ?? 0) >= IP_IMAGE_CEILING || d.count >= instanceCap()) {
-    return { ok: false, status: 429, error: 'FitRoom has made a lot of photos today. Try again later.' };
+  const need = newLook ? PHOTOS_PER_LOOK : 1;
+  if ((d.ips.get(usage.ip) ?? 0) + need > IP_IMAGE_CEILING || d.count + need > instanceCap()) {
+    return { ok: false, status: 429, error: 'FitRoom has made a lot of photos today. Try again tomorrow.', retryable: false };
   }
   if ((inFlight.get(usage.ip) ?? 0) >= IP_CONCURRENCY) {
-    return { ok: false, status: 429, error: 'A few photos are already developing. One moment.' };
+    return { ok: false, status: 429, error: 'A few photos are already developing on your network. Retry in a few seconds.', retryable: true, retryAfterS: BUSY_RETRY_AFTER_S };
   }
   return { ok: true };
 }

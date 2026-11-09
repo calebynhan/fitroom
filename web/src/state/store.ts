@@ -54,7 +54,10 @@ function isSelection(v: unknown): v is Selection {
 function resolveSelection(items: CatalogItem[], saved: unknown, id: string, slot: Slot): Selection | null {
   if (isSelection(saved)) {
     const item = items.find((i) => i.id === saved.itemId && i.slot === slot);
-    if (item?.colors.some((c) => c.code === saved.colorCode)) return saved;
+    if (item?.colors.some((c) => c.code === saved.colorCode)) {
+      const sizeOk = saved.size !== undefined && Array.isArray(item.sizes) && item.sizes.includes(saved.size);
+      return { itemId: saved.itemId, colorCode: saved.colorCode, ...(sizeOk ? { size: saved.size } : {}) };
+    }
   }
   const item = items.find((i) => i.id === id) ?? items.find((i) => i.slot === slot);
   if (!item) return null;

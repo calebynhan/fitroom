@@ -1,14 +1,15 @@
 // Shopper photos are decoded and downscaled in the browser (EXIF orientation applied), re-encoded as JPEG, and kept
 // in memory only: never written to storage, never kept by the server.
-import { MAX_PHOTO_CHARS } from '@api/look';
 
 export type PhotoSlot = 'front' | 'side' | 'face';
 export const PHOTO_SLOTS: PhotoSlot[] = ['front', 'side', 'face'];
 
-export const PHOTO_GUIDE: Record<PhotoSlot, { label: string; hint: string; maxSide: number }> = {
-  front: { label: 'Front', hint: 'Full body, facing the camera', maxSide: 1024 },
-  side: { label: 'Side', hint: 'Full body, turned sideways', maxSide: 1024 },
-  face: { label: 'Face', hint: 'Left profile, close up', maxSide: 768 },
+// maxChars: data URL budget per photo. Front + side + face + the finished front shot (900K) stay under 4M characters,
+// inside Vercel's 4.5 MB request cap and the server's MAX_TOTAL_PHOTO_CHARS.
+export const PHOTO_GUIDE: Record<PhotoSlot, { label: string; hint: string; maxSide: number; maxChars: number }> = {
+  front: { label: 'Front', hint: 'Full body, facing the camera', maxSide: 1024, maxChars: 900_000 },
+  side: { label: 'Side', hint: 'Full body, turned sideways', maxSide: 1024, maxChars: 900_000 },
+  face: { label: 'Face', hint: 'Left profile, close up', maxSide: 768, maxChars: 450_000 },
 };
 
 export interface PreparedPhoto {
@@ -57,19 +58,24 @@ function loadImage(src: string): Promise<HTMLImageElement> {
   });
 }
 
-function encode(decoded: Decoded, maxSide: number): PreparedPhoto {
-  const { width, height } = fitWithin(decoded.width, decoded.height, maxSide);
+const SHRINK_STEPS = [1, 0.8, 0.64];
+
+/** JPEG at most maxSide on its long side and maxChars long: lowers quality first, then size. */
+function encode(decoded: Decoded, maxSide: number, maxChars: number): PreparedPhoto {
   const canvas = document.createElement('canvas');
-  canvas.width = width;
-  canvas.height = height;
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new PhotoError('This browser cannot process photos.');
-  ctx.fillStyle = '#FFFFFF'; // transparent PNG pixels become white, not black
-  ctx.fillRect(0, 0, width, height);
-  ctx.drawImage(decoded.source, 0, 0, width, height);
-  for (const q of QUALITIES) {
-    const dataUrl = canvas.toDataURL('image/jpeg', q);
-    if (dataUrl.length <= MAX_PHOTO_CHARS) return { dataUrl, width, height };
+  for (const step of SHRINK_STEPS) {
+    const { width, height } = fitWithin(decoded.width, decoded.height, Math.round(maxSide * step));
+    canvas.width = width;
+    canvas.height = height;
+    ctx.fillStyle = '#FFFFFF'; // transparent PNG pixels become white, not black
+    ctx.fillRect(0, 0, width, height);
+    ctx.drawImage(decoded.source, 0, 0, width, height);
+    for (const q of QUALITIES) {
+      const dataUrl = canvas.toDataURL('image/jpeg', q);
+      if (dataUrl.length <= maxChars) return { dataUrl, width, height };
+    }
   }
   throw new PhotoError('That photo is too detailed to send. Try another one.');
 }
@@ -87,14 +93,14 @@ export async function preparePhoto(file: File, slot: PhotoSlot): Promise<Prepare
     if (Math.min(decoded.width, decoded.height) < MIN_SHORT_SIDE) {
       throw new PhotoError(`That photo is too small. Use one at least ${MIN_SHORT_SIDE} px on its short side.`);
     }
-    return encode(decoded, PHOTO_GUIDE[slot].maxSide);
+    return encode(decoded, PHOTO_GUIDE[slot].maxSide, PHOTO_GUIDE[slot].maxChars);
   } finally {
     decoded.close();
   }
 }
 
-/** Re-encodes a data URL (e.g. the finished front shot) at most maxSide on its long side. */
-export async function downscaleDataUrl(dataUrl: string, maxSide: number): Promise<string> {
+/** Re-encodes a data URL (e.g. the finished front shot) within maxSide and maxChars. */
+export async function downscaleDataUrl(dataUrl: string, maxSide: number, maxChars: number): Promise<string> {
   const img = await loadImage(dataUrl);
-  return encode({ source: img, width: img.naturalWidth, height: img.naturalHeight, close: () => undefined }, maxSide).dataUrl;
+  return encode({ source: img, width: img.naturalWidth, height: img.naturalHeight, close: () => undefined }, maxSide, maxChars).dataUrl;
 }

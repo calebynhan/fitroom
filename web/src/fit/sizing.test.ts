@@ -27,6 +27,20 @@ describe('recommendSize', () => {
     expect(recommendSize(item('E422992-000'), { ...CALEB, waistCm: 80 })).toBe('M');
   });
 
+  it('sizes tops on chest when the waist is only estimated', () => {
+    const estimatedWaist = { ...CALEB, waistCm: 80, measured: { chestCm: true, waistCm: false, hipsCm: false, inseamCm: false } };
+    expect(recommendSize(item('E422992-000'), estimatedWaist)).toBe('S'); // the estimate doesn't push it to M
+    expect(recommendSize(item('E422992-000'), { ...estimatedWaist, measured: { ...estimatedWaist.measured, waistCm: true } })).toBe('M');
+  });
+
+  it('says so, and renders it tight, when no size is made for this body', () => {
+    const big = { ...CALEB, waistCm: 109.5, hipsCm: 113 };
+    const advice = sizeAdvice(item('E479000-000'), big); // Barrel Jeans top out at a 34" waist (86.5 cm)
+    expect(advice).toMatchObject({ size: '34inch', fits: false, roomier: null });
+    expect(advice!.text).toMatch(/^Runs small for you: even the largest size \(34" waist\)/);
+    expect(easeFor(item('E479000-000'), '34inch', big)).toBe('close');
+  });
+
   it('falls back to the largest size for a body above the chart, and to null without a chart', () => {
     expect(recommendSize(item('E453754-000'), { ...CALEB, chestCm: 150 })).toBe('3XL');
     expect(recommendSize({ ...item('E453754-000'), sizeChart: null }, CALEB)).toBeNull();
@@ -65,9 +79,9 @@ describe('ease and length on this body', () => {
 
 describe('labels', () => {
   it('advises in plain words', () => {
-    expect(sizeAdvice(item('E453754-000'), CALEB)).toEqual({ size: 'S', roomier: 'M', text: "You're an S; M if you want it roomier." });
+    expect(sizeAdvice(item('E453754-000'), CALEB)).toEqual({ size: 'S', roomier: 'M', fits: true, text: "You're an S; M if you want it roomier." });
     expect(sizeAdvice(item('E450251-000'), CALEB)?.text).toBe('You\'re a 30" waist; 31" if you want it roomier.');
-    expect(sizeAdvice(item('E453754-000'), { ...CALEB, chestCm: 150 })?.text).toBe("You're a 3XL.");
+    expect(sizeAdvice(item('E450543-000'), CALEB)?.fits).toBe(true);
   });
 
   it('formats inch sizes and fit summaries', () => {

@@ -1,7 +1,7 @@
 // Turns the app state into the parts of a /api/photoreal request that every view of a look shares, plus a key:
 // two states with the same key would produce the same photographs.
 import type { LookPhotos, LookPiece, LookRequest } from '@api/look';
-import { completeBody } from '../body/profile';
+import { completeBody, sizingBody } from '../body/profile';
 import { findColor, productImage, type CatalogItem, type Selection, type Slot } from '../catalog/types';
 import { easeFor, formatSize, lengthFor, recommendSize } from '../fit/sizing';
 import type { useApp } from '../state/store';
@@ -29,13 +29,13 @@ function worn(state: AppSnapshot, slot: Slot): Worn | null {
   const selection = state.outfit[slot];
   const item = selection && state.catalog.find((i) => i.id === selection.itemId);
   if (!item || !selection) return null;
-  const body = completeBody(state.profile);
+  const body = sizingBody(state.profile);
   const size = selection.size ?? (body ? recommendSize(item, body) ?? undefined : undefined);
   return { item, selection, size };
 }
 
 function toPiece(w: Worn, state: AppSnapshot): LookPiece {
-  const body = completeBody(state.profile);
+  const body = sizingBody(state.profile);
   const piece: LookPiece = {
     slot: w.item.slot,
     name: w.item.name,
@@ -77,11 +77,11 @@ export function lookInput(state: AppSnapshot): LookInput {
     const w = pieces.find((p) => p.item.slot === slot);
     return w ? `${w.item.name} in ${findColor(w.item, w.selection.colorCode).name}` : null;
   };
-  const sizes = pieces.filter((p) => p.size).map((p) => `${p.item.slot === 'top' ? 'TOP' : 'BOTTOMS'} ${formatSize(p.size!)}`);
+  const sizes = pieces.filter((p) => p.size).map((p) => `${p.item.slot === 'top' ? 'Top' : 'Bottoms'} ${formatSize(p.size!)}`);
   const caption: LookCaption = {
     top: describe('top'),
     bottom: describe('bottom'),
-    meta: [...sizes, SCENES[state.scene].label.toUpperCase(), `${Math.round(body.heightCm)} CM`].join(' · '),
+    meta: [...sizes, SCENES[state.scene].label, `${Math.round(body.heightCm)}\u00a0cm`].join(' · '),
   };
   const key = JSON.stringify({ v: state.photoVersion, scene: state.scene, body, items });
   return { ready: true, key, base, caption };

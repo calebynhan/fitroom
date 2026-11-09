@@ -8,7 +8,7 @@ export interface ImageInput {
 }
 
 const MAX_PRODUCT_BYTES = 4_000_000;
-const PRODUCT_TIMEOUT_MS = 8_000;
+const PRODUCT_TIMEOUT_MS = 4_000; // keeps the whole function inside its time limit
 const MIME_RE = /^image\/(jpeg|png|webp)\b/;
 
 export function decodeDataUrl(dataUrl: string): ImageInput | null {

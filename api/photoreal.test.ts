@@ -120,6 +120,14 @@ describe('POST /api/photoreal', () => {
     expect(again.status).toBe(409);
   });
 
+  it('refuses photos that are too large together', async () => {
+    mockUpstream(okImage, captured);
+    const big = `data:image/jpeg;base64,${'A'.repeat(1_400_000)}`;
+    const res = await call(look({ photos: { front: big, side: big, face: big } }));
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/too large/);
+  });
+
   it('refuses a token from a different look', async () => {
     mockUpstream(okImage, captured);
     const front = await (await call(look())).json();

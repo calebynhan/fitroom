@@ -15,6 +15,8 @@ export interface Look {
   key: string;
   caption: LookCaption;
   views: Record<View, ViewState>;
+  /** Shown above the photos, e.g. why a reshoot was abandoned. */
+  notice?: string;
 }
 
 interface LooksStore {
@@ -30,6 +32,8 @@ interface LooksStore {
   setView: (key: string, view: View, state: ViewState) => void;
   setBusy: (key: string | null) => void;
   setRemaining: (remaining: number | null) => void;
+  /** Puts an earlier look back (a reshoot whose front shot failed must not cost the photos already made). */
+  restore: (look: Look, notice: string) => void;
 }
 
 const allWaiting = (): Record<View, ViewState> =>
@@ -48,7 +52,13 @@ export const useLooks = create<LooksStore>()((set) => ({
     }),
   setBusy: (busy) => set({ busy }),
   setRemaining: (remaining) => set((s) => ({ remaining: remaining ?? s.remaining })),
+  restore: (look, notice) => set((s) => ({ looks: { ...s.looks, [look.key]: { ...look, notice } } })),
 }));
+
+/** True while there are photos only this tab holds (reload or close loses them), or a shoot is running. */
+export function hasUnsavedPhotos(s: Pick<LooksStore, 'looks' | 'busy'>): boolean {
+  return s.busy !== null || Object.values(s.looks).some((l) => doneCount(l) > 0);
+}
 
 export function doneCount(look: Look | undefined): number {
   return look ? VIEWS.filter((v) => look.views[v].kind === 'done').length : 0;
