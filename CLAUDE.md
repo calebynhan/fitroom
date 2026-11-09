@@ -25,7 +25,7 @@ freezes: quality over speed, and nothing ships broken.
 - [ ] Garments look like clothes: real ease and drape, hems and cuffs, fabric normal maps, no skin-tight paint.
 - [ ] Size recommendation per item ("You're a M; L if you want it roomier"), from UNIQLO size charts vs. the
       user's measurements. The chosen size changes how the garment fits on the avatar (tight ↔ loose).
-- [ ] "Make it real" works reliably: photoreal image from the current view, about 20–40 s, with a progress state,
+- [x] "Make it real" works reliably: photoreal image from the current view, about 20–40 s, with a progress state,
       retry, and download.
 
 **Catalog**
