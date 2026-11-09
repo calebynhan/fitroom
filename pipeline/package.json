@@ -1,0 +1,15 @@
+{
+  "name": "fitroom-pipeline",
+  "private": true,
+  "description": "Session A asset pipeline helpers (GLB compression). Python lives alongside in this folder.",
+  "type": "module",
+  "scripts": {
+    "compress": "node compress_glb.mjs"
+  },
+  "devDependencies": {
+    "@gltf-transform/core": "^4.5.1",
+    "@gltf-transform/extensions": "^4.5.1",
+    "gltfpack": "^0.25.0",
+    "meshoptimizer": "^0.22.0"
+  }
+}

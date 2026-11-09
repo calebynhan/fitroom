@@ -158,3 +158,92 @@ def barycentric(p: np.ndarray, a: np.ndarray, b: np.ndarray, c: np.ndarray) -> n
     bw = (d00 * d21 - d01 * d20) / den
     bary = np.clip(np.stack([1 - bv - bw, bv, bw], 1), 0.0, None)
     return bary / np.maximum(bary.sum(1, keepdims=True), 1e-12)
+
+
+def triangulate(polys: list, v: np.ndarray) -> np.ndarray:
+    """Split quads (and fan-split larger polygons) into triangles; quads use their shorter diagonal."""
+    tris = []
+    for p in polys:
+        if len(p) == 3:
+            tris.append(p)
+        elif len(p) == 4:
+            a, b, c, d = p
+            if np.linalg.norm(v[a] - v[c]) <= np.linalg.norm(v[b] - v[d]):
+                tris += [(a, b, c), (a, c, d)]
+            else:
+                tris += [(a, b, d), (b, c, d)]
+        else:
+            tris += [(p[0], p[k], p[k + 1]) for k in range(1, len(p) - 1)]
+    return np.array(tris, dtype=np.int64)
+
+
+def boundary_loops(f: np.ndarray) -> list:
+    """Ordered vertex loops along the open boundary, oriented like the faces (interior on the left)."""
+    directed = np.concatenate([f[:, [0, 1]], f[:, [1, 2]], f[:, [2, 0]]])
+    key = np.sort(directed, axis=1)
+    _, inv, counts = np.unique(key, axis=0, return_inverse=True, return_counts=True)
+    bnd = directed[counts[inv.ravel()] == 1]
+    nxt = {int(a): int(b) for a, b in bnd}
+    loops, seen = [], set()
+    for start in nxt:
+        if start in seen:
+            continue
+        loop, cur = [], start
+        while cur not in seen:
+            seen.add(cur)
+            loop.append(cur)
+            cur = nxt.get(cur, start)
+        loops.append(np.array(loop, dtype=np.int64))
+    return loops
+
+
+def edge_lengths(v: np.ndarray, f: np.ndarray) -> np.ndarray:
+    e, _ = edges_with_counts(f)
+    return np.linalg.norm(v[e[:, 0]] - v[e[:, 1]], axis=1)
+
+
+def geodesic_from(v: np.ndarray, f: np.ndarray, seeds: np.ndarray, limit: float = np.inf) -> np.ndarray:
+    """Approximate surface distance (Dijkstra along edges) from the seed verts."""
+    from scipy.sparse.csgraph import dijkstra
+    e, _ = edges_with_counts(f)
+    w = np.linalg.norm(v[e[:, 0]] - v[e[:, 1]], axis=1)
+    g = coo_matrix((w, (e[:, 0], e[:, 1])), shape=(len(v), len(v))).tocsr()
+    d = dijkstra(g, directed=False, indices=np.asarray(seeds), min_only=True, limit=limit)
+    return d
+
+
+def subdivide(v: np.ndarray, f: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Split every triangle into 4 at its edge midpoints. Returns (v, f, parents) where parents is
+    (n_new, 2): the two original vertices each vertex interpolates (an original vertex lists itself twice)."""
+    e, _ = edges_with_counts(f)
+    n = len(v)
+    mid = {(int(a), int(b)): n + i for i, (a, b) in enumerate(e)}
+    key = lambda a, b: mid[(a, b) if a < b else (b, a)]  # noqa: E731
+    faces = []
+    for a, b, c in f.tolist():
+        ab, bc, ca = key(a, b), key(b, c), key(c, a)
+        faces += [(a, ab, ca), (ab, b, bc), (ca, bc, c), (ab, bc, ca)]
+    parents = np.concatenate([np.repeat(np.arange(n)[:, None], 2, axis=1), e])
+    v2 = np.concatenate([v, 0.5 * (v[e[:, 0]] + v[e[:, 1]])])
+    return v2, np.array(faces, dtype=np.int64), parents
+
+
+def convex_outline(xy: np.ndarray, samples: int) -> np.ndarray:
+    """Convex hull of 2D points, resampled to `samples` points evenly spaced along its perimeter (CCW)."""
+    from scipy.spatial import ConvexHull
+    hull = xy[ConvexHull(xy).vertices]
+    closed = np.vstack([hull, hull[:1]])
+    seg = np.linalg.norm(np.diff(closed, axis=0), axis=1)
+    s = np.concatenate([[0.0], np.cumsum(seg)])
+    t = np.linspace(0.0, s[-1], samples, endpoint=False)
+    return np.column_stack([np.interp(t, s, closed[:, 0]), np.interp(t, s, closed[:, 1])])
+
+
+def diffuse(field: np.ndarray, f: np.ndarray, iters: int) -> np.ndarray:
+    """Spread a per-vertex field over the mesh by repeated neighbour averaging (keeps each vertex's share)."""
+    e, _ = edges_with_counts(f)
+    w, _ = _row_normalised(e, len(field))
+    out = field.copy()
+    for _ in range(iters):
+        out = 0.5 * out + 0.5 * (w @ out)
+    return out

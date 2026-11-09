@@ -1,16 +1,19 @@
 """MHR lod2.fbx -> skinned body GLB (metres, morphs body_0..body_5 at the target body) + measure JSON.
 
 Usage:
-    .venv/bin/python pipeline/body.py --fbx assets/mhr/assets/lod2.fbx --height 178 \
-        --out web/public/models/body.glb
-    .venv/bin/python pipeline/body.py --fbx assets/mhr/assets/lod2.fbx --sex female \
+    .venv/bin/python pipeline/body.py --fbx assets/mhr/assets/lod1.fbx --height 178 \
+        --out web/public/models/body.glb      # also keeps assets/build/body.glb (uncompressed)
+    .venv/bin/python pipeline/body.py --fbx assets/mhr/assets/lod1.fbx --sex female \
         --out web/public/models/body_female.glb
+
+Default style is a store mannequin (CLAUDE.md): no hair bump, no painted texture; the viewer colours it.
+--style painted restores the hackathon look (painted skin, hair, eyes).
 """
 from __future__ import annotations
 
 import argparse
-import json
 import os
+import shutil
 import sys
 
 import bpy  # noqa: F401  (must load before bmesh / other bpy-dependent modules)
@@ -32,8 +35,11 @@ PRESETS = {
                "shoulder_width": 45.0, "hip_width": 36.5, "bust_projection": 4.5},
 }
 SKIN_RGB = (0.52, 0.34, 0.25)
+MANNEQUIN_RGB = (0.84, 0.82, 0.78)   # ivory, close to the viewer's MANNEQUIN_COLOR #EDEAE4 (sRGB)
+MANNEQUIN_ROUGHNESS = 0.55
 SLIDER_RANGE = (-3.0, 3.0)
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BUILD_DIR = os.path.join(ROOT, "assets", "build")   # gitignored: uncompressed GLBs the next steps read
 
 
 def parse_args() -> argparse.Namespace:
@@ -43,6 +49,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--height", type=float, help="standing height in cm (default from --sex preset)")
     for name in ("chest", "underbust", "waist", "hips"):
         p.add_argument(f"--{name}", type=float, help=f"{name} circumference in cm (default from preset)")
+    p.add_argument("--style", choices=("mannequin", "painted"), default="mannequin")
     p.add_argument("--out", required=True)
     p.add_argument("--render", help="front render PNG (default pipeline/renders/<out stem>_front.png)")
     return p.parse_args()
@@ -74,11 +81,16 @@ def add_to_all_keys(mesh, delta: np.ndarray) -> None:
     mesh.data.vertices.foreach_set("co", bs.vertex_coords(mesh, mesh.data.shape_keys.key_blocks[0]).ravel())
 
 
-def sculpt_face(arm, mesh, sex: str) -> None:
+def sculpt_face(arm, mesh, sex: str, hair: bool) -> None:
     bone = lambda n: np.array(arm.data.bones[n].head_local)  # noqa: E731  (armature space == world)
     eye = (bone("l_eye") + bone("r_eye")) / 2
     base = bs.vertex_coords(mesh, mesh.data.shape_keys.key_blocks[0])
     add_to_all_keys(mesh, sculpt.displacement(base, eye, bone("c_neck"), sculpt.STYLES[sex]))
+    if not hair:   # mannequin: smooth scalp, no nipples
+        base = bs.vertex_coords(mesh, mesh.data.shape_keys.key_blocks[0])
+        faces = gg.triangulate([tuple(p.vertices) for p in mesh.data.polygons], base)
+        add_to_all_keys(mesh, sculpt.mannequin_chest(base, gg.taubin_smooth(base, faces, iters=40)))
+        return
     base = bs.vertex_coords(mesh, mesh.data.shape_keys.key_blocks[0])
     faces = np.array([tuple(p.vertices)[:3] for p in mesh.data.polygons])
     normals = gg.vertex_normals(base, faces)
@@ -177,7 +189,8 @@ def main() -> None:
                                 "bust_projection") if k in t}
 
     arm, mesh = load_mhr(args.fbx)
-    sculpt_face(arm, mesh, args.sex)
+    painted = args.style == "painted"
+    sculpt_face(arm, mesh, args.sex, hair=painted)
     deltas = keep_pcs(mesh, t["fit_pcs"])
     w_mat, names = bs.weight_matrix(mesh)
     edges, arm_w = bs.edge_array(mesh), bs.arm_weight(w_mat, names)
@@ -197,7 +210,8 @@ def main() -> None:
     jac = bm.jacobian(geo6, weights[: bs.MORPH_COUNT], target_h)
 
     mesh.data.materials.clear()
-    mesh.data.materials.append(render.make_material("skin", SKIN_RGB, 0.45))
+    mesh.data.materials.append(render.make_material("skin", SKIN_RGB, 0.45) if painted else
+                               render.make_material("mannequin", MANNEQUIN_RGB, MANNEQUIN_ROUGHNESS))
     clear_custom_normals(mesh)
     bs.assert_all_weighted(mesh)
 
@@ -205,12 +219,23 @@ def main() -> None:
     stem = os.path.splitext(os.path.basename(args.out))[0]
     os.makedirs(out_dir, exist_ok=True)
     rest_co = bs.evaluated_coords(mesh)
-    paint_skin(arm, mesh, rest_co, args.sex)
+    if painted:
+        paint_skin(arm, mesh, rest_co, args.sex)
     render_poses(arm, mesh, rest_co, target_h, args.render or os.path.join(ROOT, f"pipeline/renders/{stem}_front.png"))
     clips = poses.bake_clips(arm, mesh, rest_co)   # after renders: NLA tracks override manual posing
     bs.export_glb(args.out, [arm, mesh], animations=True)
+    keep_build_copy(args.out)
     write_measure_json(os.path.join(out_dir, f"{stem}_measure.json"), args.sex, weights, measured, jac, t["height"])
     print("wrote", args.out, os.path.getsize(args.out) // 1024, "KB, pose clips", clips)
+
+
+def keep_build_copy(path: str) -> str:
+    """Uncompressed copy for the next pipeline steps: web/public GLBs get meshopt-compressed (compress_glb.mjs)
+    and Blender's glTF importer can't read EXT_meshopt_compression."""
+    os.makedirs(BUILD_DIR, exist_ok=True)
+    dst = os.path.join(BUILD_DIR, os.path.basename(path))
+    shutil.copy2(path, dst)
+    return dst
 
 
 def render_poses(arm, mesh, rest_co, height_m: float, front_path: str) -> None:

@@ -53,7 +53,15 @@ POSES = {
         "ik": [],
     },
 }
+# Garments are draped (cloth sim) in this pose: the Relaxed stance with the arms only half lowered. A pattern
+# cut in the A-pose has a sleeve cap sized for raised arms; lowering them all the way in the sim hauls a
+# loose top up by its sleeves (hem +8 cm; +1 cm at 0.65). Skinning covers the last ~14 degrees.
+# Not exported as a clip.
+DRAPE_ARM_FRACTION = 0.65
+DRAPE = {"rot": STANCE + WEIGHT_SHIFT + [(b, a, d * DRAPE_ARM_FRACTION) for b, a, d in RELAXED_ARM["l"] + RELAXED_ARM["r"]],
+         "ik": []}
 AXES = {"X": Vector((1, 0, 0)), "Y": Vector((0, 1, 0)), "Z": Vector((0, 0, 1))}
+SOLE_LIFT = 0.018   # every pose stands the feet this high: the shoes' soles (shoes.py) reach the floor
 
 
 def reset(arm) -> None:
@@ -104,16 +112,19 @@ def _pocket_target(arm, body_co: np.ndarray, side: str) -> tuple[Vector, Vector]
 
 
 def ground(arm, mesh) -> None:
-    """Translate the root so the lowest posed vertex touches z = 0."""
+    """Translate the root so the lowest posed vertex sits SOLE_LIFT above z = 0 (shoe soles fill the gap)."""
     z_min = bs.evaluated_coords(mesh)[:, 2].min()
     root = arm.pose.bones["root"]
-    root.matrix = Matrix.Translation((0, 0, -z_min)) @ root.matrix
+    root.matrix = Matrix.Translation((0, 0, SOLE_LIFT - z_min)) @ root.matrix
     bpy.context.view_layer.update()
 
 
 def apply(arm, mesh, name: str, body_co: np.ndarray) -> None:
+    apply_spec(arm, mesh, POSES[name], body_co)
+
+
+def apply_spec(arm, mesh, spec: dict, body_co: np.ndarray) -> None:
     reset(arm)
-    spec = POSES[name]
     for op in spec["rot"]:
         if op[0] == "twist":                     # rotate a bone about its own length (pronation)
             _, bone, child, deg = op

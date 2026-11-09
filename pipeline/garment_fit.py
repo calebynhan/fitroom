@@ -18,7 +18,6 @@ import garment_geom as gg
 
 TWO_PI = 2 * np.pi
 MIDLINE_CLEARANCE = 0.006   # pant legs never cross x = 0
-HEM_BAND = 0.055            # height of a knit rib hem band
 CROTCH_BRIDGE = 0.08        # below the crotch seam, fabric hangs straight instead of following a thigh gap
 
 
@@ -27,21 +26,20 @@ class Fit:
     name: str                       # "base" or a morph target name, e.g. "fit_boxy"
     chest_ease_cm: float = 0.0      # garment chest circumference minus body chest
     drape: float = 0.0              # 0 = follows the waist, 1 = hangs straight from the chest
+    hem_flare: float = 0.0          # extra circumference at the hem vs the chest hang (gravity folds it)
     sleeve_flare_r: float = 0.0     # open tee sleeve radius around the upper arm (m)
     sleeve_stretch: float = 1.0     # sleeve length multiplier (tee sleeve slides further down the arm)
     forearm_ease: float = 0.0       # knit sleeve stands this far off the (inflated) forearm (m)
-    hem_band: bool = False          # knit rib band pulls the hem in
     thigh_extra: float = 0.0        # pants: extra radius at the top of the thigh (m)
     leg_hem_r: float = 0.0          # pants: hem opening radius (m)
     leg_bulge: float = 0.0          # pants: extra radius peaking at mid leg (barrel)
     leg_outward: float = 0.0        # pants: mid-leg volume shifted to the outer side (barrel)
-    folds: float = 0.0              # soft vertical fold depth at the hem (m)
 
 
 FITS = {
-    "tee": (Fit("base", chest_ease_cm=10, drape=0.45, sleeve_flare_r=0.050, folds=0.005),
-            Fit("fit_boxy", chest_ease_cm=16, drape=0.9, sleeve_flare_r=0.058, sleeve_stretch=1.3, folds=0.006)),
-    "sweater": (Fit("base", chest_ease_cm=8, drape=0.35, forearm_ease=0.003, hem_band=True),),
+    "tee": (Fit("base", chest_ease_cm=10, drape=0.45, hem_flare=0.05, sleeve_flare_r=0.046),
+            Fit("fit_boxy", chest_ease_cm=16, drape=0.9, hem_flare=0.07, sleeve_flare_r=0.056, sleeve_stretch=1.18)),
+    "sweater": (Fit("base", chest_ease_cm=8, drape=0.35, hem_flare=0.04, forearm_ease=0.002),),
     "pants": (Fit("base", thigh_extra=0.010, leg_hem_r=0.052),
               Fit("fit_barrel", thigh_extra=0.018, leg_hem_r=0.070, leg_bulge=0.016, leg_outward=0.012)),
 }
@@ -96,30 +94,17 @@ def ease_torso(v, arm_w, L, fit: Fit, inflate: float) -> np.ndarray:
     return out
 
 
-def hem_folds(v, arm_w, L, hem_z: float, depth: float, count: int = 11) -> np.ndarray:
-    """Soft vertical folds hanging from the chest to the hem (outward-only, so they never clip)."""
-    torso = (arm_w < 0.2).astype(float)
+def flare_hem(v, arm_w, L, hem_z: float, flare: float) -> np.ndarray:
+    """Widen the torso toward the hem (radially about the torso axis), from 0 at the chest to `flare`
+    (fraction of circumference) at the hem. Gravity can't hang that excess straight, so the cloth sim
+    gathers it into soft vertical folds, the way a real tee hangs."""
+    torso = 1.0 - gg.smoothstep(0.1, 0.4, arm_w)
     band = (arm_w < 0.2) & (np.abs(v[:, 2] - L.chest_z) < 0.03)
     cy = float(np.median(v[band, 1])) if band.any() else 0.0
-    d = v[:, :2] - np.array([0.0, cy])
-    r = np.linalg.norm(d, axis=1)
-    ang = np.arctan2(d[:, 0], -d[:, 1])
-    wave = 0.5 + 0.5 * np.sin(count * ang + 1.7 * np.sin(3 * ang))
-    fall = 1.0 - gg.smoothstep(hem_z, hem_z + 0.22, v[:, 2])
+    t = gg.smoothstep(0.0, 1.0, (L.chest_z - v[:, 2]) / max(L.chest_z - hem_z, 1e-6))
     out = v.copy()
-    out[:, :2] += d / np.maximum(r, 1e-9)[:, None] * (depth * wave * fall * torso)[:, None]
-    return out
-
-
-def hem_band(v, arm_w, hem_z: float, inflate: float) -> np.ndarray:
-    """Rib band: the bottom few cm draw back toward the body (pulled in by the knit)."""
-    band = (1.0 - gg.smoothstep(hem_z, hem_z + HEM_BAND, v[:, 2])) * (arm_w < 0.2)
-    cy = float(np.median(v[band > 0.5, 1])) if (band > 0.5).any() else 0.0
-    d = v[:, :2] - np.array([0.0, cy])
-    r = np.linalg.norm(d, axis=1)
-    shrink = 0.02 * band
-    out = v.copy()
-    out[:, :2] = v[:, :2] - d / np.maximum(r, 1e-9)[:, None] * np.minimum(shrink, r * 0.1)[:, None]
+    out[:, 0] = v[:, 0] * (1.0 + flare * t * torso)
+    out[:, 1] = cy + (v[:, 1] - cy) * (1.0 + flare * t * torso)
     return out
 
 

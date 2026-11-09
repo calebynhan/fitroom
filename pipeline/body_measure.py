@@ -52,7 +52,9 @@ def slice_perimeter(co: np.ndarray, edges: np.ndarray, z0: float) -> float:
 
 def _band(co, edges, z_min, height, band, pick):
     zs = z_min + height * np.linspace(band[0], band[1], BAND_SAMPLES)
-    vals = np.array([slice_perimeter(co, edges, z) for z in zs])
+    za, zb = co[edges[:, 0], 2], co[edges[:, 1], 2]
+    near = (np.minimum(za, zb) <= zs[-1]) & (np.maximum(za, zb) >= zs[0])   # edges that can cross the band
+    vals = np.array([slice_perimeter(co, edges[near], z) for z in zs])
     i = int(pick(vals))
     return vals[i], zs[i]
 

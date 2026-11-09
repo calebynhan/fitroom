@@ -98,7 +98,7 @@ def evaluated_coords(mesh) -> np.ndarray:
     return co.reshape(-1, 3)
 
 
-def export_glb(path: str, objs, animations: bool = False) -> None:
+def export_glb(path: str, objs, animations: bool = False, colors: bool = False) -> None:
     """Export to a temp file, then rename: the viewer never loads a half-written GLB."""
     select_only(list(objs))
     tmp = f"{path}.tmp.glb"
@@ -117,6 +117,7 @@ def export_glb(path: str, objs, animations: bool = False) -> None:
         export_leaf_bone=False,
         export_rest_position_armature=True,
         export_materials="EXPORT",
+        export_vertex_color="ACTIVE" if colors else "NONE",   # garments: rib-band mask in COLOR_0
     )
     os.replace(tmp, path)
 

@@ -80,3 +80,21 @@ def displacement(co: np.ndarray, eye: np.ndarray, neck: np.ndarray, style: FaceS
     w_head = _smooth(ez - 0.17, ez - 0.11, z)
     d += (style.head_scale - 1.0) * w_head[:, None] * ((co + d) - pivot)
     return d
+
+
+def mannequin_chest(co: np.ndarray, smoothed: np.ndarray) -> np.ndarray:
+    """Displacement that blends the nipples into the smoothed chest (store mannequins have none).
+
+    co: (n, 3) base mesh (z up, front -Y); smoothed: the same mesh after heavy smoothing. Each nipple is
+    the most forward vertex of its side of the chest band; a smooth disc around it takes the smoothed shape.
+    """
+    z0, height = co[:, 2].min(), np.ptp(co[:, 2])
+    zr = (co[:, 2] - z0) / height
+    d = np.zeros_like(co)
+    radius = 0.012 * height
+    for sign in (1.0, -1.0):
+        band = (zr > 0.68) & (zr < 0.76) & (sign * co[:, 0] > 0.03 * height) & (sign * co[:, 0] < 0.08 * height)
+        nipple = co[np.argmin(np.where(band, co[:, 1], np.inf))]
+        w = 1.0 - _smooth(0.4 * radius, radius, np.linalg.norm(co - nipple, axis=1))
+        d += w[:, None] * (smoothed - co)
+    return d
