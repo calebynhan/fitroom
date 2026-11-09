@@ -156,11 +156,13 @@ inseam - 4 cm (≤ -10 cropped, ≤ -4 ankle, ≤ +5 full, else long). Both go i
 | A paid front whose angles then hit "a lot of photos today" | the cap check only made room for 1 photo | a new look needs room for all 4 (rateLimit.check) |
 | Shoot Again wiped 4 paid photos when the new front failed | the look was reset before the front succeeded | restore the earlier look with a notice (look/shoot.ts) |
 | Every deploy uploads 57 MB of unused 3D assets | web/public is copied into dist | .vercelignore excludes web/public/{hdri,models,garments} |
+| Vercel build log full of TS2339 "Property 'status' does not exist" on `ok` unions | no root tsconfig: Vercel's Node builder then sets module NodeNext and forces strict: false, so `if (!r.ok)` doesn't narrow | root tsconfig.json pins module/moduleResolution NodeNext (what Vercel emits) with strict on; `npm run typecheck` runs it |
+| /api/photoreal.test answers 500 FUNCTION_INVOCATION_FAILED | every .ts directly in api/ deploys as a function, test files too | .vercelignore excludes api/**/*.test.ts |
 
 ## Commands
     cd web && npm run dev          # frontend + /api (vite serves api/*.ts; reads OPENAI_API_KEY from ../.env.local)
     cd web && npm test && npm run typecheck && npm run build
-    npm test && npm run typecheck  # api/ + scripts/ tests and types (root)
+    npm test && npm run typecheck  # api/ + scripts/ tests and types (root; also api/ as Vercel compiles it: tsconfig.json)
     vercel dev                     # Vercel's own dev server (needs .env.local loaded, see Pitfalls)
     vercel --prod                  # deploy from the REPO ROOT, never from web/
     vercel logs <deployment-url>   # function errors

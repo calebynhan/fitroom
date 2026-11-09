@@ -1,0 +1,16 @@
+{
+  "//": "Read by Vercel's Node builder, which type-checks the api/ functions with the nearest tsconfig. module and moduleResolution must be set: when they are missing Vercel sets NodeNext itself and forces strict to false. NodeNext matches what Vercel emits today. Local checks: npm run typecheck (scripts/tsconfig.json) and tsc -p tsconfig.json (this file).",
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "types": ["node"]
+  },
+  "include": ["api"],
+  "exclude": ["api/**/*.test.ts"]
+}

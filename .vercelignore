@@ -9,3 +9,5 @@ web/dist
 web/public/hdri
 web/public/models
 web/public/garments
+# Tests: every .ts directly in api/ becomes a serverless function, so test files would deploy as crashing endpoints.
+api/**/*.test.ts

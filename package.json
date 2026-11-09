@@ -5,7 +5,7 @@
   "scripts": {
     "test": "vitest run api scripts",
     "catalog": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/build-catalog.ts",
-    "typecheck": "tsc -p scripts"
+    "typecheck": "tsc -p scripts && tsc -p tsconfig.json"
   },
   "dependencies": {
     "jpeg-js": "^0.4.4"
