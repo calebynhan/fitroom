@@ -11,6 +11,7 @@ import { Glasses } from './Glasses';
 import { PlaceholderBody } from './PlaceholderBody';
 import { POSE_FADE_S } from './poses';
 import { applyBodyWeights, buildRig, groundOffset, readBodyWeights, type BodyRig } from './rig';
+import { Shoes, SHOES_SHAPE } from './Shoes';
 import { primeAsset, useAssetAvailable } from './useAssetAvailable';
 import { useOutfitLooks } from './useOutfitLooks';
 
@@ -35,9 +36,9 @@ function styleBody(mesh: THREE.SkinnedMesh): void {
 }
 
 const REVEAL_TIMEOUT_MS = 10_000; // show the body anyway if a garment never arrives
-const GARMENT_SHAPES = ['tee', 'sweater', 'pants'] as const;
+const GARMENT_SHAPES = ['tee', 'sweater', 'pants', SHOES_SHAPE] as const;
 
-/** Fetch every garment for this body up front so swaps never flash skin. */
+/** Fetch every garment (and the shoes) for this body up front so swaps never flash skin. */
 function usePreloadGarments(model: ModelId): void {
   useEffect(() => {
     GARMENT_SHAPES.forEach((shape) => {
@@ -47,6 +48,9 @@ function usePreloadGarments(model: ModelId): void {
   }, [model]);
 }
 
+/** Everything the body waits for before its first reveal. */
+type Piece = Slot | 'shoes';
+
 interface OutfitProps {
   rig: BodyRig;
   onDressed: () => void;
@@ -54,12 +58,12 @@ interface OutfitProps {
 
 function Outfit({ rig, onDressed }: OutfitProps) {
   const looks = useOutfitLooks();
-  const [ready, setReady] = useState<Record<Slot, boolean>>({ top: false, bottom: false });
+  const [ready, setReady] = useState<Record<Piece, boolean>>({ top: false, bottom: false, shoes: false });
   const markReady = useCallback(
-    (slot: Slot, ok: boolean) => setReady((r) => (r[slot] === ok ? r : { ...r, [slot]: ok })),
+    (piece: Piece, ok: boolean) => setReady((r) => (r[piece] === ok ? r : { ...r, [piece]: ok })),
     [],
   );
-  const dressed = Boolean(looks.top && looks.bottom && ready.top && ready.bottom);
+  const dressed = Boolean(looks.top && looks.bottom && ready.top && ready.bottom && ready.shoes);
   useEffect(() => {
     if (dressed) onDressed();
   }, [dressed, onDressed]);
@@ -67,6 +71,7 @@ function Outfit({ rig, onDressed }: OutfitProps) {
     <>
       {looks.top && <Garment key={`top-${looks.top.shape}`} rig={rig} onReady={markReady} {...looks.top} />}
       {looks.bottom && <Garment key={`bottom-${looks.bottom.shape}`} rig={rig} onReady={markReady} {...looks.bottom} />}
+      <Shoes rig={rig} onReady={markReady} />
     </>
   );
 }
