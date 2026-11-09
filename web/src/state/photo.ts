@@ -5,7 +5,15 @@ export const EXPECTED_SHOT_MS = 30_000;
 export type PhotoState =
   | { kind: 'idle' }
   | { kind: 'working'; key: string; auto: boolean; startedAt: number }
-  | { kind: 'error'; message: string };
+  | { kind: 'error'; message: string; detail: string | null; retryable: boolean };
+
+export interface PhotoFailure {
+  message: string;
+  /** The service's own explanation, shown under the message. */
+  detail?: string | null;
+  /** Whether a retry could help (false for quota, setup and limit errors). */
+  retryable?: boolean;
+}
 
 export interface PhotoCaption {
   scene: string;
@@ -31,7 +39,7 @@ interface PhotoStore {
   plates: number;
   start: (key: string, auto: boolean) => void;
   succeed: (key: string, shot: Shot, remaining: number | null) => void;
-  fail: (message: string, remaining: number | null, auto: boolean) => void;
+  fail: (failure: PhotoFailure, remaining: number | null, auto: boolean) => void;
   hide: (key: string) => void;
   show: () => void;
   dismiss: () => void;
@@ -53,9 +61,9 @@ export const usePhoto = create<PhotoStore>()((set) => ({
       remaining: remaining ?? s.remaining,
       plates: s.plates + 1,
     })),
-  fail: (message, remaining, auto) =>
+  fail: ({ message, detail = null, retryable = true }, remaining, auto) =>
     set((s) => ({
-      photo: auto ? { kind: 'idle' } : { kind: 'error', message },
+      photo: auto ? { kind: 'idle' } : { kind: 'error', message, detail, retryable },
       autoOff: s.autoOff || auto,
       remaining: remaining ?? s.remaining,
     })),

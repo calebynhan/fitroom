@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { buildPrompt, isScene, parseOutfit } from './photorealPrompt';
+import { buildPrompt, isScene, parseItems } from './photorealPrompt';
 import {
   begin,
   check,
@@ -76,15 +76,15 @@ describe('photoreal prompt', () => {
     expect(isScene('city')).toBe(true);
     expect(isScene('mars')).toBe(false);
   });
-  it('sanitises and caps the outfit', () => {
-    const out = parseOutfit([
+  it('sanitises and caps the items', () => {
+    const out = parseItems([
       { name: 'Cashmere Sweater', color: 'Navy', fabric: 'cashmere' },
       { name: 'Barrel Jeans<script>', color: 'Blue', fabric: 'denim' },
       { name: 'Extra', color: 'Red', fabric: '' },
     ]);
     expect(out).toHaveLength(2);
     expect(out[1].name).toBe('Barrel Jeansscript');
-    expect(parseOutfit('nope')).toEqual([]);
+    expect(parseItems('nope')).toEqual([]);
   });
   it('mentions the garments and the setting', () => {
     const p = buildPrompt('night', [{ name: 'Crew Neck T-Shirt', color: 'White', fabric: 'jersey' }]);

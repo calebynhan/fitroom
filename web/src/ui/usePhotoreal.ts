@@ -9,6 +9,8 @@ import { snapshotPortrait } from './snapshot';
 interface PhotorealResponse {
   image?: string;
   error?: string;
+  detail?: string;
+  retryable?: boolean;
   remaining?: number;
 }
 
@@ -46,13 +48,14 @@ async function post(body: object): Promise<PhotorealResponse> {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
-    if (res.status === 413) return { error: 'That snapshot was too large to send. Try a smaller window.' };
+    if (res.status === 413) return { error: 'That snapshot was too large to send. Try a smaller window.', detail: 'HTTP 413' };
     if (!(res.headers.get('content-type') ?? '').includes('json')) {
-      return { error: `The server answered ${res.status}. Try again in a moment.` };
+      return { error: 'The server could not finish this photo. Try again in a moment.', detail: `HTTP ${res.status}`, retryable: true };
     }
     return (await res.json()) as PhotorealResponse;
-  } catch {
-    return { error: 'Could not reach the server. Check your connection and try again.' };
+  } catch (err: unknown) {
+    console.error('[photoreal] request failed', err);
+    return { error: 'Could not reach the server. Check your connection and try again.', retryable: true };
   }
 }
 
@@ -66,7 +69,7 @@ export async function makeItReal({ auto = false }: { auto?: boolean } = {}): Pro
   if (composing || usePhoto.getState().photo.kind === 'working') return;
   const canvas = getViewerCanvas();
   if (!canvas) {
-    if (!auto) usePhoto.getState().fail('The 3D view is not ready yet.', null, false);
+    if (!auto) usePhoto.getState().fail({ message: 'The 3D view is not ready yet.' }, null, false);
     return;
   }
   composing = true;
@@ -78,7 +81,8 @@ export async function makeItReal({ auto = false }: { auto?: boolean } = {}): Pro
     image = snapshotPortrait(canvas); // before start(), so a failure can't leave us stuck in "working"
   } catch (err: unknown) {
     console.error('[photoreal] snapshot failed', err);
-    usePhoto.getState().fail('Could not capture the 3D view. Try again.', null, auto);
+    const detail = err instanceof Error ? err.message : null;
+    usePhoto.getState().fail({ message: 'Could not capture the 3D view. Try again.', detail }, null, auto);
     return;
   } finally {
     composing = false;
@@ -86,12 +90,13 @@ export async function makeItReal({ auto = false }: { auto?: boolean } = {}): Pro
   const pieces = wornPieces();
   const caption = buildCaption(pieces);
   usePhoto.getState().start(key, auto);
-  const data = await post({ image, scene: useFit.getState().scene, outfit: [pieces.top, pieces.bottom].filter(Boolean) });
+  const data = await post({ image, scene: useFit.getState().scene, items: [pieces.top, pieces.bottom].filter(Boolean) });
   const remaining = typeof data.remaining === 'number' ? data.remaining : null;
   if (data.image) {
     usePhoto.getState().succeed(key, { image: data.image, caption }, remaining);
     return;
   }
-  if (auto) console.warn('[photoreal] automatic shot failed; auto shots are off for this visit:', data.error);
-  usePhoto.getState().fail(data.error ?? 'Something went wrong.', remaining, auto);
+  if (auto) console.warn('[photoreal] automatic shot failed; auto shots are off for this visit:', data.error, data.detail);
+  const failure = { message: data.error ?? 'Something went wrong.', detail: data.detail ?? null, retryable: data.retryable ?? true };
+  usePhoto.getState().fail(failure, remaining, auto);
 }

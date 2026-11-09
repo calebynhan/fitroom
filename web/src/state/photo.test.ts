@@ -25,7 +25,7 @@ describe('photo store', () => {
 
   it('an automatic failure turns auto off quietly (no error shown)', () => {
     usePhoto.getState().start('look-a', true);
-    usePhoto.getState().fail('upstream said no', 5, true);
+    usePhoto.getState().fail({ message: 'upstream said no', detail: null, retryable: true }, 5, true);
     const s = usePhoto.getState();
     expect(s.photo.kind).toBe('idle');
     expect(s.autoOff).toBe(true);
@@ -33,11 +33,16 @@ describe('photo store', () => {
 
   it('a manual failure shows the error and leaves auto alone', () => {
     usePhoto.getState().start('look-a', false);
-    usePhoto.getState().fail('upstream said no', null, false);
+    usePhoto.getState().fail({ message: 'upstream said no', detail: 'Limit 0', retryable: false }, null, false);
     const s = usePhoto.getState();
-    expect(s.photo).toEqual({ kind: 'error', message: 'upstream said no' });
+    expect(s.photo).toEqual({ kind: 'error', message: 'upstream said no', detail: 'Limit 0', retryable: false });
     expect(s.autoOff).toBe(false);
     expect(s.remaining).toBeNull();
+  });
+
+  it('a failure without detail stores null detail and defaults to retryable', () => {
+    usePhoto.getState().fail({ message: 'offline' }, null, false);
+    expect(usePhoto.getState().photo).toEqual({ kind: 'error', message: 'offline', detail: null, retryable: true });
   });
 
   it('hide sends one look back to 3D; show brings it back', () => {

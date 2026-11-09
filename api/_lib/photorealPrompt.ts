@@ -18,8 +18,8 @@ const MAX_FIELD = 60;
 const clean = (v: unknown): string =>
   typeof v === 'string' ? v.replace(/[^\p{L}\p{N} .,'&\-/]/gu, '').trim().slice(0, MAX_FIELD) : '';
 
-/** Validates the optional outfit description sent by the client. */
-export function parseOutfit(value: unknown): OutfitPiece[] {
+/** Validates the optional garment list (`items`) sent by the client. */
+export function parseItems(value: unknown): OutfitPiece[] {
   if (!Array.isArray(value)) return [];
   return value
     .slice(0, MAX_PIECES)

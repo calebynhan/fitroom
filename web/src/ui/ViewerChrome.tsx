@@ -4,6 +4,7 @@ import { useFit } from '../state/store';
 import { POSE_IDS, POSE_LABEL } from '../viewer/poses';
 import { SCENES } from '../viewer/scenes';
 import { onAngle, resetView, turnBy } from '../viewer/viewerBus';
+import { makeItReal } from './usePhotoreal';
 import { useProgress } from './useProgress';
 import { WordTabs } from './WordTabs';
 
@@ -118,13 +119,25 @@ function Generating() {
 function ErrorNote() {
   const photo = usePhoto((s) => s.photo);
   const dismiss = usePhoto((s) => s.dismiss);
+  const outOfShots = usePhoto((s) => s.remaining !== null && s.remaining <= 0);
   if (photo.kind !== 'error') return null;
+  const canRetry = photo.retryable && !outOfShots;
   return (
     <div className="error-note" role="alert">
-      <span>{photo.message}</span>
-      <button type="button" className="link-btn" onClick={dismiss}>
-        Dismiss
-      </button>
+      <div className="error-text">
+        <span>{photo.message}</span>
+        {photo.detail && <span className="error-detail">{photo.detail}</span>}
+      </div>
+      <div className="error-actions">
+        {canRetry && (
+          <button type="button" className="link-btn" onClick={() => void makeItReal()}>
+            Retry
+          </button>
+        )}
+        <button type="button" className="link-btn" onClick={dismiss}>
+          Dismiss
+        </button>
+      </div>
     </div>
   );
 }

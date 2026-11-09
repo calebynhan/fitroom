@@ -66,7 +66,10 @@ input[type='text']:focus, textarea:focus { outline: 1px solid var(--brass); outl
 .generating .eyebrow { color: var(--ink-2); }
 .generating-title { font: italic 400 22px var(--serif); }
 .dressing { position: absolute; left: 50%; top: 46%; transform: translate(-50%, -50%); padding: 8px 16px; background: rgba(250, 249, 246, 0.88); border: 1px solid #d8d3c8; font: italic 400 22px var(--serif); color: var(--ink); pointer-events: none; }
-.error-note { position: absolute; left: 50%; bottom: 84px; transform: translateX(-50%); display: flex; gap: 14px; align-items: baseline; max-width: 520px; padding: 10px 14px; background: var(--paper); border: 1px solid var(--ink); color: var(--ink); font: 400 13px var(--sans); }
+.error-note { position: absolute; left: 50%; bottom: 84px; transform: translateX(-50%); display: flex; gap: 14px; align-items: baseline; width: max-content; max-width: min(520px, calc(100% - 32px)); padding: 10px 14px; background: var(--paper); border: 1px solid var(--ink); color: var(--ink); font: 400 13px var(--sans); }
+.error-text { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.error-detail { font-size: 11px; line-height: 1.4; color: var(--muted); overflow-wrap: anywhere; }
+.error-actions { display: flex; gap: 14px; flex-shrink: 0; }
 
 /* Word tabs (design: "scene as words") */
 .word-tabs { display: flex; gap: 18px; }

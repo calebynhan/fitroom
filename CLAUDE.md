@@ -99,7 +99,9 @@ sizeChart: { [size]: { chestCm?, waistCm?, hipsCm?, inseamCm?, lengthCm? } } | n
 "paste product JSON" box (the user runs a console snippet on uniqlo.com).
 
 **POST /api/photoreal** `{ image: <JPEG data URL, max 1024px>, scene, items, selfie?: <data URL> }` ->
-`{ image }` or `{ error }`. OpenAI images.edit (gpt-image-1, input_fidelity "high"). The canvas needs
+`{ image, remaining }` or `{ error, detail?, retryable, remaining? }` (`error` = plain-language headline, `detail` =
+OpenAI's own message with org ids/links stripped, `retryable` = whether Retry can help; `selfie` not wired yet).
+OpenAI images.edit (gpt-image-1.5 by default, override with OPENAI_IMAGE_MODEL; input_fidelity "high"). The canvas needs
 `preserveDrawingBuffer: true`. Keep request bodies far under Vercel's 4.5 MB limit. Prompt: keep every garment,
 colour, silhouette and the pose exactly; realistic fabric, folds and shoes; the chosen setting; full body; no
 logos or text.
@@ -123,7 +125,8 @@ recommended -> fit_tight, larger -> fit_loose.
 | Morph targets lost on export | modifiers applied after shape keys | bake geometry first, add shape keys last, export_morph=True |
 | Men's avatars have a bust | body_1 positive is the female direction | lock body_1 ≤ 0 for male bodies |
 | Clothes look painted on | inflate offset too small, no drape | real ease per garment + longer cloth relax with gravity |
-| "Photo service could not make this image" | (Nov 8) unknown: oversized body, blank canvas, or missing key | check function logs first; see /api/photoreal contract |
+| "Photos are paused: … no image credit" (was "could not make this image") | OpenAI org has 0 TPM for gpt-image (429 "Limit 0"): Free tier / no prepaid credit | add credit on platform.openai.com (Tier 1+), verify the org; `vercel logs` shows the full upstream error |
+| vercel dev: "Photoreal is not configured" | this CLI's `vercel dev` does not load .env.local into functions | `set -a; . ./.env.local; set +a; vercel dev --listen 3100` |
 | Vercel build looks for web/web/package.json | Root Directory set to web while install cmd already cds into web | deploy from the repo root (`vercel --prod`) |
 
 ## Garment recipe (per shape)
