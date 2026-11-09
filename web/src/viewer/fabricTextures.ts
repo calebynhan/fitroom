@@ -60,6 +60,13 @@ export const PATTERNS: Record<string, FabricPattern> = {
     height: (u, v, x, y) => 0.6 * knitStitch(u, v, 22, 30) + 0.4 * smoothNoise(x, y, 8),
     albedo: (_u, _v, x, y, h) => 0.86 + 0.08 * h + 0.06 * smoothNoise(x, y, 32),
   },
+  // 1x1 rib for collars, cuffs and hem bands (drawn over any fabric by the COLOR_0 rib mask): ~4 mm wales.
+  rib_band: {
+    tileMetres: 0.02,
+    normalStrength: 2.6,
+    height: (u, v) => 0.8 * Math.pow(Math.abs(Math.sin(Math.PI * 5 * u)), 0.6) + 0.2 * knitStitch(u, v, 10, 36),
+    albedo: (_u, _v, _x, _y, h) => 0.9 + 0.1 * h,
+  },
   // Cotton jersey tee: tiny stitches plus heather (melange) variation.
   jersey: {
     tileMetres: 0.04,

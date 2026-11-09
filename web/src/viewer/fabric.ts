@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { fabricMaps, metresPerUv, PATTERNS } from './fabricTextures';
+import { applyRibBands, RIB_PATTERN } from './ribBands';
 
 interface FabricLook {
   roughness: number;
@@ -19,9 +20,8 @@ const DEFAULT_LOOK = LOOKS.jersey;
 const FALLBACK_REPEAT = 20;
 const SHEEN_LIGHTEN = 0.08;
 
-function repeatFor(fabric: string, geometry?: THREE.BufferGeometry): number {
-  const perUv = geometry ? metresPerUv(geometry) : null;
-  const tile = (PATTERNS[fabric] ?? PATTERNS.jersey).tileMetres;
+function repeatFor(pattern: string, perUv: number | null): number {
+  const tile = (PATTERNS[pattern] ?? PATTERNS.jersey).tileMetres;
   return perUv ? perUv / tile : FALLBACK_REPEAT;
 }
 
@@ -42,8 +42,9 @@ export function makeFabricMaterial(
   const base = Array.isArray(source) ? source[0] : source;
   const bakedNormal = (base as THREE.MeshStandardMaterial | undefined)?.normalMap ?? null;
   const maps = fabricMaps(fabric);
-  const repeat = repeatFor(fabric, geometry);
-  return new THREE.MeshPhysicalMaterial({
+  const perUv = geometry ? metresPerUv(geometry) : null;
+  const repeat = repeatFor(fabric, perUv);
+  const material = new THREE.MeshPhysicalMaterial({
     color: '#ffffff',
     map: tiled(maps.map, repeat),
     normalMap: bakedNormal ?? tiled(maps.normalMap, repeat),
@@ -54,6 +55,12 @@ export function makeFabricMaterial(
     sheenRoughness: look.sheenRoughness,
     side: THREE.DoubleSide,
   });
+  if (geometry?.getAttribute('color')) {
+    // The rib map samples the normal-map UVs, which a baked normal map leaves unscaled.
+    const normalRepeat = bakedNormal ? 1 : repeat;
+    applyRibBands(material, repeatFor(RIB_PATTERN, perUv) / normalRepeat);
+  }
+  return material;
 }
 
 const WHITE = new THREE.Color('#ffffff');
