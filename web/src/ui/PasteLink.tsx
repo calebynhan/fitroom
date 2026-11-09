@@ -1,7 +1,7 @@
 import { parseProductId, toCatalogItem, type UniqloDetails } from '@api/uniqlo';
 import { useState, type ClipboardEvent, type FormEvent } from 'react';
 import type { CatalogItem } from '../catalog/types';
-import { useFit } from '../state/store';
+import { useApp } from '../state/store';
 
 type Status =
   | { kind: 'idle' }
@@ -54,9 +54,23 @@ function statusText(status: Status): string {
   }
 }
 
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState<boolean | null>(null);
+  const copy = () =>
+    navigator.clipboard
+      ?.writeText(text)
+      .then(() => setCopied(true))
+      .catch(() => setCopied(false));
+  return (
+    <button type="button" className="link-btn copy-btn" onClick={() => void copy()} aria-live="polite">
+      {copied === null ? 'Copy snippet' : copied ? 'Copied' : 'Copy failed: select and copy it by hand'}
+    </button>
+  );
+}
+
 export function PasteLink() {
-  const addItem = useFit((s) => s.addItem);
-  const wear = useFit((s) => s.wear);
+  const addItem = useApp((s) => s.addItem);
+  const wear = useApp((s) => s.wear);
   const [link, setLink] = useState('');
   const [pasted, setPasted] = useState('');
   const [status, setStatus] = useState<Status>({ kind: 'idle' });
@@ -106,6 +120,9 @@ export function PasteLink() {
         <input
           type="text"
           inputMode="url"
+          name="productUrl"
+          autoComplete="off"
+          spellCheck={false}
           className="paste-input"
           placeholder="Paste a UNIQLO link, e.g. uniqlo.com/us/en/products/E453754-000…"
           value={link}
@@ -125,15 +142,24 @@ export function PasteLink() {
             <li>Open the product page on uniqlo.com.</li>
             <li>
               In the browser console, run:
-              <code className="snippet" onClick={() => navigator.clipboard?.writeText(CONSOLE_SNIPPET)} title="Click to copy">
+              <code className="snippet" translate="no">
                 {CONSOLE_SNIPPET}
               </code>
+              <CopyButton text={CONSOLE_SNIPPET} />
             </li>
             <li>Paste the copied JSON here:</li>
           </ol>
-          <textarea value={pasted} onChange={(e) => setPasted(e.target.value)} rows={3} placeholder='{"status":"ok","result":{…}}' />
+          <textarea
+            value={pasted}
+            onChange={(e) => setPasted(e.target.value)}
+            rows={3}
+            name="productJson"
+            spellCheck={false}
+            aria-label="UNIQLO product JSON"
+            placeholder='{"status":"ok","result":{…}}'
+          />
           <button type="button" className="btn btn-dark" onClick={onPasteJson} disabled={pasted.trim() === ''}>
-            ADD ITEM
+            Add Item
           </button>
         </details>
       )}

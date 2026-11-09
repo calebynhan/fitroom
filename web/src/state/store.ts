@@ -1,88 +1,86 @@
 import { create } from 'zustand';
-import { weightsForGirths, type BodyMeasure, type Girths } from '../body/measurements';
-import { DEFAULT_MODEL, MODELS, type ModelId } from '../body/models';
-import type { FitsFile } from '../catalog/fits';
+import { loadProfile, safeStorage, saveProfile, type Profile } from '../body/profile';
 import type { CatalogItem, Selection, Slot } from '../catalog/types';
-import { lookKey } from './lookKey';
-import { DEFAULT_POSE, type PoseId } from '../viewer/poses';
-import { DEFAULT_SCENE, type SceneId } from '../viewer/scenes';
+import { DEFAULT_SCENE, SCENE_IDS, type SceneId } from '../look/scenes';
+import type { PhotoSlot, PreparedPhoto } from '../photos/prepare';
 
 export const DEFAULT_TOP_ID = 'E453754-000'; // Washable Milano Ribbed Sweater
 export const DEFAULT_BOTTOM_ID = 'E475598-000'; // Ultra Stretch Pants
 const DEFAULT_COLORS: Record<string, string> = { [DEFAULT_TOP_ID]: '67', [DEFAULT_BOTTOM_ID]: '09' }; // blue over black
+const OUTFIT_KEY = 'fitroom.outfit.v1';
 
-interface FitState {
-  model: ModelId;
-  pose: PoseId;
-  scene: SceneId;
-  autoRotate: boolean;
+type Outfit = Record<Slot, Selection | null>;
+
+interface AppState {
   catalog: CatalogItem[];
-  outfit: Record<Slot, Selection | null>;
-  heightCm: number;
-  girths: Girths;
-  /** Linear girth model from the pipeline; null until the model's measure json loads. */
-  measure: BodyMeasure | null;
-  /** Morph weights body_0..body_n; null until the body GLB provides its defaults. */
-  weights: number[] | null;
-  fits: FitsFile | null;
-  /** True once the avatar is shown wearing its outfit (never render it undressed). */
-  dressed: boolean;
+  outfit: Outfit;
+  scene: SceneId;
+  profile: Profile;
+  /** In memory only (never persisted). */
+  photos: Record<PhotoSlot, PreparedPhoto | null>;
+  /** Bumps on every photo change, so a new photo means a new look. */
+  photoVersion: number;
 
-  setModel: (model: ModelId) => void;
-  setPose: (pose: PoseId) => void;
-  setScene: (scene: SceneId) => void;
-  setAutoRotate: (on: boolean) => void;
   setCatalog: (items: CatalogItem[]) => void;
   addItem: (item: CatalogItem) => void;
   wear: (item: CatalogItem, colorCode?: string) => void;
   setColor: (slot: Slot, colorCode: string) => void;
-  setHeight: (cm: number) => void;
-  setGirths: (girths: Girths) => void;
-  setMeasure: (measure: BodyMeasure | null) => void;
-  initWeights: (weights: number[]) => void;
-  setFits: (fits: FitsFile | null) => void;
-  setDressed: (dressed: boolean) => void;
+  setSize: (slot: Slot, size: string | undefined) => void;
+  setScene: (scene: SceneId) => void;
+  setProfile: (patch: Partial<Profile>) => void;
+  setPhoto: (slot: PhotoSlot, photo: PreparedPhoto | null) => void;
 }
 
-function defaultSelection(items: CatalogItem[], id: string, slot: Slot): Selection | null {
+interface Saved {
+  outfit?: Partial<Outfit>;
+  scene?: unknown;
+}
+
+function loadSaved(): Saved {
+  try {
+    const raw = safeStorage()?.getItem(OUTFIT_KEY);
+    return raw ? (JSON.parse(raw) as Saved) : {};
+  } catch {
+    return {};
+  }
+}
+
+function isSelection(v: unknown): v is Selection {
+  const s = v as Partial<Selection> | null;
+  return !!s && typeof s.itemId === 'string' && typeof s.colorCode === 'string' && (s.size === undefined || typeof s.size === 'string');
+}
+
+/** A saved selection still valid against the catalog, else the default item for the slot. */
+function resolveSelection(items: CatalogItem[], saved: unknown, id: string, slot: Slot): Selection | null {
+  if (isSelection(saved)) {
+    const item = items.find((i) => i.id === saved.itemId && i.slot === slot);
+    if (item?.colors.some((c) => c.code === saved.colorCode)) {
+      const sizeOk = saved.size !== undefined && Array.isArray(item.sizes) && item.sizes.includes(saved.size);
+      return { itemId: saved.itemId, colorCode: saved.colorCode, ...(sizeOk ? { size: saved.size } : {}) };
+    }
+  }
   const item = items.find((i) => i.id === id) ?? items.find((i) => i.slot === slot);
   if (!item) return null;
   const preferred = item.colors.find((c) => c.code === DEFAULT_COLORS[item.id]);
   return { itemId: item.id, colorCode: (preferred ?? item.colors[0]).code };
 }
 
-/** Body state that resets whenever the model (and so the GLB set) changes. */
-function bodyDefaults(model: ModelId) {
-  const config = MODELS[model];
-  return {
-    model,
-    heightCm: config.baseHeightCm,
-    girths: { ...config.builds[config.defaultBuild].girths },
-    measure: null,
-    weights: null,
-    fits: null,
-    dressed: false,
-  };
-}
+const saved = loadSaved();
 
-export const useFit = create<FitState>()((set) => ({
-  ...bodyDefaults(DEFAULT_MODEL),
-  pose: DEFAULT_POSE,
-  scene: DEFAULT_SCENE,
-  autoRotate: true,
+export const useApp = create<AppState>()((set) => ({
   catalog: [],
   outfit: { top: null, bottom: null },
+  scene: SCENE_IDS.includes(saved.scene as SceneId) ? (saved.scene as SceneId) : DEFAULT_SCENE,
+  profile: loadProfile(),
+  photos: { front: null, side: null, face: null },
+  photoVersion: 0,
 
-  setModel: (model) => set((s) => (s.model === model ? {} : bodyDefaults(model))),
-  setPose: (pose) => set({ pose }),
-  setScene: (scene) => set({ scene }),
-  setAutoRotate: (autoRotate) => set({ autoRotate }),
   setCatalog: (items) =>
     set((s) => ({
       catalog: items,
       outfit: {
-        top: s.outfit.top ?? defaultSelection(items, DEFAULT_TOP_ID, 'top'),
-        bottom: s.outfit.bottom ?? defaultSelection(items, DEFAULT_BOTTOM_ID, 'bottom'),
+        top: s.outfit.top ?? resolveSelection(items, saved.outfit?.top, DEFAULT_TOP_ID, 'top'),
+        bottom: s.outfit.bottom ?? resolveSelection(items, saved.outfit?.bottom, DEFAULT_BOTTOM_ID, 'bottom'),
       },
     })),
   addItem: (item) => set((s) => ({ catalog: [item, ...s.catalog.filter((i) => i.id !== item.id)] })),
@@ -93,20 +91,24 @@ export const useFit = create<FitState>()((set) => ({
       const current = s.outfit[slot];
       return current ? { outfit: { ...s.outfit, [slot]: { ...current, colorCode } } } : {};
     }),
-  setHeight: (heightCm) => set({ heightCm }),
-  setGirths: (girths) =>
-    set((s) => ({ girths: { ...girths }, weights: s.measure && s.weights ? weightsForGirths(s.measure, girths) : s.weights })),
-  setMeasure: (measure) =>
-    set((s) => ({ measure, weights: measure && s.weights ? weightsForGirths(measure, s.girths) : s.weights })),
-  initWeights: (weights) =>
+  setSize: (slot, size) =>
     set((s) => {
-      if (s.weights) return {};
-      return { weights: s.measure ? weightsForGirths(s.measure, s.girths) : [...weights] };
+      const current = s.outfit[slot];
+      return current ? { outfit: { ...s.outfit, [slot]: { ...current, size } } } : {};
     }),
-  setFits: (fits) => set({ fits }),
-  setDressed: (dressed) => set({ dressed }),
+  setScene: (scene) => set({ scene }),
+  setProfile: (patch) => set((s) => ({ profile: { ...s.profile, ...patch } })),
+  setPhoto: (slot, photo) => set((s) => ({ photos: { ...s.photos, [slot]: photo }, photoVersion: s.photoVersion + 1 })),
 }));
 
-/** Key of the look on screen right now (outfit, colours, scene, pose, body). */
-export const useLookKey = (): string => useFit(lookKey);
-export const currentLookKey = (): string => lookKey(useFit.getState());
+// Measurements, outfit and setting survive a reload; photos deliberately do not.
+useApp.subscribe((s, prev) => {
+  if (s.profile !== prev.profile) saveProfile(s.profile);
+  if (s.outfit !== prev.outfit || s.scene !== prev.scene) {
+    try {
+      safeStorage()?.setItem(OUTFIT_KEY, JSON.stringify({ outfit: s.outfit, scene: s.scene }));
+    } catch {
+      // storage unavailable: nothing to persist to
+    }
+  }
+});

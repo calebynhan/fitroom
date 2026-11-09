@@ -1,17 +1,20 @@
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 
-export const PHOTOREAL_LIMIT = 5; // per visitor (signed cookie)
-export const IP_CEILING = 25; // per IP, high enough for shared venue wifi
-export const IP_CONCURRENCY = 3; // generations in flight per IP
-const DEFAULT_INSTANCE_DAILY_CAP = 100; // per warm instance; override with PHOTOREAL_DAILY_CAP
-export const COOKIE_NAME = 'fr_pr';
+// A look is four photos (front, three-quarter, side, back). The visitor pays one look when the front shot
+// succeeds; the other three angles ride on the look token it returns (lookToken.ts).
+export const LOOK_LIMIT = 3; // looks per visitor (signed cookie)
+export const IP_IMAGE_CEILING = 48; // photos per IP per instance-day, high enough for shared venue wifi
+export const IP_CONCURRENCY = 4; // generations in flight per IP (a look runs three angles at once)
+export const PHOTOS_PER_LOOK = 4;
+const BUSY_RETRY_AFTER_S = 5;
+const DEFAULT_INSTANCE_DAILY_CAP = 200; // photos per warm instance per day; override with PHOTOREAL_DAILY_CAP
+export const COOKIE_NAME = 'fr_looks';
 const COOKIE_MAX_AGE_S = 60 * 60 * 24 * 30;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 // In-memory counters are per warm instance (best effort); the signed cookie is the per-visitor limit.
-const ipCounts = new Map<string, number>();
+let day = { start: Date.now(), count: 0, ips: new Map<string, number>() };
 const inFlight = new Map<string, number>();
-let instanceDay = { start: Date.now(), count: 0 };
 
 function signingKey(secret: string): Buffer {
   return createHash('sha256').update(`fitroom-cookie:${secret}`).digest();
@@ -53,33 +56,43 @@ function instanceCap(): number {
   return Number.isInteger(fromEnv) && fromEnv > 0 ? fromEnv : DEFAULT_INSTANCE_DAILY_CAP;
 }
 
-function instanceCount(): number {
-  if (Date.now() - instanceDay.start > DAY_MS) instanceDay = { start: Date.now(), count: 0 };
-  return instanceDay.count;
+function today() {
+  if (Date.now() - day.start > DAY_MS) day = { start: Date.now(), count: 0, ips: new Map() };
+  return day;
 }
 
 export interface Usage {
-  used: number; // this visitor's successful shots
+  /** Looks this visitor has started (front shots that succeeded). */
+  looks: number;
   ip: string;
 }
 
-export type Verdict = { ok: true } | { ok: false; status: number; error: string };
+export type Verdict = { ok: true } | { ok: false; status: number; error: string; retryable: boolean; retryAfterS?: number };
 
 export function currentUsage(request: Request, secret: string): Usage {
-  return { used: decodeCount(readCookie(request.headers.get('cookie'), COOKIE_NAME), secret), ip: clientIp(request) };
+  return { looks: decodeCount(readCookie(request.headers.get('cookie'), COOKIE_NAME), secret), ip: clientIp(request) };
 }
 
-/** Decides whether this visitor may start a shot right now. */
-export function check(usage: Usage): Verdict {
-  if (process.env.PHOTOREAL_DISABLED === '1') return { ok: false, status: 503, error: 'Photoreal is paused right now.' };
-  if (usage.used >= PHOTOREAL_LIMIT) {
-    return { ok: false, status: 429, error: `You have used all ${PHOTOREAL_LIMIT} photoreal shots. Thanks for trying FitRoom!` };
+export function looksLeft(usage: Usage): number {
+  return Math.max(0, LOOK_LIMIT - usage.looks);
+}
+
+/**
+ * Decides whether this visitor may start a photo now. `newLook` is true for the front shot, which must leave room
+ * for all four photos of the look today, so nobody pays for a front whose angles can't be made.
+ */
+export function check(usage: Usage, newLook: boolean): Verdict {
+  if (process.env.PHOTOREAL_DISABLED === '1') return { ok: false, status: 503, error: 'Photos are paused right now.', retryable: false };
+  if (newLook && usage.looks >= LOOK_LIMIT) {
+    return { ok: false, status: 429, error: `You have made all ${LOOK_LIMIT} looks. Thanks for trying FitRoom!`, retryable: false };
   }
-  if ((ipCounts.get(usage.ip) ?? 0) >= IP_CEILING || instanceCount() >= instanceCap()) {
-    return { ok: false, status: 429, error: 'FitRoom has made a lot of photos today. Try again later.' };
+  const d = today();
+  const need = newLook ? PHOTOS_PER_LOOK : 1;
+  if ((d.ips.get(usage.ip) ?? 0) + need > IP_IMAGE_CEILING || d.count + need > instanceCap()) {
+    return { ok: false, status: 429, error: 'FitRoom has made a lot of photos today. Try again tomorrow.', retryable: false };
   }
   if ((inFlight.get(usage.ip) ?? 0) >= IP_CONCURRENCY) {
-    return { ok: false, status: 429, error: 'A few photos are already developing. One moment.' };
+    return { ok: false, status: 429, error: 'A few photos are already developing on your network. Retry in a few seconds.', retryable: true, retryAfterS: BUSY_RETRY_AFTER_S };
   }
   return { ok: true };
 }
@@ -94,10 +107,14 @@ export function end(ip: string): void {
   else inFlight.set(ip, n);
 }
 
-/** Records one billed shot; returns the Set-Cookie header value. */
-export function recordUse(usage: Usage, secret: string): string {
-  ipCounts.set(usage.ip, (ipCounts.get(usage.ip) ?? 0) + 1);
-  instanceCount();
-  instanceDay.count += 1;
-  return `${COOKIE_NAME}=${encodeCount(usage.used + 1, secret)}; Path=/api; Max-Age=${COOKIE_MAX_AGE_S}; HttpOnly; SameSite=Lax; Secure`;
+/** Counts one billed photo toward the IP ceiling and the instance's daily cap. */
+export function recordImage(ip: string): void {
+  const d = today();
+  d.ips.set(ip, (d.ips.get(ip) ?? 0) + 1);
+  d.count += 1;
+}
+
+/** Set-Cookie header value charging this visitor one more look. */
+export function lookCookie(usage: Usage, secret: string): string {
+  return `${COOKIE_NAME}=${encodeCount(usage.looks + 1, secret)}; Path=/api; Max-Age=${COOKIE_MAX_AGE_S}; HttpOnly; SameSite=Lax; Secure`;
 }

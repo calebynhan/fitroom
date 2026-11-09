@@ -1,35 +1,18 @@
 import { useEffect, useState } from 'react';
-import { fitsUrl } from './body/models';
-import { parseFits } from './catalog/fits';
 import { parseCatalog } from './catalog/types';
-import { useFit } from './state/store';
-import { BodySection } from './ui/BodySection';
+import { hasUnsavedPhotos, useLooks } from './state/looks';
+import { useApp } from './state/store';
 import { Header } from './ui/Header';
+import { Lookbook } from './ui/Lookbook';
+import { MeasureSection } from './ui/MeasureSection';
 import { OutfitSection } from './ui/OutfitSection';
-import { ResultView } from './ui/ResultView';
+import { PhotoSection } from './ui/PhotoSection';
 import { SceneSection } from './ui/SceneSection';
-import { useAutoPhotoreal } from './ui/useAutoPhotoreal';
-import { ViewerChrome } from './ui/ViewerChrome';
-import { Viewer } from './viewer/Viewer';
 
 const CATALOG_URL = '/catalog.json';
-function useFitsLoader(): void {
-  const setFits = useFit((s) => s.setFits);
-  const model = useFit((s) => s.model);
-  useEffect(() => {
-    let alive = true;
-    fetch(fitsUrl(model))
-      .then((r) => (r.ok && r.headers.get('content-type')?.includes('json') ? r.json() : null))
-      .then((data: unknown) => alive && setFits(parseFits(data)))
-      .catch((err: unknown) => console.error('[fits] fits.json failed to load', err));
-    return () => {
-      alive = false;
-    };
-  }, [setFits, model]);
-}
 
 function useCatalogLoader(): string | null {
-  const setCatalog = useFit((s) => s.setCatalog);
+  const setCatalog = useApp((s) => s.setCatalog);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     fetch(CATALOG_URL)
@@ -47,22 +30,36 @@ function useCatalogLoader(): string | null {
   return error;
 }
 
+/** Photos live only in this tab (never stored), so warn before a reload or close throws them away. */
+function useLeaveWarning(): void {
+  const unsaved = useLooks(hasUnsavedPhotos);
+  useEffect(() => {
+    if (!unsaved) return undefined;
+    const warn = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = ''; // older browsers need this to show the prompt
+    };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [unsaved]);
+}
+
 export function App() {
   const catalogError = useCatalogLoader();
-  useFitsLoader();
-  useAutoPhotoreal();
-
+  useLeaveWarning();
   return (
     <div className="app">
+      <a className="skip-link" href="#you">
+        Skip to your photos and measurements
+      </a>
       <Header />
       <main className="stage">
-        <div className="viewer-pane">
-          <Viewer />
-          <ViewerChrome />
-          <ResultView />
-        </div>
+        <section className="lookbook-pane" aria-label="Your photos">
+          <Lookbook />
+        </section>
         <aside className="rail" aria-label="Controls">
-          <BodySection />
+          <PhotoSection />
+          <MeasureSection />
           <OutfitSection loadError={catalogError} />
           <SceneSection />
         </aside>

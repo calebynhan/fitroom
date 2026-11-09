@@ -1,6 +1,12 @@
 # Agents — three parallel Claude Code sessions
 
-Read CLAUDE.md first. Each session owns its folders and works through its phases in order.
+Read CLAUDE.md first.
+
+> **2026-11-09:** the app no longer uses the 3D mannequin; it generates four photos from the shopper's own photos
+> (see CLAUDE.md). Session A's pipeline is paused and kept as legacy; Session B's 3D items (mannequin look,
+> materials, fit morphs) no longer apply.
+
+Each session owns its folders and works through its phases in order.
 Finish and verify a phase (on the live URL where it applies) before starting the next.
 
 ## Session A — Realism pipeline (pipeline/, GLBs + fit_model.json in web/public/)

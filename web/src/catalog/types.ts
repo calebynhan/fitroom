@@ -1,6 +1,6 @@
-import type { CatalogColor, CatalogItem, Shape, Slot } from '@api/uniqlo';
+import type { CatalogColor, CatalogItem, Shape, SizeSpec, Slot } from '@api/uniqlo';
 
-export type { CatalogColor, CatalogItem, Shape, Slot };
+export type { CatalogColor, CatalogItem, Shape, SizeSpec, Slot };
 
 export interface CatalogFile {
   source?: string;
@@ -10,6 +10,18 @@ export interface CatalogFile {
 export interface Selection {
   itemId: string;
   colorCode: string;
+  /** Chosen size; undefined = the recommended size for the shopper's body. */
+  size?: string;
+}
+
+/** Product photo of this item in this colour (UNIQLO's own shot), if any. */
+export function productImage(item: CatalogItem, code: string): string | undefined {
+  return findColor(item, code).image ?? colorImage(item.image, code);
+}
+
+/** UNIQLO product shots follow usgoods_<colour>_<num>_3x4.jpg. */
+export function colorImage(image: string | undefined, code: string): string | undefined {
+  return image?.replace(/usgoods_\d{2}_/, `usgoods_${code}_`);
 }
 
 export function formatSizes(sizes: CatalogItem['sizes']): string {
@@ -18,8 +30,14 @@ export function formatSizes(sizes: CatalogItem['sizes']): string {
   return sizes.length > 2 ? `${sizes[0]}-${sizes[sizes.length - 1]}` : sizes.join(', ');
 }
 
+const USD = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
+
+export function formatMoney(amount: number): string {
+  return USD.format(amount);
+}
+
 export function formatPrice(item: CatalogItem): string {
-  return `$${(item.salePrice ?? item.price).toFixed(2)}`;
+  return formatMoney(item.salePrice ?? item.price);
 }
 
 export function findColor(item: CatalogItem, code: string): CatalogColor {

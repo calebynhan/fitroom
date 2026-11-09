@@ -1,5 +1,5 @@
 {
-  "//": "Typecheck only (never emits): the catalog script plus the API code it shares. Vercel never reads this file.",
+  "//": "Typecheck only (never emits): the catalog script and the API functions. Vercel never reads this file.",
   "compilerOptions": {
     "target": "ES2022",
     "lib": ["ES2022", "DOM"],
@@ -14,5 +14,5 @@
     "isolatedModules": true,
     "types": ["node"]
   },
-  "include": ["./**/*.ts", "../api/product*.ts", "../api/_lib/windowLimit*.ts", "../api/_lib/uniqlo*.ts", "../api/_lib/sizeChart*.ts", "../api/_lib/chipColor.ts", "../api/_lib/http.ts"]
+  "include": ["./**/*.ts", "../api/product*.ts", "../api/_lib/windowLimit*.ts", "../api/_lib/uniqlo*.ts", "../api/_lib/sizeChart*.ts", "../api/_lib/chipColor.ts", "../api/_lib/http.ts", "../api/photoreal*.ts", "../api/_lib/look*.ts", "../api/_lib/images.ts", "../api/_lib/photoreal*.ts", "../api/_lib/rateLimit.ts", "../api/_lib/upstreamError*.ts"]
 }
