@@ -1,7 +1,7 @@
 import { parseProductId, toCatalogItem, type UniqloDetails } from '@api/uniqlo';
 import { useState, type ClipboardEvent, type FormEvent } from 'react';
 import type { CatalogItem } from '../catalog/types';
-import { useFit } from '../state/store';
+import { useApp } from '../state/store';
 
 type Status =
   | { kind: 'idle' }
@@ -55,8 +55,8 @@ function statusText(status: Status): string {
 }
 
 export function PasteLink() {
-  const addItem = useFit((s) => s.addItem);
-  const wear = useFit((s) => s.wear);
+  const addItem = useApp((s) => s.addItem);
+  const wear = useApp((s) => s.wear);
   const [link, setLink] = useState('');
   const [pasted, setPasted] = useState('');
   const [status, setStatus] = useState<Status>({ kind: 'idle' });

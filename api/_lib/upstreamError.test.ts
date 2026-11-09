@@ -63,7 +63,7 @@ describe('describeUpstreamError', () => {
     expect(out.retryable).toBe(false);
   });
 
-  it('explains a safety refusal and suggests another view', () => {
+  it('explains a safety refusal and suggests other photos', () => {
     const out = describeUpstreamError(400, body('Your request was rejected by the safety system.', { code: 'moderation_blocked' }));
     expect(out.error).toMatch(/safety/i);
     expect(out.retryable).toBe(true);
