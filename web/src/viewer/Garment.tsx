@@ -6,6 +6,7 @@ import type { Shape, Slot } from '../catalog/types';
 import { useFit } from '../state/store';
 import { AssetBoundary } from './AssetBoundary';
 import { disposeFabric, makeFabricMaterial, tintFabric } from './fabric';
+import { orientGarmentFaces } from './orientFaces';
 import { applyBodyWeights, applyFitMorphs, findSkinnedMesh, rebindToRig, type BodyRig } from './rig';
 import { useAssetAvailable } from './useAssetAvailable';
 
@@ -22,7 +23,11 @@ interface GarmentProps {
 function GarmentModel({ rig, slot, onReady, shape, fabric, hex, fitMorphs }: GarmentProps) {
   const model = useFit((s) => s.model);
   const gltf = useGLTF(garmentUrl(model, shape));
-  const source = useMemo(() => findSkinnedMesh(gltf.scene), [gltf.scene]);
+  const source = useMemo(() => {
+    const found = findSkinnedMesh(gltf.scene);
+    if (found) orientGarmentFaces(found.geometry);
+    return found;
+  }, [gltf.scene]);
   const mesh = useMemo(() => (source ? rebindToRig(source, rig) : null), [source, rig]);
   const material = useMemo(() => makeFabricMaterial(fabric, source?.material, source?.geometry), [fabric, source]);
   const weights = useFit((s) => s.weights);
