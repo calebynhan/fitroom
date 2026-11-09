@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import { garmentUrl } from '../body/models';
 import { useFit } from '../state/store';
 import { AssetBoundary } from './AssetBoundary';
+import { applyColorMasks, hasAoChannel } from './colorMasks';
 import { applyBodyWeights, findSkinnedMesh, rebindToRig, type BodyRig } from './rig';
 import { useAssetAvailable } from './useAssetAvailable';
 
@@ -25,9 +26,12 @@ function Settled({ onReady }: { onReady: ShoesReady }) {
   return null;
 }
 
-function makeShoeMaterial(): THREE.MeshStandardMaterial {
-  // The GLB's COLOR_0 is a rib mask (all 0 on shoes), so vertex colours stay off.
-  return new THREE.MeshStandardMaterial({ color: SHOE_COLOR, roughness: SHOE_ROUGHNESS, metalness: 0, side: THREE.DoubleSide });
+function makeShoeMaterial(geometry?: THREE.BufferGeometry): THREE.MeshStandardMaterial {
+  const material = new THREE.MeshStandardMaterial({ color: SHOE_COLOR, roughness: SHOE_ROUGHNESS, metalness: 0, side: THREE.DoubleSide });
+  // COLOR_0 holds masks, not a tint (rib = 0 on shoes; baked AO in .g once the pipeline adds it).
+  const masks = geometry?.getAttribute('color');
+  if (masks && hasAoChannel(masks)) applyColorMasks(material, { ao: true });
+  return material;
 }
 
 function ShoesModel({ rig, onReady }: ShoesProps) {
@@ -35,7 +39,7 @@ function ShoesModel({ rig, onReady }: ShoesProps) {
   const gltf = useGLTF(garmentUrl(model, SHOES_SHAPE));
   const source = useMemo(() => findSkinnedMesh(gltf.scene), [gltf.scene]);
   const mesh = useMemo(() => (source ? rebindToRig(source, rig) : null), [source, rig]);
-  const material = useMemo(makeShoeMaterial, []);
+  const material = useMemo(() => makeShoeMaterial(source?.geometry), [source]);
   const weights = useFit((s) => s.weights);
 
   useEffect(() => () => material.dispose(), [material]);

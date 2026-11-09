@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { fabricMaps, metresPerUv, PATTERNS } from './fabricTextures';
-import { applyRibBands, RIB_PATTERN } from './ribBands';
+import { applyColorMasks, hasAoChannel, RIB_PATTERN } from './colorMasks';
 
 interface FabricLook {
   roughness: number;
@@ -55,10 +55,11 @@ export function makeFabricMaterial(
     sheenRoughness: look.sheenRoughness,
     side: THREE.DoubleSide,
   });
-  if (geometry?.getAttribute('color')) {
+  const masks = geometry?.getAttribute('color');
+  if (masks) {
     // The rib map samples the normal-map UVs, which a baked normal map leaves unscaled.
     const normalRepeat = bakedNormal ? 1 : repeat;
-    applyRibBands(material, repeatFor(RIB_PATTERN, perUv) / normalRepeat);
+    applyColorMasks(material, { ribUvScale: repeatFor(RIB_PATTERN, perUv) / normalRepeat, ao: hasAoChannel(masks) });
   }
   return material;
 }

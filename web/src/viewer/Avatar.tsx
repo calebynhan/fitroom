@@ -6,6 +6,7 @@ import { garmentUrl, MODELS, type ModelId } from '../body/models';
 import type { Slot } from '../catalog/types';
 import { useFit } from '../state/store';
 import { AssetBoundary } from './AssetBoundary';
+import { applyColorMasks, isAoOnly } from './colorMasks';
 import { Garment } from './Garment';
 import { Glasses } from './Glasses';
 import { PlaceholderBody } from './PlaceholderBody';
@@ -22,17 +23,22 @@ const MANNEQUIN_ROUGHNESS = 0.85; // matte, no plastic sheen on the head and han
 function styleBody(mesh: THREE.SkinnedMesh): void {
   mesh.castShadow = true;
   mesh.frustumCulled = false;
-  // Painted features from the pipeline (baseColorTexture, or COLOR_0) show on a white base; else mannequin ivory.
+  // Painted features (baseColorTexture, or a painted COLOR_0) show on a white base; else mannequin ivory.
+  // The mannequin's COLOR_0 = (0, ao, 0) is baked AO, not paint (CLAUDE.md Body GLB).
   const map = (mesh.material as THREE.MeshStandardMaterial | undefined)?.map ?? null;
   if (map) map.colorSpace = THREE.SRGBColorSpace;
-  const painted = !map && Boolean(mesh.geometry.getAttribute('color'));
-  mesh.material = new THREE.MeshStandardMaterial({
+  const color = mesh.geometry.getAttribute('color');
+  const aoOnly = Boolean(color) && isAoOnly(color);
+  const painted = !map && Boolean(color) && !aoOnly;
+  const material = new THREE.MeshStandardMaterial({
     map,
     color: map || painted ? '#ffffff' : MANNEQUIN_COLOR,
     vertexColors: painted,
     roughness: MANNEQUIN_ROUGHNESS,
     metalness: 0,
   });
+  if (aoOnly) applyColorMasks(material, { ao: true });
+  mesh.material = material;
 }
 
 const REVEAL_TIMEOUT_MS = 10_000; // show the body anyway if a garment never arrives
