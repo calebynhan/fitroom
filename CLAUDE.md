@@ -46,7 +46,7 @@ freezes: quality over speed, and nothing ships broken.
 
 ## Default body (Caleb)
 5'10" (178 cm), 143 lb (65 kg), chest 92 cm, waist 75 cm (29"), hips 90 cm, inseam 84 cm. Slim, slight V-taper.
-Fitted morph weights: body_0 -1.50, body_1 -1.20, body_2 -0.08, body_3 -3.00, body_4 0.69, body_5 -2.98.
+Fitted morph weights (lod1 mannequin): body_0 -1.62, body_1 -1.28, body_2 0.74, body_3 0.16, body_4 0.12, body_5 -0.18.
 **body_1 positive adds a bust (female direction); keep it ≤ 0 for men.**
 
 ## UNIQLO data
@@ -74,9 +74,11 @@ Ribbed Sweater E453754-000 (sweater), Cashmere Sweater E450543-000 (sweater), Ul
 
 ## Architecture
     pipeline/  Python 3.11 + bpy (use .venv/bin/python). Offline. Writes GLBs + JSON into web/public/.
-      body.py        MHR fbx -> web/public/models/body.glb (morph targets body_0..body_5)
-      garments.py    body -> web/public/garments/<shape>.glb (same skeleton + same morphs + fit morphs)
-      fit_model.py   measurements -> morph weights model -> web/public/models/fit_model.json
+      body.py        MHR lod1 fbx -> web/public/models/body.glb (mannequin, morphs body_0..body_5, pose clips)
+      garments.py    body -> web/public/garments/{shoes,pants,tee,sweater}.glb (cloth_sim.py drape, shoes.py)
+      fit_model.py   ANSUR II -> web/public/models/fit_model.json (pure numpy; fit_solver.py)
+      compress_glb.mjs  meshopt-compress + verify GLBs in place (node; pipeline/package.json)
+      tests/         pytest for the pure-numpy parts (.venv/bin/python -m pytest pipeline/tests)
     scripts/   Node/TS data scripts: catalog ingest, size-chart parsing -> web/public/catalog.json
     web/       Vite + React + TS + three + @react-three/fiber + @react-three/drei + zustand
     api/       Vercel functions: /api/product, /api/photoreal
@@ -84,20 +86,36 @@ Ribbed Sweater E453754-000 (sweater), Cashmere Sweater E450543-000 (sweater), Ul
 Nothing physics-based runs in the browser. The browser loads GLBs, drives morphs, tints, and swaps.
 
 ## Contracts
-**Body GLB** web/public/models/body.glb: one SkinnedMesh, MHR skeleton (root, c_spine0..3, c_neck, l_/r_upleg,
-l_/r_lowleg, l_/r_uparm, l_/r_lowarm ...), metres, Y-up, A-pose. Morph targets body_0..body_5 = MHR shape_0..5.
+**Body GLB** web/public/models/body.glb: one SkinnedMesh (MHR lod1, ~18k verts), MHR skeleton (root, c_spine0..3,
+c_neck, l_/r_upleg, l_/r_lowleg, l_/r_uparm, l_/r_lowarm ...), metres, Y-up, A-pose. Morph targets body_0..body_5
+= MHR shape_0..5. Store mannequin: no texture or vertex colours (the viewer colours it), smooth scalp, no nipples.
+Clips relaxed / pocket / walk stand the feet 1.8 cm up (poses.SOLE_LIFT) so shoes.glb's soles touch y = 0.
+body_measure.json: tape measurements + jacobian at the default weights.
 
-**Garment GLB** web/public/garments/<shape>.glb: one SkinnedMesh skinned to the SAME bone names, same rest pose.
-Same morph targets body_0..body_5 (each garment vertex copies the delta of its nearest body point), plus
-fit_tight / fit_loose. Material "fabric", white base (the viewer tints). Rebind by bone name:
+**Garment GLB** web/public/garments/<shape>.glb, shape = tee | sweater | pants | shoes: one SkinnedMesh skinned to
+the SAME bone names, same rest pose, morph targets body_0..body_5 (each vertex follows the body point it was cut
+from). Clothes add fit_tight / fit_loose: at weight 1 = -/+3 cm of garment circumference ease (a size down / up;
+partial weights interpolate), plus fit_boxy (tee) and fit_barrel (pants) set per item by fits.json. Material
+"fabric", white base (the viewer tints). shoes.glb: material "shoe", body morphs only, always worn. Clothes are
+single-sided cloth with turned-back hems: render DoubleSide. UVs in metres (u around the body/limb, v along it).
+COLOR_0.r = knit rib mask (1 on crew collars and sweater cuffs/hem band) for a rib normal map, not a tint.
+All GLBs are meshopt-compressed (EXT_meshopt_compression, drei's useGLTF decodes it); POSITION and TEXCOORD stay
+float32, so raw attribute values are metres / UV metres. Rebind by bone name:
 
     const bones = garment.skeleton.bones.map(b => avatarBonesByName.get(b.name)!);
     garment.bind(new THREE.Skeleton(bones, garment.skeleton.boneInverses), garment.bindMatrix);
     avatarArmature.add(garment);
 
-**fit_model.json**: maps {heightCm, weightKg, chestCm, waistCm, hipsCm, inseamCm} -> {body_0..body_5, scale}.
-Linear/least-squares model fitted offline by measuring slices of the MHR mesh at ANSUR landmark ratios.
-The browser evaluates it; no server round trip.
+**fit_model.json** (web/public/models/): maps {heightCm, weightKg, chestCm?, waistCm?, hipsCm?, inseamCm?} ->
+{body_0..body_5, scale}. Least-squares model fitted offline on 200 ANSUR II men by tape-measuring the mesh
+(pipeline/fit_model.py). The browser evaluates it, no server round trip (`how_to` in the file says the same):
+1. A blank measurement n = estimate[nCm].intercept + heightCm * estimate[nCm].heightCm + weightKg * .weightKg.
+2. x_n = cm * ref_height_cm / heightCm for n in chest, waist, hips, inseam.
+3. body_i = clamp(weights.intercept[i] + sum_n (weights.coef[nCm][i] * x_n + weights.quad[nCm][i] *
+   ((x_n - quad_center) / quad_scale)^2), weights.min[i], weights.max[i]).
+4. scale = heightCm / (height.intercept_cm + sum_i height.per_weight_cm[i] * body_i); use it instead of
+   heightCm / 178. Held-out check (`validation`): chest/waist/hips mean 0.2-0.4 cm, max 1.4 cm; inseam mean 3 cm
+   (one uniform scale can't change leg proportion).
 
 **Catalog item** (web/public/catalog.json `{ source, generatedAt, items }` and the /api/product response):
 `{ id, name, price, salePrice|null, slot: "top"|"bottom", shape: "tee"|"sweater"|"pants", fabric:
@@ -126,7 +144,7 @@ logos or text.
 
 **Size recommendation**: compare the user's measurements to sizeChart with the item's fit (slim/regular/relaxed)
 ease; pick the smallest size whose body measurements cover the user's. Size → fit morph: smaller than
-recommended -> fit_tight, larger -> fit_loose.
+recommended -> fit_tight, larger -> fit_loose; weight = ease difference / 3 cm, so one size off ≈ weight 1.
 
 ## Pitfalls (learned so far)
 | Symptom | Cause | Fix |
@@ -147,21 +165,38 @@ recommended -> fit_tight, larger -> fit_loose.
 | vercel dev: "Photoreal is not configured" | this CLI's `vercel dev` does not load .env.local into functions | `set -a; . ./.env.local; set +a; vercel dev --listen 3100` |
 | UNIQLO sizeChartUrl returns S3 AccessDenied | those HTML pages are not public | use the size-charts API (see UNIQLO data) |
 | Sweatshirts/hoodies mapped to tees | "Sweatshirts" contains "tshirt"; class "T-Shirts, Sweats & Fleece" | word-boundary patterns; judge hoods on the name |
+| Hem rides up 5-8 cm in the cloth sim | pattern cut in the A-pose has a sleeve cap sized for raised arms; lowering them hauls the shirt up | drape with arms 65% lowered (poses.DRAPE); skinning covers the rest |
+| Crease line / crumples in the sim | isotropic slack (negative shrink) buckles sideways; skinned-into-pose rest shapes pinch | no slack; skinned garment + animated rest -> pose; excess via hem flare |
+| Neckline far too wide, notches at its corners | neck width sliced at c_neck caught the trapezius; head-clear plane cut the collar | neck slice at 72% c_neck -> c_head; HEAD_CLEAR 0.07 |
+| Top pushed above the pants | pants as a cloth collider: the top starts inside its margin, the rim pushes it up | drape tops on the body only; clear the pants after (rest + every pose) |
+| Pants show through a top at the waistband | turned-back strips face the body; as a collider they flip the inside test | layer over the outer shell only (GarmentMesh.outer) |
+| Ragged turned hems | a straight offset strip cuts across wavy fabric | strip rows follow the outer fabric (nearest vertex - normal x thickness) |
+| Turntable renders all frontal | glTF import leaves objects in quaternion rotation mode | rotation_mode = "XYZ" before rotation_euler |
+| Blender can't import body.glb | web GLBs are meshopt-compressed | later steps read assets/build/body.glb (body.py keeps an uncompressed copy) |
+| gltfpack drops UVs / custom attributes | it strips unused and `_*` attributes | -kv; rib mask lives in COLOR_0 |
 | Vercel build looks for web/web/package.json | Root Directory set to web while install cmd already cds into web | deploy from the repo root (`vercel --prod`) |
 
-## Garment recipe (per shape)
-1. Body proxy = MHR body (watertight). Copy skin weights.
-2. Cut region by skeleton landmarks: tee = hips-0.10 m to neck, sleeves ~45% of upper arm; sweater = hips-0.13 m
-   to neck, sleeves to wrist; pants = ankle+0.03 m to hips+0.06 m. Arms found by arm skin weight (A-pose).
-3. Ease along normals: tee ~8 mm, sweater ~15 mm (more at hem/sleeves), pants ~12 mm (looser lower leg for
-   straight, tighter for tapered) -> smooth -> anti-clip.
-4. Cloth relax with gravity (pin shoulders / waistband) for drape and soft folds -> anti-clip.
-5. Hem and cuff bands -> spike cleanup -> solidify -> re-skin from body -> drop unused groups by name ->
-   transfer body morphs -> fit_tight / fit_loose -> UVs (for normal maps) -> GLB.
+## Garment recipe (per shape; pipeline/garments.py, order shoes -> pants -> tops)
+1. Body = MHR lod1 mannequin, voxel-remeshed to even ~1 cm cloth edges. Each garment vertex keeps its origin on
+   the body: skin weights and body_0..5 deltas are interpolated from it.
+2. Cut by skeleton landmarks: tee hem hips-0.02 m, sleeves to mid upper arm; sweater hem hips-0.035 m, sleeves to
+   the wrist; crew neck = ellipse at the neck base; pants waist hips+0.06 m, hem 4 mm above the shoe collar line.
+3. Ease along normals (tee 8 mm, sweater 15 mm, pants 12 mm; 4-6 mm over the shoulders) + the fit's silhouette
+   (chest ease, hem flare, sleeve flare, leg taper / barrel) -> smooth -> anti-clip.
+4. Gravity drape (cloth_sim.py): garment skinned (Armature before Cloth), skeleton animates from the A-pose into
+   the Relaxed stance with arms 65% down while the cloth settles on the body (pants also on the shoes). Pins:
+   collar/shoulders, waistband, cuffs; knit rib bands drawn in by per-vertex shrink. Back to rest by inverse LBS.
+5. Relax hems -> anti-clip at rest and in every clip (sleeves vs arm, body vs torso/legs, hands tent fabric only
+   when under it, tops clear the pants' outer shell by 4 mm) -> fit_tight / fit_loose -> turned-back hem strips ->
+   UVs, rib mask -> GLB -> 4-angle check renders in pipeline/renders/ -> compress_glb.mjs.
 
 ## Commands
-    .venv/bin/python pipeline/body.py --fbx assets/mhr/assets/lod2.fbx --height 178 --out web/public/models/body.glb
-    .venv/bin/python pipeline/garments.py --body web/public/models/body.glb --out web/public/garments
+    .venv/bin/python pipeline/body.py --fbx assets/mhr/assets/lod1.fbx --height 178 --out web/public/models/body.glb
+    .venv/bin/python pipeline/garments.py --body assets/build/body.glb --out web/public/garments   # ~10 min + renders
+    .venv/bin/python pipeline/fit_model.py --body assets/build/body.glb \
+        --ansur assets/ansur/ANSUR_II_MALE_Public.csv --out web/public/models/fit_model.json   # data: openlab.psu.edu/ansur2
+    (cd pipeline && npm ci) && node pipeline/compress_glb.mjs web/public/models/body.glb web/public/garments/*.glb
+    .venv/bin/python -m pytest pipeline/tests   # pipeline unit tests
     cd web && npm run dev          # frontend only
     vercel dev                     # frontend + /api (needs .env.local)
     vercel --prod                  # deploy from the REPO ROOT, never from web/

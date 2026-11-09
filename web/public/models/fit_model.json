@@ -1,0 +1,167 @@
+{
+  "version": 1,
+  "sex": "male",
+  "ref_height_cm": 178.0,
+  "inputs": [
+    "heightCm",
+    "weightKg",
+    "chestCm",
+    "waistCm",
+    "hipsCm",
+    "inseamCm"
+  ],
+  "estimate": {
+    "chestCm": {
+      "intercept": 103.6434,
+      "heightCm": -0.29094,
+      "weightKg": 0.62349,
+      "sd_cm": 3.23,
+      "r2": 0.863
+    },
+    "waistCm": {
+      "intercept": 102.4906,
+      "heightCm": -0.43577,
+      "weightKg": 0.79624,
+      "sd_cm": 4.4,
+      "r2": 0.845
+    },
+    "hipsCm": {
+      "intercept": 80.8411,
+      "heightCm": -0.14014,
+      "weightKg": 0.53462,
+      "sd_cm": 2.63,
+      "r2": 0.882
+    },
+    "inseamCm": {
+      "intercept": -20.9573,
+      "heightCm": 0.61999,
+      "weightKg": -0.03898,
+      "sd_cm": 2.34,
+      "r2": 0.747
+    }
+  },
+  "weights": {
+    "intercept": [
+      -6.97532,
+      -1.27906,
+      3.22539,
+      4.44428,
+      -2.7035,
+      -23.32342
+    ],
+    "coef": {
+      "chestCm": [
+        0.00855,
+        -0.0,
+        0.090408,
+        -0.300281,
+        -0.245208,
+        0.236671
+      ],
+      "waistCm": [
+        0.028344,
+        0.0,
+        0.120406,
+        0.289886,
+        0.240319,
+        -0.21807
+      ],
+      "hipsCm": [
+        0.031989,
+        -0.0,
+        -0.248206,
+        -0.044006,
+        -0.043234,
+        -0.03071
+      ],
+      "inseamCm": [
+        -0.004639,
+        0.0,
+        0.02295,
+        0.064632,
+        0.133795,
+        0.246764
+      ]
+    },
+    "quad": {
+      "chestCm": [
+        0.009554,
+        0.0,
+        -0.114676,
+        -0.062234,
+        -0.028727,
+        0.014897
+      ],
+      "waistCm": [
+        -0.020336,
+        -0.0,
+        0.256681,
+        -0.02773,
+        0.05342,
+        -0.181577
+      ],
+      "hipsCm": [
+        0.013083,
+        0.0,
+        -0.105139,
+        0.158364,
+        0.041159,
+        0.354923
+      ],
+      "inseamCm": [
+        0.015405,
+        0.0,
+        -0.111407,
+        0.053661,
+        -0.059174,
+        0.151665
+      ]
+    },
+    "quad_center": 90.0,
+    "quad_scale": 10.0,
+    "min": [
+      -3.0,
+      -3.0,
+      -3.0,
+      -3.0,
+      -3.0,
+      -3.0
+    ],
+    "max": [
+      3.0,
+      0.0,
+      3.0,
+      3.0,
+      3.0,
+      3.0
+    ]
+  },
+  "height": {
+    "intercept_cm": 178.0315,
+    "per_weight_cm": [
+      0.0117,
+      0.0,
+      -0.0137,
+      -0.0524,
+      0.0452,
+      -0.00512
+    ]
+  },
+  "how_to": "For each of chest/waist/hips/inseam: use the entered cm, else estimate = intercept + heightCm*e.heightCm + weightKg*e.weightKg. Normalise x = cm * ref_height_cm / heightCm. body_i = clamp(intercept[i] + sum_n (coef[n][i] * x_n + quad[n][i] * ((x_n - quad_center) / quad_scale)^2), min[i], max[i]). scale = heightCm / (height.intercept_cm + sum_i height.per_weight_cm[i] * body_i).",
+  "source": "ANSUR II (2012) male public data, Penn State OPEN Design Lab; slices per body_measure.py",
+  "validation": {
+    "bodies": 20,
+    "mean_abs_cm": {
+      "chest": 0.24,
+      "waist": 0.22,
+      "hips": 0.37,
+      "inseam": 3.05
+    },
+    "max_abs_cm": {
+      "chest": 1.44,
+      "waist": 1.18,
+      "hips": 1.35,
+      "inseam": 10.33
+    }
+  }
+}
