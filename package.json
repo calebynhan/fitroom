@@ -3,7 +3,9 @@
   "private": true,
   "description": "Root package: Vercel functions in api/ (the web app lives in web/)",
   "scripts": {
-    "test": "vitest run api"
+    "test": "vitest run api scripts",
+    "catalog": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/build-catalog.ts",
+    "typecheck": "tsc -p scripts"
   },
   "dependencies": {
     "jpeg-js": "^0.4.4"

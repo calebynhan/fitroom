@@ -1,0 +1,18 @@
+{
+  "//": "Typecheck only (never emits): the catalog script plus the API code it shares. Vercel never reads this file.",
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "types": ["node"]
+  },
+  "include": ["./**/*.ts", "../api/product*.ts", "../api/_lib/windowLimit*.ts", "../api/_lib/uniqlo*.ts", "../api/_lib/sizeChart*.ts", "../api/_lib/chipColor.ts", "../api/_lib/http.ts"]
+}

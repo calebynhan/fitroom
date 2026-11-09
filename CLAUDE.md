@@ -50,14 +50,23 @@ Fitted morph weights: body_0 -1.50, body_1 -1.20, body_2 -0.08, body_3 -3.00, bo
 **body_1 positive adds a bust (female direction); keep it ≤ 0 for men.**
 
 ## UNIQLO data
-Product API (works same-origin in a browser tab; test server-side access before relying on it):
-`https://www.uniqlo.com/us/api/commerce/v5/en/products/<ID>/price-groups/00/details?includeModelSize=false&httpFailure=true`
--> result.name, result.prices.base.value, result.sizes[].name, result.colors[].{displayCode,name},
-result.breadcrumbs.class/category.locale, result.sizeChartUrl (inspect the format before parsing).
+All under `https://www.uniqlo.com/us/api/commerce/v5/en`. They answer plain server-side `fetch` (verified from the
+live Vercel function and from Node, 2026-11-08; don't spoof browser headers). Code: api/_lib/uniqloClient.ts.
+- Details: `/products/<ID>/price-groups/00/details?includeModelSize=false&httpFailure=true` -> result.name,
+  prices.base/promo.value, sizes[].name, colors[].{displayCode,name}, breadcrumbs.class/category/subcategory.locale,
+  images.main[<code>].image, representative.color, tags[] (`top-fit`/`bottom-fit` -> fit, `sleeve` -> short|long),
+  rating.count, sizeGender (MEN|WOMEN).
+- Size charts: `/products/size-charts?productIdsWithColorCode=<ID>,<ID>&includeBodyMeasurements=true` (batch up to
+  ~10) -> result[].sizeChart (garment) and .bodyMeasurements (body ranges like "96 - 104"). The `sizeChartUrl`
+  pages (/us/en/size/<num>_size.html) return S3 AccessDenied; don't use them.
+- Listing: `/products?path=<gender>,<class>,<category>,&offset=0&limit=100` (Men 22211; T-Shirts class 23305 >
+  category 23386; Sweaters 95668 > 95670; Bottoms 23306). IDs come from result.aggregations.tree.
 Swatch: `https://image.uniqlo.com/UQ/ST3/WesternCommon/imagesgoods/<num>/chip/goods_<code>_<num>_chip.jpg`
 (<num> = ID without E and -000). Product URL: /us/en/products/E453754-000/00 -> ID = E453754-000.
-Shape mapping: T-Shirts -> tee, Sweaters/Knit -> sweater, Pants/Jeans/Bottoms -> pants; anything else ->
-"not supported yet".
+Shape mapping (api/_lib/uniqlo.ts): pants/jeans/chinos/bottoms -> pants; tees/knits/sweatshirts -> top, and the
+sleeve decides the mesh: short -> tee, long -> sweater (size chart's garment sleeve length < 65 cm from centre
+back = short, else the sleeve tag, else the name). Shorts, skirts, dresses, tights, tanks, vests, hoodies,
+full-zips, cardigans, button-up shirts, underwear, jackets and coats -> "not supported yet".
 
 Current hero items: SUPIMA Cotton T-Shirt E455365-000 (tee), Crew Neck T-Shirt E422992-000 (tee), Washable Milano
 Ribbed Sweater E453754-000 (sweater), Cashmere Sweater E450543-000 (sweater), Ultra Stretch Pants E475598-000
@@ -90,13 +99,22 @@ fit_tight / fit_loose. Material "fabric", white base (the viewer tints). Rebind 
 Linear/least-squares model fitted offline by measuring slices of the MHR mesh at ANSUR landmark ratios.
 The browser evaluates it; no server round trip.
 
-**Catalog item** (web/public/catalog.json and the /api/product response):
-`{ id, name, price, salePrice|null, slot: "top"|"bottom", shape: "tee"|"sweater"|"pants", fabric, fit:
-"slim"|"regular"|"relaxed", url, image, colors: [{ code, name, hex, swatch }], sizes: [..],
-sizeChart: { [size]: { chestCm?, waistCm?, hipsCm?, inseamCm?, lengthCm? } } | null }`
+**Catalog item** (web/public/catalog.json `{ source, generatedAt, items }` and the /api/product response):
+`{ id, name, price, salePrice|null, slot: "top"|"bottom", shape: "tee"|"sweater"|"pants", fabric:
+"jersey"|"rib_knit"|"cashmere"|"twill"|"denim", fit: "slim"|"regular"|"relaxed", url, image, colors: [{ code,
+name, hex, swatch, image? }], sizes: [..], sizeChart: { [size]: SizeSpec } | null }`
+SizeSpec (api/_lib/sizeChart.ts), all cm: `chestCm? waistCm? hipsCm?` = BODY measurement the size fits (upper end
+of UNIQLO's range); `inseamCm? lengthCm?` = GARMENT inseam (pants) / body length (tops); `body?: { chestCm?,
+waistCm?, hipsCm?: [min, max] }`; `garment?: { chestCm, waistCm, hipsCm, lengthCm, shoulderCm, sleeveCm,
+inseamCm, riseCm, thighCm, hemCm }` (all optional; circumferences are full, not flat). Keys match `sizes` exactly
+("M", "33inch"). Pants charts carry no chest. Men's tops usually give body chest (+ often waist); pants give body
+waist only. Garment chest minus the user's chest = real ease, if you want to drive fit morphs from data.
+`colors[].image` = product photo in that colour when UNIQLO has one.
 
-**POST /api/product** `{ url }` -> catalog item, or `{ error }`. If UNIQLO blocks server requests, fall back to a
-"paste product JSON" box (the user runs a console snippet on uniqlo.com).
+**POST /api/product** `{ url }` -> catalog item (with fit + sizeChart), or `{ error, code }`: 400 bad_input,
+404 not_found, 422 unsupported, 429 rate_limited (30/min per IP, `Retry-After`), 500 internal, 502 blocked
+(UNIQLO unreachable: show the paste-JSON fallback). A failed size-chart call still returns the item with
+`sizeChart: null`.
 
 **POST /api/photoreal** `{ image: <JPEG data URL, max 1024px>, scene, items, selfie?: <data URL> }` ->
 `{ image, remaining }` or `{ error, detail?, retryable, remaining? }` (`error` = plain-language headline, `detail` =
@@ -127,6 +145,8 @@ recommended -> fit_tight, larger -> fit_loose.
 | Clothes look painted on | inflate offset too small, no drape | real ease per garment + longer cloth relax with gravity |
 | "Photos are paused: … no image credit" (was "could not make this image") | OpenAI org has 0 TPM for gpt-image (429 "Limit 0"): Free tier / no prepaid credit | add credit on platform.openai.com (Tier 1+), verify the org; `vercel logs` shows the full upstream error |
 | vercel dev: "Photoreal is not configured" | this CLI's `vercel dev` does not load .env.local into functions | `set -a; . ./.env.local; set +a; vercel dev --listen 3100` |
+| UNIQLO sizeChartUrl returns S3 AccessDenied | those HTML pages are not public | use the size-charts API (see UNIQLO data) |
+| Sweatshirts/hoodies mapped to tees | "Sweatshirts" contains "tshirt"; class "T-Shirts, Sweats & Fleece" | word-boundary patterns; judge hoods on the name |
 | Vercel build looks for web/web/package.json | Root Directory set to web while install cmd already cds into web | deploy from the repo root (`vercel --prod`) |
 
 ## Garment recipe (per shape)
@@ -146,6 +166,8 @@ recommended -> fit_tight, larger -> fit_loose.
     vercel dev                     # frontend + /api (needs .env.local)
     vercel --prod                  # deploy from the REPO ROOT, never from web/
     vercel logs <deployment-url>   # function errors
+    npm run catalog                # rebuild web/public/catalog.json from UNIQLO (~20 s; --dry-run, --per-shape N)
+    npm test && npm run typecheck  # api/ + scripts/ tests and types (root); web has its own in web/
 
 ## Conventions
 - Small commits with clear messages; pull before committing. Run `npm run build` before every deploy.
