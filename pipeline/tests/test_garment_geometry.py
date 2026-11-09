@@ -148,3 +148,44 @@ def test_mannequin_chest_only_moves_near_the_nipples():
     far = np.linalg.norm(co - co[0], axis=1) > 0.03
     far &= np.linalg.norm(co - co[1], axis=1) > 0.03
     assert np.abs(d[far]).max() == 0.0
+
+
+def test_unfold_repairs_a_folded_triangle():
+    n = 7
+    v = np.array([[x, y, 0.0] for y in range(n) for x in range(n)], float)
+    quads = [(y * n + x, y * n + x + 1, (y + 1) * n + x + 1, (y + 1) * n + x) for y in range(n - 1) for x in range(n - 1)]
+    f = gg.triangulate(quads, v)
+    k = 3 * n + 3                         # centre vertex
+    bent = v.copy()
+    bent[k] = (4.8, 3.0, 0.0)             # dragged across its right-hand neighbour: faces fold over in-plane
+    assert gg.flipped_faces(bent, f).sum() > 0
+    fixed, before, after = gg.unfold(bent, f)
+    assert before > 0 and after == 0
+    assert np.linalg.norm(fixed[k] - v[k]) < np.linalg.norm(bent[k] - v[k])
+
+
+def test_corner_uvs_split_the_wrap_seam():
+    import garment_export as gx
+    f = np.array([[0, 1, 2]])
+    ang = np.array([3.0, -3.0, 3.1])
+    rad = np.ones(3)
+    uv = np.column_stack([ang * rad, np.zeros(3)])
+    out = gx.corner_uvs(f, uv, ang, rad)
+    assert np.ptp(out[0, :, 0]) < 1.0            # no texture squashed across the whole circumference
+
+
+def test_drop_degenerate_faces():
+    import garment_export as gx
+    v = np.array([[0, 0, 0], [0.01, 0, 0], [0, 0.01, 0], [0.02, 0, 0]], float)
+    f = np.array([[0, 1, 2], [0, 1, 3], [1, 1, 2]])
+    assert gx.drop_degenerate(v, f).tolist() == [True, False, False]
+
+
+def test_anti_clip_max_dist_ignores_far_points():
+    import garment_body as gbody
+    from mathutils.bvhtree import BVHTree
+    plane = BVHTree.FromPolygons([(-1, -1, 0), (1, -1, 0), (1, 1, 0), (-1, 1, 0)], [(0, 1, 2), (0, 2, 3)])
+    pts = np.array([[0.0, 0.0, -0.001], [0.0, 0.0, -0.4]])    # just behind the surface / far behind it
+    out, _ = gbody.anti_clip(pts, None, 0.003, bvh=plane, max_dist=0.03)
+    assert out[0, 2] == pytest.approx(0.003)                    # near point pushed out to the gap
+    assert out[1, 2] == pytest.approx(-0.4)                     # far point left alone

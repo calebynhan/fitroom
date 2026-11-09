@@ -24,6 +24,8 @@ import bl_scene as bs  # noqa: E402
 import body_measure as bm  # noqa: E402
 import poses  # noqa: E402
 import render  # noqa: E402
+import bake_ao  # noqa: E402
+import garment_export  # noqa: E402
 import sculpt  # noqa: E402
 import skin_paint  # noqa: E402
 import garment_geom as gg  # noqa: E402
@@ -222,11 +224,25 @@ def main() -> None:
     if painted:
         paint_skin(arm, mesh, rest_co, args.sex)
     render_poses(arm, mesh, rest_co, target_h, args.render or os.path.join(ROOT, f"pipeline/renders/{stem}_front.png"))
+    if not painted:
+        bake_body_ao(arm, mesh, rest_co)
     clips = poses.bake_clips(arm, mesh, rest_co)   # after renders: NLA tracks override manual posing
-    bs.export_glb(args.out, [arm, mesh], animations=True)
+    bs.export_glb(args.out, [arm, mesh], animations=True, colors=not painted)
     keep_build_copy(args.out)
     write_measure_json(os.path.join(out_dir, f"{stem}_measure.json"), args.sex, weights, measured, jac, t["height"])
     print("wrote", args.out, os.path.getsize(args.out) // 1024, "KB, pose clips", clips)
+
+
+def bake_body_ao(arm, mesh, rest_co: np.ndarray) -> None:
+    """Self-occlusion (armpits, fingers, between the legs, under the chin) in the Relaxed clip, stored as
+    COLOR_0 = (0, ao, 0) for the viewer to darken the mannequin by."""
+    poses.apply(arm, mesh, "relaxed", rest_co)
+    co = bs.evaluated_coords(mesh)
+    poses.reset(arm)
+    faces = gg.triangulate([tuple(p.vertices) for p in mesh.data.polygons], co)
+    ao = bake_ao.vertex_ao(co, gg.vertex_normals(co, faces), [(co, faces)], faces)
+    garment_export.set_colors(mesh.data, np.zeros(len(ao)), ao)
+    print(f"body AO: mean {ao.mean():.2f}, min {ao.min():.2f}")
 
 
 def keep_build_copy(path: str) -> str:

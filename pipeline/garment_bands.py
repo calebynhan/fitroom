@@ -76,11 +76,16 @@ def _loop_frames(v: np.ndarray, normals: np.ndarray, loop: np.ndarray):
     return n, u
 
 
-def _inside_surface(v: np.ndarray, normals: np.ndarray, tree, targets: np.ndarray, depth: float) -> np.ndarray:
-    """Points `depth` behind the outer fabric nearest to each target: the turned-back strip follows the
-    fabric's folds instead of cutting straight across them (a straight offset pokes through a wavy hem)."""
-    _, idx = tree.query(targets)
-    return v[idx] - normals[idx] * depth
+def _inside_surface(bvh, targets: np.ndarray, depth: float) -> np.ndarray:
+    """Points `depth` behind the outer fabric nearest to each target: the turned-back strip follows the fabric's
+    folds instead of cutting straight across them (a straight offset pokes through a wavy hem). Nearest *surface*
+    points, not vertices: snapping to vertices stacks strip verts on one spot (zero-area faces)."""
+    from mathutils import Vector
+    out = np.empty_like(targets)
+    for i, t in enumerate(targets):
+        loc, nrm, _, _ = bvh.find_nearest(Vector(t))
+        out[i] = np.array(loc) - np.array(nrm) * depth
+    return out
 
 
 def add_turnbacks(v: np.ndarray, f: np.ndarray, loops: dict, spec: GarmentSpec, thickness: float):
@@ -91,9 +96,9 @@ def add_turnbacks(v: np.ndarray, f: np.ndarray, loops: dict, spec: GarmentSpec, 
     sheet around the fold, so shading stays smooth. Returns (v, f, parent) where parent[i] is the original
     vertex a new vertex copies skin weights, morphs and attributes from (identity for original vertices).
     """
-    from scipy.spatial import cKDTree
+    from mathutils.bvhtree import BVHTree
     normals = gg.vertex_normals(v, f)
-    tree = cKDTree(v)
+    bvh = BVHTree.FromPolygons(v.tolist(), f.tolist())
     verts, faces = [v], [f]
     parent = [np.arange(len(v))]
     count = len(v)
@@ -105,8 +110,8 @@ def add_turnbacks(v: np.ndarray, f: np.ndarray, loops: dict, spec: GarmentSpec, 
         p = v[loop]
         rows = [p - u * (LIP_OUT * thickness) - n * (0.5 * thickness),
                 p - n * thickness,
-                _inside_surface(v, normals, tree, p + u * (0.5 * band.turn), thickness),
-                _inside_surface(v, normals, tree, p + u * band.turn, thickness)]
+                _inside_surface(bvh, p + u * (0.5 * band.turn), thickness),
+                _inside_surface(bvh, p + u * band.turn, thickness)]
         ids = [loop] + [count + k * len(loop) + np.arange(len(loop)) for k in range(len(rows))]
         for a, b in zip(ids[:-1], ids[1:]):
             a1, b1 = np.roll(a, -1), np.roll(b, -1)

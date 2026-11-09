@@ -247,3 +247,26 @@ def diffuse(field: np.ndarray, f: np.ndarray, iters: int) -> np.ndarray:
     for _ in range(iters):
         out = 0.5 * out + 0.5 * (w @ out)
     return out
+
+
+def flipped_faces(v: np.ndarray, f: np.ndarray) -> np.ndarray:
+    """Faces folded over against their neighbours: face normal opposes the mean normal of its corners."""
+    fn = face_normals(v, f)
+    corner = vertex_normals(v, f)[f].sum(axis=1)
+    return (fn * corner).sum(axis=1) < 0
+
+
+def unfold(v: np.ndarray, f: np.ndarray, iters: int = 8) -> tuple[np.ndarray, int, int]:
+    """Relax the corners of folded-over faces toward their neighbours until none are left (or iters run out).
+    Returns (positions, flipped before, flipped after)."""
+    e, _ = edges_with_counts(f)
+    avg_op, _ = _row_normalised(e, len(v))
+    out = v.copy()
+    before = int(flipped_faces(out, f).sum())
+    for _ in range(iters):
+        bad = flipped_faces(out, f)
+        if not bad.any():
+            break
+        idx = np.unique(f[bad])
+        out[idx] = (avg_op @ out)[idx]
+    return out, before, int(flipped_faces(out, f).sum())

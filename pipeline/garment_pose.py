@@ -16,11 +16,13 @@ import poses
 from garment_body import BodyData
 
 POSE_PASSES = ("relaxed", "walk", "pocket", "relaxed")   # default pose last so it ends cleanest
-POSE_GAP = 0.003
+POSE_GAP = 0.004
+INWARD_BELOW_CHEST = 0.08   # the inward forearm push only applies to fabric this far below the chest line
 POSE_MAX_PUSH = 0.04   # ignore matches farther than this (wrong body part)
-HAND_GAP = 0.008       # fabric tents this far over hands and fingers (a fingertip is wider than an edge)
+HAND_GAP = 0.010       # fabric tents this far over hands and fingers (a fingertip is wider than an edge)
 HAND_SPREAD = 4        # neighbour-averaging steps that turn a hand push into a soft bulge
-UNDER_COS = 0.3        # a hand counts as under the fabric when its surface faces the fabric's outward side
+UNDER_COS = -0.2       # hand counts as under the fabric unless its surface faces back at it (side-on fingertips count)
+ARM_SPAN = 0.06        # longest inward move through a forearm/hand (m); farther means a wrong match
 
 
 def skin_matrices(arm, names: list) -> np.ndarray:
@@ -70,6 +72,25 @@ def _push_out(posed: np.ndarray, bvh: BVHTree, sel: np.ndarray, gap: float, unde
     return dp
 
 
+def _push_inward(posed: np.ndarray, bvh: BVHTree, sel: np.ndarray, gap: float, normals: np.ndarray):
+    """For selected verts that sit inside the collider (an arm cutting through a shirt's side panel), move them
+    inward along the fabric's own normal until they're `gap` past the collider's inner face: the fabric then
+    passes between arm and body instead of being split around the arm."""
+    dp = np.zeros_like(posed)
+    for i in np.nonzero(sel)[0]:
+        p = Vector(posed[i])
+        loc, nrm, _, dist = bvh.find_nearest(p, POSE_MAX_PUSH)
+        if loc is None or (p - loc).dot(nrm) >= 0.0:
+            continue
+        if nrm.dot(Vector(normals[i])) >= UNDER_COS:   # the arm is under the fabric (pocket): tent, don't push in
+            continue
+        inward = -Vector(normals[i])
+        hit, _, _, travel = bvh.ray_cast(p, inward, ARM_SPAN)
+        if hit is not None and travel < ARM_SPAN:
+            dp[i] = np.array(inward) * (travel + gap)
+    return dp
+
+
 def _apply(out: np.ndarray, dp: np.ndarray, m: np.ndarray, f, spread: int) -> np.ndarray:
     """Add a posed-space correction (mapped back to rest). With faces, the push spreads to neighbours so a
     hand pressing into fabric makes a soft bulge rather than a spike."""
@@ -84,7 +105,7 @@ def _apply(out: np.ndarray, dp: np.ndarray, m: np.ndarray, f, spread: int) -> np
 
 
 def pose_correct(built: np.ndarray, w: np.ndarray, arm, body, bd: BodyData, passes: tuple = POSE_PASSES,
-                 f: np.ndarray | None = None, extras: tuple = ()) -> tuple[np.ndarray, dict]:
+                 f: np.ndarray | None = None, extras: tuple = (), inward: bool = False) -> tuple[np.ndarray, dict]:
     """Posed anti-clip: in each pose, push garment verts that end up inside the posed body back out, and
     map the correction to rest space through the inverse of each vertex's skinning transform.
 
@@ -92,27 +113,39 @@ def pose_correct(built: np.ndarray, w: np.ndarray, arm, body, bd: BodyData, pass
     forearm and hip must not be shoved into the arm (that shows skin through the sleeve). The garment body
     also clears forearms and hands (a tee hem drapes over the wrists, pants tent over fingers in pockets).
     extras: (rest_v, faces, weights, mask, gap) skinned meshes to clear too, e.g. the pants under a top.
+    inward: also push fabric that a forearm cuts through inward (tops only: in pants the hands are inside).
     """
     arm_cols = [i for i, n in enumerate(bd.names) if any(t in n for t in bs.ARM_TOKENS)]
     hand_cols = [i for i, n in enumerate(bd.names) if any(t in n for t in bs.ARM_TOKENS[1:])]
     body_arm_f = bd.arm_w[bd.faces].mean(axis=1) > 0.5
     body_hand_f = bd.weights[:, hand_cols].sum(1)[bd.faces].mean(axis=1) > 0.5
+    # Forearms/hands hanging beside the waist cut through a shirt's side panels; push that fabric inward. Only
+    # below the chest: at the shoulder, torso fabric reads as "inside" the deltoid and would be torn up.
+    low_torso = bd.landmarks.chest_z - INWARD_BELOW_CHEST
+    rest_low = (built[:, 2] < low_torso)
     sleeve = w[:, arm_cols].sum(1) > 0.5          # garment verts that belong to a sleeve
     out, report = built.copy(), {}
     for pose in passes:
         posed_b = posed_body(arm, body, bd, pose).tolist()
         mats = skin_matrices(arm, bd.names)
         m = blend(w, mats)
-        colliders = [(posed_b, bd.faces[body_arm_f], sleeve, POSE_GAP, 0, False),
-                     (posed_b, bd.faces[~body_arm_f], ~sleeve, POSE_GAP, 2, False),
-                     (posed_b, bd.faces[body_hand_f], ~sleeve, HAND_GAP, HAND_SPREAD, f is not None)]
+        # Torso clearance runs after the hand/forearm passes: an inward push must never leave fabric in the body.
+        colliders = [(posed_b, bd.faces[body_arm_f], sleeve, POSE_GAP, 0, "out"),
+                     (posed_b, bd.faces[body_hand_f], ~sleeve, HAND_GAP, HAND_SPREAD, "under"),
+                     (posed_b, bd.faces[body_hand_f], ~sleeve & rest_low, POSE_GAP, 3, "inward"),
+                     (posed_b, bd.faces[~body_arm_f], ~sleeve, POSE_GAP, 2, "out")]
         for ev, ef, ew, mask, gap in extras:
-            colliders.append((lbs(ev, blend(ew, mats)).tolist(), ef, ~sleeve & mask, gap, 2, False))
+            colliders.append((lbs(ev, blend(ew, mats)).tolist(), ef, ~sleeve & mask, gap, 2, "out"))
         moved = np.zeros(len(out), dtype=bool)
-        for verts, faces, sel, gap, spread, only_under in colliders:
+        for verts, faces, sel, gap, spread, mode in colliders:
+            if (mode != "out" and f is None) or (mode == "inward" and not inward):
+                continue
             posed = lbs(out, m)
-            under = gg.vertex_normals(posed, f) if only_under else None
-            dp = _push_out(posed, BVHTree.FromPolygons(verts, np.asarray(faces).tolist()), sel, gap, under)
+            bvh = BVHTree.FromPolygons(verts, np.asarray(faces).tolist())
+            if mode == "inward":
+                dp = _push_inward(posed, bvh, sel, gap, gg.vertex_normals(posed, f))
+            else:
+                dp = _push_out(posed, bvh, sel, gap, gg.vertex_normals(posed, f) if mode == "under" else None)
             out, hit = _apply(out, dp, m, f, spread)
             moved |= hit
         report[pose] = int(moved.sum())

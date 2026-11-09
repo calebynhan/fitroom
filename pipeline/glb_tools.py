@@ -106,10 +106,44 @@ def read_skinned_mesh(path: str) -> dict:
     names = mesh.get("extras", {}).get("targetNames", [])
     targets = {n: to_z_up(accessor(doc, binary, t["POSITION"])) for n, t in zip(names, prim.get("targets", []))}
     skin = doc["skins"][0]
+    normals = to_z_up(accessor(doc, binary, prim["attributes"]["NORMAL"])) if "NORMAL" in prim["attributes"] else None
     return {
-        "positions": pos, "triangles": tris, "targets": targets,
+        "positions": pos, "normals": normals, "triangles": tris, "targets": targets,
         "default_weights": dict(zip(names, mesh.get("weights", [0.0] * len(names)))),
         "joints": accessor(doc, binary, prim["attributes"]["JOINTS_0"]).astype(np.int64),
         "weights": accessor(doc, binary, prim["attributes"]["WEIGHTS_0"]),
         "joint_names": [doc["nodes"][i]["name"] for i in skin["joints"]],
     }
+
+
+def mesh_report(path: str, weld: float = 1e-5) -> dict:
+    """Topology check on an (uncompressed) GLB after welding positions at `weld` metres, the way the viewer team
+    measures: small holes (boundary loops of < 20 edges), non-manifold edges, zero-area faces, folded faces."""
+    import garment_geom as gg
+    m = read_skinned_mesh(path)
+    v = m["positions"]
+    _, inv = np.unique(np.round(v / weld).astype(np.int64), axis=0, return_inverse=True)
+    f = inv.ravel()[m["triangles"]]
+    vw = np.zeros((inv.max() + 1, 3))
+    vw[inv.ravel()] = v
+    area = 0.5 * np.linalg.norm(np.cross(vw[f[:, 1]] - vw[f[:, 0]], vw[f[:, 2]] - vw[f[:, 0]]), axis=1)
+    degenerate = (area < 1e-10) | (f[:, 0] == f[:, 1]) | (f[:, 1] == f[:, 2]) | (f[:, 0] == f[:, 2])
+    good = f[~degenerate]
+    _, counts = gg.edges_with_counts(good)
+    loops = gg.boundary_loops(good)
+    return {
+        "zero_area": int(degenerate.sum()),
+        "non_manifold_edges": int((counts > 2).sum()),
+        "small_holes": int(sum(len(lp) < 20 for lp in loops)),
+        "open_edges": sorted(len(lp) for lp in loops if len(lp) >= 20),
+        "folded": _against_normals(m),
+    }
+
+
+def _against_normals(m: dict) -> int:
+    """Faces wound against their own exported vertex normals (what a DoubleSide viewer lights from behind)."""
+    v, f, n = m["positions"], m["triangles"], m["normals"]
+    if n is None:
+        return -1
+    fn = np.cross(v[f[:, 1]] - v[f[:, 0]], v[f[:, 2]] - v[f[:, 0]])
+    return int(((fn * n[f].sum(axis=1)).sum(axis=1) < 0).sum())

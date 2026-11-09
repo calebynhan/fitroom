@@ -17,11 +17,14 @@ import sys
 from dataclasses import dataclass
 
 import bpy  # noqa: F401  (must load before bmesh)
+import dataclasses
+
 import numpy as np
 from mathutils.bvhtree import BVHTree
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import bl_scene as bs  # noqa: E402
+import bake_ao  # noqa: E402
 import cloth_sim  # noqa: E402
 import garment_bands as gb  # noqa: E402
 import garment_body as gbody  # noqa: E402
@@ -48,8 +51,13 @@ DELTA_SMOOTH_ITERS = 6
 EDGE_RELAX_ITERS = 6
 SHOE_GAP = 0.003        # pants hems clear the shoes by this much
 PANTS_GAP = 0.004       # an untucked top clears the pants (incl. waistband) by this much
+UNDER_REACH = 0.03      # only verts within this of a lower garment are tested against it
+FINAL_POSES = ("pocket",)   # the clip with hands under the fabric; corrected again after unfolding
 LEDGE_BAND = 0.05       # fabric within this height of a lower garment's top edge gets relaxed over it
 LEDGE_ROUNDS = 3
+AO_POSE = "relaxed"     # baked AO is computed in the viewer's Relaxed clip
+HEM_DROP = 0.012        # pant hems drop this far after the drape: ~8 mm over the shoe collar line
+HEM_DROP_REACH = 0.05   # ... fading out this far up the leg
 
 
 @dataclass(frozen=True)
@@ -117,7 +125,7 @@ def clear_under(v: np.ndarray, bd: BodyData, under: list, mask_z: np.ndarray, sc
         sel = mask_z < u.z_max
         if sel.any():
             tree = BVHTree.FromPolygons(u.v.tolist(), u.f.tolist())
-            moved, _ = gbody.anti_clip(v[sel], bd, u.gap * scale, bvh=tree)
+            moved, _ = gbody.anti_clip(v[sel], bd, u.gap * scale, bvh=tree, max_dist=UNDER_REACH)
             v = v.copy()
             v[sel] = moved
     return v
@@ -187,6 +195,18 @@ def drape(cut: Cut, start: np.ndarray, arm, body, bd: BodyData, spec: gs.Garment
     return rest
 
 
+def lower_hems(v: np.ndarray, cut: Cut) -> np.ndarray:
+    """Drop the pant hems over the shoe collars after the drape (no ankle gap). Draped already overlapping, the
+    hem catches on the moving shoes in the sim and the legs bunch up; clean() then lays it over the shoe."""
+    w = np.zeros(len(v))
+    for name, d in cut.dists.items():
+        if gb.band_of(name) == "leg":
+            w = np.maximum(w, 1.0 - gg.smoothstep(0.0, HEM_DROP_REACH, d))
+    out = v.copy()
+    out[:, 2] -= HEM_DROP * w
+    return out
+
+
 def smooth_edges(v: np.ndarray, cut: Cut, spec: gs.GarmentSpec, iters: int = EDGE_RELAX_ITERS) -> np.ndarray:
     """Relax crumples along hems, cuffs and collars (where the sim and pose clean-up bunch fabric)."""
     w = np.zeros(len(v))
@@ -205,12 +225,18 @@ def clean(v: np.ndarray, cut: Cut, arm, body, bd: BodyData, spec: gs.GarmentSpec
     extras = tuple((u.v, u.f, u.weights, z < u.z_max, u.gap) for u in under)
     v, _ = gbody.anti_clip(v, bd, gs.clearance(v, L, spec))
     v = clear_under(v, bd, under, z)
-    v, report = gp.pose_correct(v, cut.weights, arm, body, bd, passes=passes, f=cut.surf.f, extras=extras)
+    top = spec.slot == "top"
+    v, report = gp.pose_correct(v, cut.weights, arm, body, bd, passes=passes, f=cut.surf.f, extras=extras, inward=top)
     v = smooth_edges(v, cut, spec, iters=2)      # pose clean-up can re-crumple hems and cuffs a little
     v, _ = gbody.anti_clip(v, bd, gs.clearance(v, L, spec))
     v = clear_under(v, bd, under, z)
     v = relax_over_edges(v, cut, bd, spec, under)
-    print(f"    posed anti-clip moved {report}")
+    v, folded, left = gg.unfold(v, cut.surf.f)
+    v, _ = gbody.anti_clip(v, bd, gs.clearance(v, L, spec))
+    # Unfolding relaxes the soft bulges pushed out over hands in pockets; re-tent them last.
+    v, _ = gp.pose_correct(v, cut.weights, arm, body, bd, passes=FINAL_POSES, f=cut.surf.f, extras=extras,
+                           inward=top)
+    print(f"    posed anti-clip moved {report}; unfolded {folded - left}/{folded} flipped faces")
     return v
 
 
@@ -264,7 +290,10 @@ def make_garment(arm, body, bd: BodyData, uni: Surface, spec: gs.GarmentSpec, un
         # Only shoes join the cloth sim (pants hems settle on them). A top starts inside the pants' collision
         # margin and the waistband rim pushes it up over the pants; tops clear the pants after the drape.
         colliders = [u.obj for u in under if spec.slot == "bottom"]
-        draped = smooth_edges(drape(cut, start, arm, body, bd, spec, colliders), cut, spec)
+        draped = drape(cut, start, arm, body, bd, spec, colliders)
+        if spec.slot == "bottom":
+            draped = lower_hems(draped, cut)
+        draped = smooth_edges(draped, cut, spec)
         fits[fit.name] = clean(draped, cut, arm, body, bd, spec, under)
         print(f"    {spec.shape}/{fit.name} draped")
     for name, pos in size_variants(fits["base"], cut, bd, spec).items():
@@ -276,9 +305,20 @@ def make_garment(arm, body, bd: BodyData, uni: Surface, spec: gs.GarmentSpec, un
         name=spec.shape, v=v, f=f, weights=cut.weights[parent], arm_w=cut.arm_w[parent],
         band=cut.fields["rib"][parent], body_deltas=deltas,
         fit_deltas={k: fv - v for k, (fv, _, _) in finished.items() if k != "base"},
-        material="fabric", outer=np.arange(len(f)) < len(cut.surf.f))   # strips come after the shell
+        material="fabric", outer=np.arange(len(f)) < len(cut.surf.f),   # strips come after the shell
+        ao=garment_ao(v, f, cut.weights[parent], arm, body, bd))
     print(f"    {spec.shape}: girth change at weight 1 (cm) {size_report(built, spec, bd.landmarks)}")
     return gx.build_object(built, arm, bd), built
+
+
+def garment_ao(v: np.ndarray, f: np.ndarray, w: np.ndarray, arm, body, bd: BodyData) -> np.ndarray:
+    """Baked AO in the Relaxed pose: the garment occluded by the body and by itself (folds, armpits, collars)."""
+    poses.apply(arm, body, AO_POSE, bd.proxy)
+    posed = gp.lbs(v, gp.blend(w, gp.skin_matrices(arm, bd.names)))
+    body_posed = bs.evaluated_coords(body)
+    poses.reset(arm)
+    good = f[gx.drop_degenerate(v, f)]
+    return bake_ao.vertex_ao(posed, gg.vertex_normals(posed, good), [(body_posed, bd.faces), (posed, good)], good)
 
 
 def size_report(built: gx.GarmentMesh, spec: gs.GarmentSpec, L) -> dict:
@@ -317,7 +357,8 @@ def main() -> None:
     uni = gbody.uniform_surface(bd, VOXEL)
     print(f"uniform body surface: {len(uni.v)} verts")
     os.makedirs(args.out, exist_ok=True)
-    meshes = {"shoes": sh.build_shoes(bd, uni)}
+    shoes = sh.build_shoes(bd, uni)
+    meshes = {"shoes": dataclasses.replace(shoes, ao=garment_ao(shoes.v, shoes.f, shoes.weights, arm, body, bd))}
     objs = {"shoes": gx.build_object(meshes["shoes"], arm, bd)}
     shapes = [s.strip() for s in args.shapes.split(",") if s.strip()]
     for shape in sorted(shapes, key=lambda s: gs.SPECS[s].slot != "bottom"):   # bottoms first: tops go over
@@ -330,6 +371,7 @@ def main() -> None:
         bs.export_glb(path, [arm, obj], colors=True)
         diff = glb_tools.assert_same_bind(path, args.body)
         print(f"  wrote {path} {os.path.getsize(path) // 1024} KB, bind diff {diff:.1e}, {glb_tools.summary(path)}")
+        print(f"    mesh check: {glb_tools.mesh_report(path)}")
     for o in objs.values():
         o.hide_set(False)
     gx.write_fits_json(args.out)

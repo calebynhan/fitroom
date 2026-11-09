@@ -173,9 +173,11 @@ def uniform_surface(bd: BodyData, voxel: float) -> Surface:
     return Surface(v, f, tri, bary)
 
 
-def anti_clip(v: np.ndarray, bd: BodyData, gap, iters: int = 2, bvh: BVHTree | None = None) -> tuple[np.ndarray, int]:
+def anti_clip(v: np.ndarray, bd: BodyData, gap, iters: int = 2, bvh: BVHTree | None = None,
+              max_dist: float | None = None) -> tuple[np.ndarray, int]:
     """Push any vert closer than `gap` (scalar or per-vert) to, or inside, the body back out along the normal.
-    bvh: a posed body to test against instead of the rest-pose body."""
+    bvh: a posed body / another garment to test against instead of the rest-pose body. max_dist: ignore verts
+    farther than this from it (a thigh 60 cm above a shoe can read as "behind" a collar face and get thrown)."""
     gap = np.broadcast_to(np.asarray(gap, dtype=np.float64), (len(v),))
     tree = bvh or bd.bvh
     out, total = v.copy(), 0
@@ -183,6 +185,8 @@ def anti_clip(v: np.ndarray, bd: BodyData, gap, iters: int = 2, bvh: BVHTree | N
         loc, nrm, _ = _nearest(out, tree)
         signed = ((out - loc) * nrm).sum(1)
         bad = signed < gap
+        if max_dist is not None:
+            bad &= np.linalg.norm(out - loc, axis=1) < max_dist
         out[bad] = loc[bad] + nrm[bad] * gap[bad, None]
         total += int(bad.sum())
         if not bad.any():
