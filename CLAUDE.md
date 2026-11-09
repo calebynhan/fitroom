@@ -148,7 +148,7 @@ inseam - 4 cm (≤ -10 cropped, ≤ -4 ankle, ≤ +5 full, else long). Both go i
 | vercel dev: "Photoreal is not configured" | this CLI's `vercel dev` does not load .env.local into functions | `set -a; . ./.env.local; set +a; vercel dev --listen 3100` |
 | UNIQLO sizeChartUrl returns S3 AccessDenied | those HTML pages are not public | use the size-charts API (see UNIQLO data) |
 | Sweatshirts/hoodies mapped to tees | "Sweatshirts" contains "tshirt"; class "T-Shirts, Sweats & Fleece" | word-boundary patterns; judge hoods on the name |
-| Vercel build looks for web/web/package.json | Root Directory set to web while install cmd already cds into web | deploy from the repo root (`vercel --prod`) |
+| Vercel build looks for web/web/package.json ("Vercel – web" check red on every push) | a second Vercel project "web" had Root Directory = web while the install cmd already cds into web; deleted 2026-11-09 | one project only ("fitroom", Root Directory = repo root); deploy from the repo root (`vercel --prod`) |
 | `rib_knit` reached the prompt as "ribknit" | the text cleaner stripped `_` before it was turned into a space | replace `_` first, then clean (api/_lib/look.ts parsePieces) |
 | Parallel angles under-count the visitor's looks | each response sets the cookie to the count it read + 1 | one look = the front shot; the angles ride on the signed look token and never touch the cookie |
 | App freezes / "getSnapshot should be cached" | a zustand selector returned a new object every render | select slices, derive with useMemo (look/useLookInput.ts) |
