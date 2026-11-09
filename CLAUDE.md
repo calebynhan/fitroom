@@ -88,8 +88,10 @@ Nothing physics-based runs in the browser. The browser loads GLBs, drives morphs
 ## Contracts
 **Body GLB** web/public/models/body.glb: one SkinnedMesh (MHR lod1, ~18k verts), MHR skeleton (root, c_spine0..3,
 c_neck, l_/r_upleg, l_/r_lowleg, l_/r_uparm, l_/r_lowarm ...), metres, Y-up, A-pose. Morph targets body_0..body_5
-= MHR shape_0..5. Store mannequin: no texture or vertex colours (the viewer colours it), smooth scalp, no nipples.
+= MHR shape_0..5. Store mannequin: no texture (the viewer colours it), smooth scalp, no nipples. COLOR_0 =
+(0, AO, 0): baked self-occlusion in the Relaxed clip (1 = open, raw linear); it is not paint.
 Clips relaxed / pocket / walk stand the feet 1.8 cm up (poses.SOLE_LIFT) so shoes.glb's soles touch y = 0.
+Relaxed = mannequin stance, arms a little away from the waist, palms toward the thighs.
 body_measure.json: tape measurements + jacobian at the default weights.
 
 **Garment GLB** web/public/garments/<shape>.glb, shape = tee | sweater | pants | shoes: one SkinnedMesh skinned to
@@ -98,7 +100,8 @@ from). Clothes add fit_tight / fit_loose: at weight 1 = -/+3 cm of garment circu
 partial weights interpolate), plus fit_boxy (tee) and fit_barrel (pants) set per item by fits.json. Material
 "fabric", white base (the viewer tints). shoes.glb: material "shoe", body morphs only, always worn. Clothes are
 single-sided cloth with turned-back hems: render DoubleSide. UVs in metres (u around the body/limb, v along it).
-COLOR_0.r = knit rib mask (1 on crew collars and sweater cuffs/hem band) for a rib normal map, not a tint.
+COLOR_0 = (rib mask, AO, 0): .r = 1 on crew collars and sweater cuffs/hem band (rib normal map), .g = baked
+ambient occlusion by the body + the garment itself in Relaxed (1 = open, raw linear). Not a tint.
 All GLBs are meshopt-compressed (EXT_meshopt_compression, drei's useGLTF decodes it); POSITION and TEXCOORD stay
 float32, so raw attribute values are metres / UV metres. Rebind by bone name:
 
@@ -174,21 +177,29 @@ recommended -> fit_tight, larger -> fit_loose; weight = ease difference / 3 cm, 
 | Turntable renders all frontal | glTF import leaves objects in quaternion rotation mode | rotation_mode = "XYZ" before rotation_euler |
 | Blender can't import body.glb | web GLBs are meshopt-compressed | later steps read assets/build/body.glb (body.py keeps an uncompressed copy) |
 | gltfpack drops UVs / custom attributes | it strips unused and `_*` attributes | -kv; rib mask lives in COLOR_0 |
+| Garments "full of holes" when welded | turned-back strip rows snapped to the nearest vertex stack on one spot (zero-area faces) | project strip rows onto the fabric surface; drop degenerate faces; glb_tools.mesh_report |
+| Shirt side panels torn by the forearms | arms skinned into the shirt after the drape | Relaxed with arms off the waist; forearms push side fabric inward (below the chest only) |
+| Shoulders shredded after a collision pass | sleeve verts vs torso faces / torso fabric vs deltoid read as "inside" | sleeves collide with arm faces only; inward push only for forearms/hands below the chest |
+| Pants legs crumpled to capri length | clearance vs the shoes tested every vertex: a thigh 40 cm up read as "behind" a collar face and was thrown onto the shoe | test only verts within 3 cm of a lower garment (UNDER_REACH) |
+| Texture squashed in one strip of triangles | cylindrical UV angle wraps from +pi to -pi inside a triangle | per-corner UVs, shift the wrapped corners one circumference |
 | Vercel build looks for web/web/package.json | Root Directory set to web while install cmd already cds into web | deploy from the repo root (`vercel --prod`) |
 
 ## Garment recipe (per shape; pipeline/garments.py, order shoes -> pants -> tops)
 1. Body = MHR lod1 mannequin, voxel-remeshed to even ~1 cm cloth edges. Each garment vertex keeps its origin on
    the body: skin weights and body_0..5 deltas are interpolated from it.
 2. Cut by skeleton landmarks: tee hem hips-0.02 m, sleeves to mid upper arm; sweater hem hips-0.035 m, sleeves to
-   the wrist; crew neck = ellipse at the neck base; pants waist hips+0.06 m, hem 4 mm above the shoe collar line.
+   the wrist; crew neck = ellipse at the neck base; pants waist hips+0.06 m, hem draped 4 mm above the shoe
+   collar line, then dropped 1.2 cm over it after the drape (draping it overlapped catches the hem on the shoes).
 3. Ease along normals (tee 8 mm, sweater 15 mm, pants 12 mm; 4-6 mm over the shoulders) + the fit's silhouette
    (chest ease, hem flare, sleeve flare, leg taper / barrel) -> smooth -> anti-clip.
 4. Gravity drape (cloth_sim.py): garment skinned (Armature before Cloth), skeleton animates from the A-pose into
    the Relaxed stance with arms 65% down while the cloth settles on the body (pants also on the shoes). Pins:
    collar/shoulders, waistband, cuffs; knit rib bands drawn in by per-vertex shrink. Back to rest by inverse LBS.
 5. Relax hems -> anti-clip at rest and in every clip (sleeves vs arm, body vs torso/legs, hands tent fabric only
-   when under it, tops clear the pants' outer shell by 4 mm) -> fit_tight / fit_loose -> turned-back hem strips ->
-   UVs, rib mask -> GLB -> 4-angle check renders in pipeline/renders/ -> compress_glb.mjs.
+   when under it, forearms push side-panel fabric inward, tops clear the pants' outer shell by 4 mm) -> unfold
+   folded faces -> fit_tight / fit_loose -> turned-back hem strips (projected onto the fabric) -> UVs split at the
+   wrap, rib mask + baked AO (bake_ao.py) -> GLB (degenerate faces dropped, sharp folds) -> mesh check -> 4-angle
+   renders in pipeline/renders/ -> compress_glb.mjs.
 
 ## Commands
     .venv/bin/python pipeline/body.py --fbx assets/mhr/assets/lod1.fbx --height 178 --out web/public/models/body.glb
