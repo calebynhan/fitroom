@@ -17,7 +17,7 @@ import { useOutfitLooks } from './useOutfitLooks';
 
 // Matte store-mannequin ivory, so the head and hands read as intentional.
 export const MANNEQUIN_COLOR = '#EDEAE4';
-const MANNEQUIN_ROUGHNESS = 0.55;
+const MANNEQUIN_ROUGHNESS = 0.85; // matte, no plastic sheen on the head and hands
 
 function styleBody(mesh: THREE.SkinnedMesh): void {
   mesh.castShadow = true;
