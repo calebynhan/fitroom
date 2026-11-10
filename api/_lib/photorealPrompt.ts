@@ -65,11 +65,11 @@ const cmToFeet = (cm: number): string => {
 
 const slotWord = (slot: 'top' | 'bottom') => (slot === 'top' ? 'top' : 'bottoms');
 
-/** "Image 1: ..." lines, in the order the server attaches the images. */
-export function describeImages(roles: ImageRoles): string[] {
+/** "Image 1: ..." lines, in the order the server attaches the images. `editFront`: the front shot edits Image 1. */
+export function describeImages(roles: ImageRoles, editFront = false): string[] {
   const lines = [
-    'the person, front view, full body',
-    'the same person, side view, full body',
+    `the person, front view, full body${editFront ? '; this is the photo to edit' : ''}`,
+    'the same person, side view, full body (for body shape; if it is unclear, rely on the front view)',
     "the same person's face in left profile, close-up",
   ];
   if (roles.compare) {
@@ -147,28 +147,49 @@ export interface PromptInput {
   roles: ImageRoles;
 }
 
+/**
+ * The front shot edits the shopper's own front photo instead of composing a new picture: with high input fidelity
+ * the first image's face survives an edit far better than a re-composed shot, which drifts toward a generic face.
+ */
+export const FRONT_EDIT =
+  'Edit Image 1 into a full-length photograph of this same person wearing the outfit below. Keep the person from Image 1 ' +
+  'exactly as they are: the same face, head, hair, glasses, skin and build, in the same stance. Replace every piece of ' +
+  'clothing they wear with the outfit below, put plain white sneakers on their feet, and replace the background with the ' +
+  'setting below, relighting them gently to match. If Image 1 does not show the whole body, extend the frame so the whole ' +
+  'figure and both shoes are visible.';
+
+/** Identity rules for every view: a real person, never a model, never beautified. */
+export const KEEP_IDENTITY =
+  'The person is a real individual, not a fashion model, and must be recognisably themselves: keep their exact face ' +
+  'shape, eyes, eyebrows, nose, mouth, jaw and ears, skin tone and texture (including any blemishes), facial hair, ' +
+  'glasses, and their hair as it really is, not restyled. Do not beautify them, smooth their skin or make them look like a model.';
+
 export function buildLookPrompt({ view, scene, body, items, roles }: PromptInput): string {
   const productRef = roles.products.length
     ? ' Reproduce each garment exactly as in its product photo: colour, fabric texture, neckline, cuffs, seams and silhouette.'
     : ' Reproduce each garment faithfully: colour, fabric texture, neckline, cuffs and silhouette.';
   const people = roles.compare ? 'Images 2-4' : 'Images 1-3';
+  const editFront = view === 'front' && !roles.reference && !roles.compare;
+  const faceSource = roles.reference && !roles.compare ? ' Take their face from the finished front photo (Image 4) and the profile close-up (Image 3).' : '';
+  const pose = editFront
+    ? 'Pose and framing: keep their stance from Image 1, arms relaxed, calm expression. '
+    : 'Pose and framing: standing naturally, arms relaxed at the sides, calm neutral expression. ';
   return [
-    'A photorealistic full-length photograph of the person in the reference photos, wearing the outfit below, as on a clothing store product page.',
+    editFront ? FRONT_EDIT : 'A photorealistic full-length photograph of the person in the reference photos, wearing the outfit below.',
     VIEW_DIRECTIONS[view],
     ...(roles.compare ? ['', describeCompare(roles.compare)] : []),
     '',
     'Reference images, in order:',
-    ...describeImages(roles),
+    ...describeImages(roles, editFront),
     '',
-    "The person: keep their identity exactly: face, skin tone, hair colour, length and style, facial hair, glasses if they wear them, and their real body shape and proportions. " +
+    `${KEEP_IDENTITY}${faceSource} Keep their real body shape and proportions. ` +
       `${describeBody(body)} Do not make them slimmer, more muscular, taller or younger. Ignore the clothes they wear in ${people}.`,
     '',
     'The outfit:',
     ...items.map(describePiece),
     `${productRef.trim()} The fit and length follow from the size on this body, as described. Plain white low-top leather sneakers.`,
     '',
-    'Pose and framing: standing naturally like a clothing model, arms relaxed at the sides, calm neutral expression. ' +
-      'Head to toe in frame with a little space above the head and below the feet; camera at chest height; 2:3 portrait.',
+    pose + `Head to toe in frame with a little space above the head and below the feet;${editFront ? '' : ' camera at chest height;'} 2:3 portrait.`,
     `Setting: ${SCENE_SETTINGS[scene]}.`,
     'Photorealistic, sharp, true-to-life colours. One person only. No logos, no text, no watermark.',
   ].join('\n');

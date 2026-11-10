@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { comparedItems, parseLookRequest, parsePieces, type BodySpec, type LookPiece } from './look';
 import { claimAngle, issueLookToken, lookDigest, MAX_ATTEMPTS, MAX_COMPARES, settleAngle, shotKey, TOKEN_TTL_MS, verifyLookToken } from './lookToken';
-import { buildLookPrompt, describeDelta, describeImages, describePiece } from './photorealPrompt';
+import { buildLookPrompt, describeDelta, describeImages, describePiece, FRONT_EDIT, KEEP_IDENTITY } from './photorealPrompt';
 import {
   begin,
   check,
@@ -116,10 +116,11 @@ describe('look prompt', () => {
   it('numbers the reference images in the order they are attached', () => {
     expect(describeImages({ reference: false, products: ['top'] })).toEqual([
       'Image 1: the person, front view, full body.',
-      'Image 2: the same person, side view, full body.',
+      'Image 2: the same person, side view, full body (for body shape; if it is unclear, rely on the front view).',
       "Image 3: the same person's face in left profile, close-up.",
       'Image 4: product photo of the top to wear.',
     ]);
+    expect(describeImages({ reference: false, products: [] }, true)[0]).toBe('Image 1: the person, front view, full body; this is the photo to edit.');
     const withRef = describeImages({ reference: true, products: ['top', 'bottom'] });
     expect(withRef[3]).toMatch(/^Image 4: the finished front photo of this exact look/);
     expect(withRef[5]).toBe('Image 6: product photo of the bottoms to wear.');
@@ -170,7 +171,27 @@ describe('look prompt', () => {
     expect(p).not.toContain('Image 4');
     expect(p).not.toContain('its product photo');
     expect(p).toContain('Reproduce each garment faithfully');
-    expect(p).toContain('product page');
+    expect(p).toContain('Edit Image 1');
+  });
+
+  it('makes the front shot an edit of their own front photo, and never a "model"', () => {
+    const front = buildLookPrompt({ view: 'front', scene: 'studio', body: BODY, items: [TOP, BOTTOM], roles: { reference: false, products: ['top'] } });
+    expect(front.startsWith(FRONT_EDIT)).toBe(true);
+    expect(front).toContain('Image 1: the person, front view, full body; this is the photo to edit.');
+    expect(front).toContain('keep their stance from Image 1');
+    expect(front).not.toContain('camera at chest height');
+    for (const view of ['front', 'three_quarter', 'side', 'back'] as const) {
+      const p = buildLookPrompt({ view, scene: 'studio', body: BODY, items: [TOP], roles: { reference: view !== 'front', products: [] } });
+      expect(p).toContain(KEEP_IDENTITY);
+      expect(p).not.toMatch(/like a clothing model|product page/);
+    }
+  });
+
+  it('takes the face for the other angles from the finished front shot and the profile', () => {
+    const side = buildLookPrompt({ view: 'side', scene: 'studio', body: BODY, items: [TOP], roles: { reference: true, products: [] } });
+    expect(side).not.toContain('Edit Image 1');
+    expect(side).toContain('Take their face from the finished front photo (Image 4) and the profile close-up (Image 3).');
+    expect(side).toContain('camera at chest height');
   });
 });
 

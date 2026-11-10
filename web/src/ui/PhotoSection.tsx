@@ -1,5 +1,5 @@
 import { useRef, useState, type DragEvent, type ReactElement } from 'react';
-import { PHOTO_GUIDE, PHOTO_SLOTS, PhotoError, preparePhoto, type PhotoSlot } from '../photos/prepare';
+import { PHOTO_GUIDE, PHOTO_SLOTS, PhotoError, photoWarning, preparePhoto, type PhotoSlot } from '../photos/prepare';
 import { useApp } from '../state/store';
 
 /** Line drawings of the three poses we ask for. */
@@ -31,6 +31,7 @@ function PhotoTile({ slot }: { slot: PhotoSlot }) {
   const [over, setOver] = useState(false);
   const input = useRef<HTMLInputElement>(null);
   const guide = PHOTO_GUIDE[slot];
+  const warning = photo ? photoWarning(slot, photo) : null;
 
   const accept = async (file: File | undefined) => {
     if (!file) return;
@@ -87,6 +88,11 @@ function PhotoTile({ slot }: { slot: PhotoSlot }) {
           {error}
         </p>
       )}
+      {!error && warning && (
+        <p className="msg warn" role="status">
+          {warning}
+        </p>
+      )}
       <input
         ref={input}
         type="file"
@@ -113,7 +119,9 @@ export function PhotoSection() {
         ))}
       </div>
       <p className="note">
-        Plain wall, good light, fitted clothes. Whole body in frame for front and side; arms a little away from your sides.
+        Plain wall, good light, fitted clothes, no sunglasses or hat. Take front and side in the same spot, upright, with your
+        whole body filling the frame; arms a little away from your sides. Your face must be clear in the front photo: the
+        shots keep it from there.
       </p>
       <p className="note fine">
         Only photos of yourself. They stay in this tab and go to OpenAI's image model only to make your shots; FitRoom never

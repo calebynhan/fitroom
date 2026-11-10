@@ -78,7 +78,8 @@ Ribbed Sweater E453754-000 (sweater), Cashmere Sweater E450543-000 (sweater), Ul
 
 ## Architecture
     web/       Vite + React + TS + zustand. No 3D.
-      photos/prepare.ts   decode (EXIF-aware), downscale (body 1024 px, face 768 px), JPEG data URL; memory only
+      photos/prepare.ts   decode (EXIF-aware), downscale (front 1536 px, side 1024 px, face 768 px), JPEG data URL;
+                          memory only; photoWarning flags landscape body photos (person too small)
       body/profile.ts     measurements, ANSUR estimates, units, fit preferences + reference garment, localStorage
       fit/sizing.ts       size pick (chart, preference or reference garment), ease/length, comparison size + deltas
       fit/fitCard.ts      the fit card: two sizes on this body in numbers (cm or in)
@@ -143,9 +144,13 @@ detail?, retryable, remaining? }`.
   112 s budget (vercel.json maxDuration 120); the product-photo fetch times out at 4 s.
 - OpenAI images.edit, multipart `image[]` in this order: front photo, side photo, face profile, [front shot],
   [top product photo], [bottoms product photo]; the prompt names them "Image 1..n" (high input fidelity favours the
-  first, so the front photo leads). input_fidelity high, 1024x1536, JPEG. Prompt (api/_lib/photorealPrompt.ts): keep
-  identity and real proportions with the body numbers, never slimmer/taller/younger; each garment exactly as its
-  product photo with size and fit on this body; plain white sneakers; per-view direction; setting; no logos or text.
+  first, so the front photo leads). input_fidelity high, 1024x1536, JPEG. Prompt (api/_lib/photorealPrompt.ts): the
+  front shot is an EDIT of the shopper's front photo (FRONT_EDIT: same face, hair, glasses, skin, build and stance;
+  replace every garment, the shoes and the background), the other angles take the face from the finished front shot
+  and the profile; every view gets KEEP_IDENTITY (a real person, not a model: exact features, skin texture and
+  blemishes, hair not restyled, no beautifying) and the body numbers (never slimmer/taller/younger); each garment
+  exactly as its product photo with size and fit on this body; plain white sneakers; per-view direction; setting; no
+  logos or text. Never call the person a "model" or the shot a "product page": it pulls the face toward a generic one.
 
 **Size recommendation** (web/src/fit/sizing.ts): the chart size is the smallest size whose body ranges cover the user's. Tops go by
 chest, plus waist only when the user typed one (an ANSUR estimate, SD 4.4 cm, must not push a size up); bottoms go
@@ -177,6 +182,7 @@ fitTop, fitBottom, refTopChestFlatCm, refTopLengthCm, refBottomHipsFlatCm, refBo
 | Imperial value drifts on blur (178 cm -> 177.8) | re-committing a rounded display value | commit only when the typed text differs from the stored value (MeasureSection NumberBox) |
 | A paid front whose angles then hit "a lot of photos today" | the cap check only made room for 1 photo | a new look needs room for all 4 (rateLimit.check) |
 | Shoot Again wiped 4 paid photos when the new front failed | the look was reset before the front succeeded | restore the earlier look with a notice (look/shoot.ts) |
+| Shots "look nothing like me" (generic, younger, smoother face) | the front photo was sent at 1024 px (face ~60 px wide), no frontal close-up, and the prompt composed a new "clothing model" shot instead of editing the photo | front shot edits the front photo (FRONT_EDIT), front sent at 1536 px, KEEP_IDENTITY in every view, landscape-photo warning; verify on the live URL with a well-lit upright front photo |
 | Every deploy uploads 57 MB of unused 3D assets | web/public is copied into dist | .vercelignore excludes web/public/{hdri,models,garments} |
 
 ## Commands
