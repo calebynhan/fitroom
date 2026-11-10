@@ -1,6 +1,11 @@
 import { useRef, useState, type DragEvent, type ReactElement } from 'react';
-import { PHOTO_GUIDE, PHOTO_SLOTS, PhotoError, preparePhoto, type PhotoSlot } from '../photos/prepare';
+import { TRY_ON } from '../look/engine';
+import { PHOTO_GUIDE, PHOTO_SLOTS, PhotoError, photoWarning, preparePhoto, type PhotoSlot } from '../photos/prepare';
 import { useApp } from '../state/store';
+import { SPACE_PAGE } from '../tryon/space';
+
+/** The free try-on re-dresses the front (and side) photo; the face close-up only feeds the generator. */
+const SLOTS: PhotoSlot[] = TRY_ON ? ['front', 'side'] : PHOTO_SLOTS;
 
 /** Line drawings of the three poses we ask for. */
 const GUIDE_ART: Record<PhotoSlot, ReactElement> = {
@@ -31,6 +36,7 @@ function PhotoTile({ slot }: { slot: PhotoSlot }) {
   const [over, setOver] = useState(false);
   const input = useRef<HTMLInputElement>(null);
   const guide = PHOTO_GUIDE[slot];
+  const warning = photo ? photoWarning(slot, photo) : null;
 
   const accept = async (file: File | undefined) => {
     if (!file) return;
@@ -74,7 +80,10 @@ function PhotoTile({ slot }: { slot: PhotoSlot }) {
         {!photo && <span className="photo-plus">{loading ? 'Reading…' : '+ Add'}</span>}
       </button>
       <div className="photo-label">
-        <span>{guide.label}</span>
+        <span>
+          {guide.label}
+          {TRY_ON && slot === 'side' && <span className="field-opt"> optional</span>}
+        </span>
         {photo && (
           <button type="button" className="link-btn" onClick={() => setPhoto(slot, null)}>
             Remove
@@ -85,6 +94,11 @@ function PhotoTile({ slot }: { slot: PhotoSlot }) {
       {error && (
         <p className="msg error" role="alert">
           {error}
+        </p>
+      )}
+      {!error && warning && (
+        <p className="msg warn" role="status">
+          {warning}
         </p>
       )}
       <input
@@ -107,18 +121,41 @@ export function PhotoSection() {
       <h2 className="eyebrow" id="you-title">
         Your photos
       </h2>
-      <div className="photo-tiles">
-        {PHOTO_SLOTS.map((slot) => (
+      <div className={`photo-tiles photo-tiles-${SLOTS.length}`}>
+        {SLOTS.map((slot) => (
           <PhotoTile key={slot} slot={slot} />
         ))}
       </div>
-      <p className="note">
-        Plain wall, good light, fitted clothes. Whole body in frame for front and side; arms a little away from your sides.
-      </p>
-      <p className="note fine">
-        Only photos of yourself. They stay in this tab and go to OpenAI's image model only to make your shots; FitRoom never
-        stores them.
-      </p>
+      {TRY_ON ? (
+        <>
+          <ul className="note tips">
+            <li>Sharp and still: whole body, upright, hands at your sides (blurry hands get redrawn).</li>
+            <li>Wear clothes that contrast with what you'll try: over dark jeans, dark pants barely show.</li>
+            <li>No bag or straps: the try-on removes them.</li>
+          </ul>
+          <p className="note">Your photo stays as it is (face, pose and background); only the clothes change.</p>
+          <p className="note fine">
+            Only photos of yourself. They go from this tab straight to the free{' '}
+            <a href={SPACE_PAGE} target="_blank" rel="noreferrer">
+              FASHN try-on demo on Hugging Face
+            </a>{' '}
+            to make your shots. That public demo keeps uploads on its server for a while, outside FitRoom's control; FitRoom itself
+            never stores them.
+          </p>
+        </>
+      ) : (
+        <>
+          <p className="note">
+            Plain wall, good light, fitted clothes, no sunglasses or hat. Take front and side in the same spot, upright, with your
+            whole body filling the frame; arms a little away from your sides. Your face must be clear in the front photo: the
+            shots keep it from there.
+          </p>
+          <p className="note fine">
+            Only photos of yourself. They stay in this tab and go to OpenAI's image model only to make your shots; FitRoom never
+            stores them.
+          </p>
+        </>
+      )}
     </section>
   );
 }

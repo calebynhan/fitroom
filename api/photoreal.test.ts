@@ -120,6 +120,39 @@ describe('POST /api/photoreal', () => {
     expect(again.status).toBe(409);
   });
 
+  it('compares a size with the token at no extra look, editing the finished front shot', async () => {
+    mockUpstream(okImage, captured);
+    const front = await (await call(look())).json();
+    const reference = 'data:image/jpeg;base64,QUJDREVG'; // 6 bytes, unlike the 3 photos
+    const compare = { slot: 'top', size: 'M', ease: 'relaxed', delta: { chestCm: 6, lengthCm: 3 } };
+    const res = await call(look({ reference, lookToken: front.lookToken, compare }));
+    expect(res.status).toBe(200);
+    expect(res.headers.get('set-cookie')).toBeNull();
+    expect(await res.json()).toMatchObject({ view: 'front', compare: { slot: 'top', size: 'M' }, remaining: LOOK_LIMIT, image: expect.any(String) });
+    expect(res.headers.get('set-cookie')).toBeNull();
+
+    const images = captured.form!.getAll('image[]') as File[];
+    expect(images).toHaveLength(5);
+    expect(images[0].size).toBe(6); // the photo to edit leads
+    const prompt = String(captured.form!.get('prompt'));
+    expect(prompt).toContain('Change only the top: it is now size M instead of size S');
+    expect(prompt).toContain('rib knit, size M.');
+
+    expect((await call(look({ reference, lookToken: front.lookToken, compare }))).status).toBe(409);
+  });
+
+  it('refuses a size comparison of another outfit or without a token', async () => {
+    mockUpstream(okImage, captured);
+    const front = await (await call(look())).json();
+    captured.form = null;
+    const otherColour = look({ reference: PHOTO, lookToken: front.lookToken, compare: { slot: 'top', size: 'M' } });
+    (otherColour.items as Record<string, unknown>[])[0].color = 'Red';
+    expect((await call(otherColour)).status).toBe(403);
+    const noToken = await call(look({ reference: PHOTO, compare: { slot: 'top', size: 'M' } }));
+    expect(noToken.status).toBe(400);
+    expect(captured.form).toBeNull();
+  });
+
   it('refuses photos that are too large together', async () => {
     mockUpstream(okImage, captured);
     const big = `data:image/jpeg;base64,${'A'.repeat(1_400_000)}`;

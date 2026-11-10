@@ -1,5 +1,5 @@
 // The image prompt for one view of a personalised look. Pure: no I/O.
-import type { BodySpec, Ease, Length, LookPiece, Scene, View } from './look';
+import type { BodySpec, Ease, Length, LookPiece, Scene, SizeDelta, View } from './look';
 
 export const SCENE_SETTINGS: Record<Scene, string> = {
   studio:
@@ -40,11 +40,22 @@ const LENGTH_BOTTOM: Partial<Record<Length, string>> = {
   long: 'long: the fabric stacks over the shoe',
 };
 
+/** A size comparison: the finished front shot (attached first) edited so one item is in another size. */
+export interface CompareRole {
+  slot: 'top' | 'bottom';
+  /** Size in the finished front shot. */
+  from: string;
+  /** Size to show instead. */
+  to: string;
+  delta?: SizeDelta;
+}
+
 export interface ImageRoles {
-  /** A finished front shot of this look is attached after the three photos. */
+  /** A finished front shot of this look is attached after the three photos (first, for a size comparison). */
   reference: boolean;
   /** Product photos attached, in this order, after the photos (and reference). */
   products: ('top' | 'bottom')[];
+  compare?: CompareRole;
 }
 
 const cmToFeet = (cm: number): string => {
@@ -52,20 +63,59 @@ const cmToFeet = (cm: number): string => {
   return `${Math.floor(inches / 12)}'${inches % 12}"`;
 };
 
-/** "Image 1: ..." lines, in the order the server attaches the images. */
-export function describeImages(roles: ImageRoles): string[] {
+const slotWord = (slot: 'top' | 'bottom') => (slot === 'top' ? 'top' : 'bottoms');
+
+/** "Image 1: ..." lines, in the order the server attaches the images. `editFront`: the front shot edits Image 1. */
+export function describeImages(roles: ImageRoles, editFront = false): string[] {
   const lines = [
-    'the person, front view, full body',
-    'the same person, side view, full body',
+    `the person, front view, full body${editFront ? '; this is the photo to edit' : ''}`,
+    'the same person, side view, full body (for body shape; if it is unclear, rely on the front view)',
     "the same person's face in left profile, close-up",
   ];
-  if (roles.reference) {
+  if (roles.compare) {
+    const { slot, from } = roles.compare;
+    lines.unshift(`the finished front photo of this look, with the ${slotWord(slot)} in size ${from}; this is the photo to edit`);
+  } else if (roles.reference) {
     lines.push(
       'the finished front photo of this exact look; match it exactly: same person, same garments, same shoes, same lighting and backdrop',
     );
   }
-  for (const slot of roles.products) lines.push(`product photo of the ${slot === 'top' ? 'top' : 'bottoms'} to wear`);
+  for (const slot of roles.products) lines.push(`product photo of the ${slotWord(slot)} to wear`);
   return lines.map((l, i) => `Image ${i + 1}: ${l}.`);
+}
+
+const DELTA_WORDS: Record<keyof SizeDelta, [string, string]> = {
+  chestCm: ['around the chest', 'around the chest'],
+  lengthCm: ['longer', 'shorter'],
+  hipsCm: ['around the hips', 'around the hips'],
+  inseamCm: ['longer in the leg', 'shorter in the leg'],
+};
+
+/** "6 cm more around the chest, 3 cm longer" from the size chart's garment differences. */
+export function describeDelta(delta: SizeDelta | undefined): string | null {
+  if (!delta) return null;
+  const parts: string[] = [];
+  for (const [k, [up, down]] of Object.entries(DELTA_WORDS) as [keyof SizeDelta, [string, string]][]) {
+    const d = delta[k];
+    if (d === undefined || Math.abs(d) < 0.5) continue;
+    const cm = `${Math.round(Math.abs(d) * 10) / 10} cm`;
+    const around = k === 'chestCm' || k === 'hipsCm';
+    parts.push(around ? `${cm} ${d > 0 ? 'more' : 'less'} ${up}` : `${cm} ${d > 0 ? up : down}`);
+  }
+  return parts.length ? parts.join(', ') : null;
+}
+
+/** The edit instruction of a size comparison: same photo, one garment in another size, by the chart's amounts. */
+export function describeCompare(c: CompareRole): string {
+  const word = slotWord(c.slot);
+  const delta = describeDelta(c.delta);
+  const amounts = delta ? ` By the size chart, size ${c.to} measures ${delta} than size ${c.from}; show exactly that difference.` : '';
+  return (
+    `Edit Image 1. Keep it the same photograph: the same person, pose, framing, expression, garments, colours, shoes, lighting and backdrop. ` +
+    `Change only the ${word}: it is now size ${c.to} instead of size ${c.from}, so it sits differently on the same body.${amounts} ` +
+    'A larger size must look visibly roomier or longer, a smaller one closer or shorter; do not exaggerate beyond the amounts given. ' +
+    'Use Images 2-4 only to keep the person exactly the same.'
+  );
 }
 
 export function describeBody(b: BodySpec): string {
@@ -97,26 +147,49 @@ export interface PromptInput {
   roles: ImageRoles;
 }
 
+/**
+ * The front shot edits the shopper's own front photo instead of composing a new picture: with high input fidelity
+ * the first image's face survives an edit far better than a re-composed shot, which drifts toward a generic face.
+ */
+export const FRONT_EDIT =
+  'Edit Image 1 into a full-length photograph of this same person wearing the outfit below. Keep the person from Image 1 ' +
+  'exactly as they are: the same face, head, hair, glasses, skin and build, in the same stance. Replace every piece of ' +
+  'clothing they wear with the outfit below, put plain white sneakers on their feet, and replace the background with the ' +
+  'setting below, relighting them gently to match. If Image 1 does not show the whole body, extend the frame so the whole ' +
+  'figure and both shoes are visible.';
+
+/** Identity rules for every view: a real person, never a model, never beautified. */
+export const KEEP_IDENTITY =
+  'The person is a real individual, not a fashion model, and must be recognisably themselves: keep their exact face ' +
+  'shape, eyes, eyebrows, nose, mouth, jaw and ears, skin tone and texture (including any blemishes), facial hair, ' +
+  'glasses, and their hair as it really is, not restyled. Do not beautify them, smooth their skin or make them look like a model.';
+
 export function buildLookPrompt({ view, scene, body, items, roles }: PromptInput): string {
   const productRef = roles.products.length
     ? ' Reproduce each garment exactly as in its product photo: colour, fabric texture, neckline, cuffs, seams and silhouette.'
     : ' Reproduce each garment faithfully: colour, fabric texture, neckline, cuffs and silhouette.';
+  const people = roles.compare ? 'Images 2-4' : 'Images 1-3';
+  const editFront = view === 'front' && !roles.reference && !roles.compare;
+  const faceSource = roles.reference && !roles.compare ? ' Take their face from the finished front photo (Image 4) and the profile close-up (Image 3).' : '';
+  const pose = editFront
+    ? 'Pose and framing: keep their stance from Image 1, arms relaxed, calm expression. '
+    : 'Pose and framing: standing naturally, arms relaxed at the sides, calm neutral expression. ';
   return [
-    'A photorealistic full-length photograph of the person in the reference photos, wearing the outfit below, as on a clothing store product page.',
+    editFront ? FRONT_EDIT : 'A photorealistic full-length photograph of the person in the reference photos, wearing the outfit below.',
     VIEW_DIRECTIONS[view],
+    ...(roles.compare ? ['', describeCompare(roles.compare)] : []),
     '',
     'Reference images, in order:',
-    ...describeImages(roles),
+    ...describeImages(roles, editFront),
     '',
-    "The person: keep their identity exactly: face, skin tone, hair colour, length and style, facial hair, glasses if they wear them, and their real body shape and proportions. " +
-      `${describeBody(body)} Do not make them slimmer, more muscular, taller or younger. Ignore the clothes they wear in Images 1-3.`,
+    `${KEEP_IDENTITY}${faceSource} Keep their real body shape and proportions. ` +
+      `${describeBody(body)} Do not make them slimmer, more muscular, taller or younger. Ignore the clothes they wear in ${people}.`,
     '',
     'The outfit:',
     ...items.map(describePiece),
     `${productRef.trim()} The fit and length follow from the size on this body, as described. Plain white low-top leather sneakers.`,
     '',
-    'Pose and framing: standing naturally like a clothing model, arms relaxed at the sides, calm neutral expression. ' +
-      'Head to toe in frame with a little space above the head and below the feet; camera at chest height; 2:3 portrait.',
+    pose + `Head to toe in frame with a little space above the head and below the feet;${editFront ? '' : ' camera at chest height;'} 2:3 portrait.`,
     `Setting: ${SCENE_SETTINGS[scene]}.`,
     'Photorealistic, sharp, true-to-life colours. One person only. No logos, no text, no watermark.',
   ].join('\n');

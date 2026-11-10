@@ -1,17 +1,25 @@
 import { useEffect, useId, useState, type ReactNode } from 'react';
 import {
+  completeBody,
   estimate,
+  FIT_PREFS,
+  fitPrefs,
   fromDisplay,
   fromFeetInches,
   inRange,
   LIMITS,
+  REFERENCE,
   toDisplay,
   toFeetInches,
   unitLabel,
+  type FitPref,
   type MeasureKey,
   type OptionalKey,
+  type ReferenceKey,
   type Units,
 } from '../body/profile';
+import { formatLength } from '../fit/fitCard';
+import { easeOfRoom } from '../fit/sizing';
 import { useApp } from '../state/store';
 import { WordTabs } from './WordTabs';
 
@@ -22,6 +30,18 @@ const LABEL: Record<MeasureKey, string> = {
   waistCm: 'Waist',
   hipsCm: 'Hips',
   inseamCm: 'Inseam',
+  refTopChestFlatCm: 'Chest, flat',
+  refTopLengthCm: 'Length',
+  refBottomHipsFlatCm: 'Hips, flat',
+  refBottomInseamCm: 'Inseam',
+};
+
+/** How to measure a garment laid flat; shown under the field label. */
+const HINT: Partial<Record<MeasureKey, string>> = {
+  refTopChestFlatCm: 'armpit to armpit',
+  refTopLengthCm: 'collar seam to hem',
+  refBottomHipsFlatCm: 'across the seat',
+  refBottomInseamCm: 'crotch to hem',
 };
 
 const fmt = (n: number | null) => (n === null ? '' : String(n));
@@ -172,13 +192,13 @@ function FeetInchesBox({ id, describedBy, value, invalid, onCommit, onRevert }: 
   );
 }
 
-function MeasureField({ k, estimateCm }: { k: 'weightKg' | OptionalKey; estimateCm?: number }) {
+function MeasureField({ k, estimateCm }: { k: 'weightKg' | OptionalKey | ReferenceKey; estimateCm?: number }) {
   const { value, units, error, commitMetric, clearError } = useMeasure(k);
   const id = useId();
   const unit = unitLabel(k, units);
   const optional = k !== 'weightKg';
   return (
-    <Field label={LABEL[k]} htmlFor={id} required={!optional} error={error}>
+    <Field label={LABEL[k]} htmlFor={id} required={!optional} hint={HINT[k]} error={error}>
       <NumberBox
         id={id}
         name={k}
@@ -195,12 +215,22 @@ function MeasureField({ k, estimateCm }: { k: 'weightKg' | OptionalKey; estimate
   );
 }
 
-function Field({ label, htmlFor, required, error, children }: { label: string; htmlFor: string; required: boolean; error: string | null; children: ReactNode }) {
+interface FieldProps {
+  label: string;
+  htmlFor: string;
+  required: boolean;
+  /** Shown instead of "optional" (how to measure it). */
+  hint?: string;
+  error: string | null;
+  children: ReactNode;
+}
+
+function Field({ label, htmlFor, required, hint, error, children }: FieldProps) {
   return (
     <div className="field">
       <label htmlFor={htmlFor}>
         {label}
-        {!required && <span className="field-opt"> optional</span>}
+        {hint ? <span className="field-opt"> {hint}</span> : !required && <span className="field-opt"> optional</span>}
       </label>
       {children}
       <span className="field-error" id={`${htmlFor}-error`} aria-live="polite">
@@ -244,6 +274,82 @@ export function MeasureSection() {
           ? 'Blank measurements are estimated from your height and weight (≈). Tape-measure them for a truer fit.'
           : 'Chest, waist, hips and inseam are optional: leave them blank and they are estimated from your height and weight.'}
       </p>
+    </section>
+  );
+}
+
+const PREF_OPTIONS: { id: FitPref; label: string }[] = FIT_PREFS.map((id) => ({ id, label: id.charAt(0).toUpperCase() + id.slice(1) }));
+
+/** "That top has 12 cm of room on you: a regular fit." from the shopper's own garment against their body. */
+function referenceFeedback(slot: 'top' | 'bottom', garmentCm: number | undefined, bodyCm: number | undefined, units: Units): string | null {
+  if (garmentCm === undefined || bodyCm === undefined) return null;
+  const room = garmentCm - bodyCm;
+  const [what, measure, give] = slot === 'top' ? ['That top', 'measures', 'gives'] : ['Those pants', 'measure', 'give'];
+  const where = slot === 'top' ? 'chest' : 'hips';
+  if (room < 0) {
+    return `${what} ${measure} ${formatLength(-room, units)} less around the ${where} than you do. Check ${slot === 'top' ? 'it was' : 'they were'} laid flat and measured straight across.`;
+  }
+  return `${what} ${give} you ${formatLength(room, units)} of room at the ${where}: a ${easeOfRoom(slot, room)} fit. Sizes are matched to it.`;
+}
+
+/** How the shopper likes clothes to fit: a preference per slot, or a garment of their own that fits well. */
+export function FitSection() {
+  const profile = useApp((s) => s.profile);
+  const setProfile = useApp((s) => s.setProfile);
+  const prefs = fitPrefs(profile);
+  const body = completeBody(profile);
+  const hasRef = REFERENCE.some((k) => profile[k] !== null);
+  const topFeedback = referenceFeedback('top', prefs.top.chestCm, body?.chestCm, profile.units);
+  const bottomFeedback = referenceFeedback('bottom', prefs.bottom.hipsCm, body?.hipsCm, profile.units);
+
+  const prefRow = (slot: 'top' | 'bottom', label: string) => {
+    const measured = slot === 'top' ? prefs.top.chestCm !== undefined : prefs.bottom.hipsCm !== undefined;
+    return (
+      <div className="pref-row">
+        <span className="pref-label">{label}</span>
+        <WordTabs
+          label={`How you like ${label.toLowerCase()} to fit`}
+          options={PREF_OPTIONS}
+          value={slot === 'top' ? profile.fitTop : profile.fitBottom}
+          onChange={(pref) => setProfile(slot === 'top' ? { fitTop: pref } : { fitBottom: pref })}
+        />
+        {measured && <span className="pref-note">Matched to the {slot === 'top' ? 'top' : 'pants'} you measured instead</span>}
+      </div>
+    );
+  };
+
+  return (
+    <section className="rail-section" id="fit" aria-labelledby="fit-title">
+      <h2 className="eyebrow" id="fit-title">
+        How you like it to fit
+      </h2>
+      <div className="prefs">
+        {prefRow('top', 'Tops')}
+        {prefRow('bottom', 'Bottoms')}
+      </div>
+      <details className="ref-garment" open={hasRef}>
+        <summary>
+          Measure clothes that fit you well <span className="field-opt">optional</span>
+        </summary>
+        <p className="note">Lay it flat and measure straight across. You get the UNIQLO size that measures closest to it.</p>
+        <div className="ref-group">
+          <span className="ref-title">A top</span>
+          <div className="measure-grid">
+            <MeasureField k="refTopChestFlatCm" />
+            <MeasureField k="refTopLengthCm" />
+          </div>
+          {topFeedback && <p className="note ref-feedback">{topFeedback}</p>}
+        </div>
+        <div className="ref-group">
+          <span className="ref-title">Pants</span>
+          <div className="measure-grid">
+            <MeasureField k="refBottomHipsFlatCm" />
+            <MeasureField k="refBottomInseamCm" />
+          </div>
+          {bottomFeedback && <p className="note ref-feedback">{bottomFeedback}</p>}
+        </div>
+      </details>
+      <p className="note">Your recommended sizes follow this. The size chart still decides how each size sits on you, in the numbers and the photos.</p>
     </section>
   );
 }

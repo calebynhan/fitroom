@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { VIEW_LABEL, VIEWS, type View } from '@api/look';
+import { VIEW_LABEL, type View } from '@api/look';
 import type { Look } from '../state/looks';
 import { downloadName } from './download';
 
@@ -30,7 +30,7 @@ function trapFocus(e: KeyboardEvent): void {
 
 /** One photo, large, with previous / next across the finished views. Esc closes; arrow keys move; Tab stays inside. */
 export function Lightbox({ look, view, onClose, onNavigate }: LightboxProps) {
-  const done = VIEWS.filter((v) => look.views[v].kind === 'done');
+  const done = look.order.filter((v) => look.views[v].kind === 'done');
   const index = done.indexOf(view);
   const state = look.views[view];
   const closeRef = useRef<HTMLButtonElement>(null);
@@ -80,7 +80,7 @@ export function Lightbox({ look, view, onClose, onNavigate }: LightboxProps) {
                 </button>
               </>
             )}
-            <a className="btn btn-dark" href={state.image} download={downloadName(view)}>
+            <a className="btn btn-dark" href={state.image} download={downloadName(view, state.image)}>
               Download
             </a>
             <button ref={closeRef} type="button" className="btn btn-outline" onClick={onClose}>

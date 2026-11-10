@@ -6,13 +6,18 @@ size (front, three-quarter, side, back), like the model photos on a product page
 **Why:** People return clothes because they looked different on the model. FitRoom shows the clothes on *you*.
 **Status:** The SideQuest Sunday hackathon (Nov 8, 2026) produced a 3D proof of concept, live at fitroom-woad.vercel.app.
 On 2026-11-09 the app moved from the 3D mannequin to generating the photos directly from the shopper's own photos;
-the Blender pipeline is kept in the repo but no longer used (see Legacy). Quality over speed, and nothing ships broken.
+the Blender pipeline is kept in the repo but no longer used (see Legacy). On 2026-11-10 generated photos (OpenAI) were
+found not to keep the shopper's likeness, so the default engine became free virtual try-on: the shopper's own photo,
+re-dressed by FASHN VTON v1.5 on its free Hugging Face Space (see Photo engines). Quality over speed, and nothing ships
+broken.
 
 ## Product principles
 - **Honest fit beats flattering.** The size chart decides how the garment sits (ease and hem length) and the prompt says
   so; never slim, bulk up or idealise the person. A size up must look roomier in the shots.
-- **Their photos are theirs.** Photos stay in browser memory (never localStorage), pass straight through
-  /api/photoreal to OpenAI, and are never stored or logged by FitRoom. Only photos of yourself (the UI says so).
+- **Their photos are theirs.** Photos stay in browser memory (never localStorage) and are never stored or logged by
+  FitRoom. Try-on engine: they go from the browser straight to the public FASHN Space, which keeps uploads on its
+  server for a while (Gradio's file cache, outside our control); the UI says so. OpenAI engine: they pass through
+  /api/photoreal to OpenAI. Only photos of yourself (the UI says so).
 - **Every feature works on the live URL, on desktop and mobile**, with real error messages instead of silent failures.
 - **Black-and-white, Banana Republic-style design.** Use the FitRoom design system:
   paper #FFFFFF, bone #F4F1EC, stone #E4DFD6, hairline #D6D1C8, ink #111111, graphite #3A3835, muted #6F6A63,
@@ -28,6 +33,9 @@ the Blender pipeline is kept in the repo but no longer used (see Legacy). Qualit
       each other (same garments, shoes, light), about 30–60 s, with per-photo progress, retry, and download.
 - [ ] Size recommendation per item ("You're an M; L if you want it roomier"), from UNIQLO size charts vs. the
       user's measurements. The chosen size changes how the garment sits in the shots (ease + length).
+- [ ] Fit confidence: a fit card per item (the chosen size vs one other, in numbers: chest/hip room, where the hem
+      lands, shoulders/thigh, sleeve/inseam), a free size-comparison front shot under the lookbook, and fit
+      preferences (Close / Regular / Relaxed per slot, or a top / pants of their own measured flat) that drive the pick.
 
 **Catalog**
 - [ ] UNIQLO men's tees, sweaters and pants (aim for 30+ items), with real names, prices, colors, swatches,
@@ -71,24 +79,78 @@ full-zips, cardigans, button-up shirts, underwear, jackets and coats -> "not sup
 
 Current hero items: SUPIMA Cotton T-Shirt E455365-000 (tee), Crew Neck T-Shirt E422992-000 (tee), Washable Milano
 Ribbed Sweater E453754-000 (sweater), Cashmere Sweater E450543-000 (sweater), Ultra Stretch Pants E475598-000
-(pants), Barrel Jeans E479000-000 (pants).
+(pants), Slim Chino Pants E450251-000 (pants). Items with `sizeGender` WOMEN are refused ("sized for women"): Barrel
+Jeans E479000-000 (22-34 inch) came in through the men's listing; removed from catalog.json by hand on 2026-11-10
+(UNIQLO's API refuses cloud-session IPs; the next `npm run catalog` applies the rule to every item).
 
 ## Architecture
     web/       Vite + React + TS + zustand. No 3D.
-      photos/prepare.ts   decode (EXIF-aware), downscale (body 1024 px, face 768 px), JPEG data URL; memory only
-      body/profile.ts     measurements, ANSUR estimates, units, localStorage
-      fit/sizing.ts       size recommendation + ease/length of the chosen size on this body
+      photos/prepare.ts   decode (EXIF-aware), downscale (front 1536 px, side 1024 px, face 768 px), JPEG data URL;
+                          memory only; photoWarning flags landscape body photos (person too small)
+      body/profile.ts     measurements, ANSUR estimates, units, fit preferences + reference garment, localStorage
+      fit/sizing.ts       size pick (chart, preference or reference garment), ease/length, comparison size + deltas
+      fit/fitCard.ts      the fit card: two sizes on this body in numbers (cm or in)
+      look/engine.ts      which engine makes the photos (VITE_PHOTO_ENGINE): useShotInput / makeShots / retryShot
+      tryon/space.ts      free engine: @gradio/client (lazy chunk) -> FASHN VTON v1.5 Space; errors in shopper words
+      tryon/garment.ts    garment photo: UNIQLO's garment-only shot (goods_*) when it exists, else the catalogue photo;
+                          flat-lay vs model judged from the top-centre backdrop
+      tryon/composite.ts  sharper results: the shopper's photo above the new garment's top edge, the model below
+      tryon/shoot.ts      per photo: top, then bottoms on that result; partial photo kept; quota stops the rest
       look/request.ts     app state -> the request every view shares + a key (same key = same photos)
-      look/shoot.ts       front first, then three-quarter / side / back in parallel with the front shot attached
-      state/looks.ts      photos per look key (revisiting an outfit costs nothing), busy flag, looks left
-      ui/                 Header (Make my shots), Lookbook (4 frames + Lightbox), Photo/Measure/Outfit/Scene sections
+      look/shoot.ts       front first, then three-quarter / side / back in parallel with the front shot attached;
+                          shootCompare = the front again with one item in its comparison size
+      state/looks.ts      photos per look key (revisiting an outfit costs nothing), each look's views (`order`),
+                          busy flag, looks left
+      ui/                 Header (Make my shots), Lookbook (4 frames + Lightbox + Compare sizes), FitTable,
+                          Photo/Measure/Fit/Outfit/Scene sections
     api/       Vercel functions: /api/product, /api/photoreal (shared contract: api/_lib/look.ts)
     scripts/   Node/TS data scripts: catalog ingest, size-chart parsing -> web/public/catalog.json
     pipeline/  LEGACY (unused by the app): Python + bpy 3D mannequin and garments. See Legacy below.
 
-Env (Vercel + .env.local): OPENAI_API_KEY (required), OPENAI_IMAGE_MODEL (default gpt-image-1.5),
+Env (Vercel + .env.local): VITE_PHOTO_ENGINE (build time: unset = free try-on Space, `openai` = the paid generator
+below), OPENAI_API_KEY (only for the openai engine), OPENAI_IMAGE_MODEL (default gpt-image-1.5),
 OPENAI_IMAGE_QUALITY (default medium), PHOTOREAL_DAILY_CAP (photos per warm instance per day, default 200),
 PHOTOREAL_DISABLED=1 (kill switch).
+
+## Photo engines
+**Try-on (default, free)**: FASHN VTON v1.5 (Apache-2.0) on https://huggingface.co/spaces/fashn-ai/fashn-vton-1.5,
+called from the shopper's browser with @gradio/client, connected by URL (https://fashn-ai-fashn-vton-1-5.hf.space/;
+by name it first asks huggingface.co for metadata). Endpoint `/try_on`: { person_image, garment_image, category:
+tops|bottoms|one-pieces, garment_photo_type: flat-lay|model (garment.ts decides per photo), num_timesteps (we use 30,
+default 50), guidance_scale 1.5, seed 42, segmentation_free true } -> one image (576x864 WebP). The Space sends CORS for
+any origin. Each photo the shopper gives (front required, side optional; no face close-up, no setting) gets the top,
+then the bottoms on that result: ~26 s a pass. The photo keeps their face, body, pose and background; it shows the
+garment as photographed, not in their size, so size lives in the fit card (no size-comparison photo). Sizes are not in
+the look key: changing a size keeps the photo.
+Limits: the Space runs one job at a time for everyone (queue max 30). ZeroGPU daily quota (docs, 2026-11-10):
+unauthenticated 2 GPU-minutes, free account 5, PRO 40; it resets 24 h after the first use. Anonymous visitors get a few
+passes a day, then "You have exceeded your ZeroGPU runs limit". The Space belongs to FASHN (no SLA; they can pause or
+remove it). Free accounts in good standing (verified email, > 30 days old) can host 2 ZeroGPU Spaces, so a duplicate
+under our own account is the free way to control availability and get our own queue (visitors still use their quota).
+A quota error keeps any finished pass as a partial photo with a note and stops the remaining photos.
+Deadlines (tryon/space.ts): connect 30 s; a job is given up when there is no progress (no new queue position or stage)
+for 120 s or after 10 min in all, then `job.cancel()` and a retryable "taking too long"; result download 30 s; garment
+photo 15 s. A Cancel link on the developing frame aborts the run and frees the app. Changing or removing a photo drops
+every cached input holding the old one (tryon/shoot.ts, and the OpenAI `sessions`) and stops a run still using it;
+out-of-date looks have no Retry. A retry that makes nothing keeps the photo already there. gradio's own messages
+("This application is currently busy", "GPU task aborted", "No GPU was available") read as busy. Garment photos fall
+back to the catalogue photo only on 403/404/410 or a non-image; network errors and 5xx fail (and aren't cached).
+UNIQLO's image CDN sends no CORS headers: product photos load from the same site via `/uniqlo/*` (vercel.json rewrite to
+https://image.uniqlo.com, vite.config.ts proxy in dev).
+Accuracy (tested 2026-11-10 on the owner's photos, 8 passes): identity, pose and background always kept; garment type
+and colour right. Fixed since: (1) the catalogue photo (usgoods_*) is worn by a model and the model copied its styling
+(undershirt under a sweater, tucked tee, a jacket over pants) -> use the garment-only shot
+`/UQ/ST3/WesternCommon/imagesgoods/<num>/item/goods_<code>_<num>_3x4.jpg` when it exists (some are model shots too:
+garment.ts: model = something in the top-centre band (> 5%) AND skin tones in the upper third (> 1%); coverage alone
+misread tall flat pants whose waistband reaches the band; 68/68 on the catalog's photos), which also gave
+truer colour; (2) output is ~486x864 -> composite.ts takes everything above the first strongly changed rows (the
+collar, or the waistband for bottoms) from the shopper's photo at its own resolution (864x1536 for the front), feathered,
+and the model's result below; a per-pixel blend was tried and mixed old and new garments (dark pants over dark jeans
+barely differ). Not fixable in the model, handled in the UI: no size (the "Your size" panel under the photos shows
+UNIQLO's photo for colour, the size and the fit card); blurry hands get redrawn and bags/straps removed, and dark pants
+over dark jeans barely show (photo tips). A blur detector (Laplacian variance) couldn't tell a motion-blurred selfie
+(472) from a sharp photo (530), so there is none.
+**Generated (openai, paid)**: four views from /api/photoreal (below), size comparison shots, settings, 3 looks per visitor.
 
 ## Contracts
 **Catalog item** (web/public/catalog.json `{ source, generatedAt, items }` and the /api/product response):
@@ -111,8 +173,8 @@ waist only. Garment chest minus the user's chest = real ease, if you want to dri
 **POST /api/photoreal** (one photo of one view; types and validation in api/_lib/look.ts)
 `{ view: "front"|"three_quarter"|"side"|"back", scene: "studio"|"city"|"night", body: { heightCm, weightKg, chestCm,
 waistCm, hipsCm, inseamCm }, items: [{ slot, name, color, fabric, size?, ease?, length?, image? }], photos: { front,
-side, face }, reference?, lookToken? }` -> `{ image, view, lookToken?, remaining }` or `{ error, detail?, retryable,
-remaining? }`.
+side, face }, reference?, lookToken?, compare? }` -> `{ image, view, lookToken?, compare?, remaining }` or `{ error,
+detail?, retryable, remaining? }`.
 - photos / reference: JPEG/PNG/WebP data URLs, ≤ 1.5 M chars each and ≤ 4 M together (Vercel rejects bodies over
   4.5 MB). The browser budgets front/side 900 K, face 450 K and the finished front shot 900 K (photos/prepare.ts,
   look/shoot.ts), lowering JPEG quality, then size, to fit. `body` is complete (the client fills estimates). `ease` = close|regular|relaxed|oversized,
@@ -124,22 +186,42 @@ remaining? }`.
   look still fit under today's IP and instance caps. Other views need `lookToken` + `reference` (the finished front
   shot, ≤ 1024 px) and cost no look; each angle is claimed while it develops (a duplicate gets 409), succeeds once per
   token (409 after), and gets at most 3 billed attempts. 403 = expired/forged token or a different look.
-  `remaining` = looks left. 400 bad input (message is shopper-facing); 429 limits (the "already developing on your
+  `remaining` = looks left.
+- Size comparison: `view: "front"` + `lookToken` + `reference` + `compare: { slot, size, ease?, length?, delta?: {
+  chestCm?, lengthCm?, hipsCm?, inseamCm? } }` (delta = garment cm of `size` minus the size shot, |d| ≤ 40). `items`
+  stay exactly as shot (the token is checked against them); the server swaps in `compare` for that one slot
+  (`comparedItems`). Costs no look; at most 2 per token (`MAX_COMPARES`, a free failure doesn't count), each
+  size once (409 after); 400 if the size equals the one shot or the slot isn't worn. Echoes `compare: { slot, size }`.
+  Images: [finished front shot] first (the photo to edit), then front, side, face, products; the prompt says
+  "Edit Image 1 ... change only the top: size M instead of S ... measures 6 cm more around the chest, 3 cm longer".
+- 400 bad input (message is shopper-facing); 429 limits (the "already developing on your
   network" one is `retryable` with `Retry-After`); 503 not configured / paused. The OpenAI call gets what is left of a
   112 s budget (vercel.json maxDuration 120); the product-photo fetch times out at 4 s.
 - OpenAI images.edit, multipart `image[]` in this order: front photo, side photo, face profile, [front shot],
   [top product photo], [bottoms product photo]; the prompt names them "Image 1..n" (high input fidelity favours the
-  first, so the front photo leads). input_fidelity high, 1024x1536, JPEG. Prompt (api/_lib/photorealPrompt.ts): keep
-  identity and real proportions with the body numbers, never slimmer/taller/younger; each garment exactly as its
-  product photo with size and fit on this body; plain white sneakers; per-view direction; setting; no logos or text.
+  first, so the front photo leads). input_fidelity high, 1024x1536, JPEG. Prompt (api/_lib/photorealPrompt.ts): the
+  front shot is an EDIT of the shopper's front photo (FRONT_EDIT: same face, hair, glasses, skin, build and stance;
+  replace every garment, the shoes and the background), the other angles take the face from the finished front shot
+  and the profile; every view gets KEEP_IDENTITY (a real person, not a model: exact features, skin texture and
+  blemishes, hair not restyled, no beautifying) and the body numbers (never slimmer/taller/younger); each garment
+  exactly as its product photo with size and fit on this body; plain white sneakers; per-view direction; setting; no
+  logos or text. Never call the person a "model" or the shot a "product page": it pulls the face toward a generic one.
 
-**Size recommendation** (web/src/fit/sizing.ts): the smallest size whose body ranges cover the user's. Tops go by
+**Size recommendation** (web/src/fit/sizing.ts): the chart size is the smallest size whose body ranges cover the user's. Tops go by
 chest, plus waist only when the user typed one (an ANSUR estimate, SD 4.4 cm, must not push a size up); bottoms go
 by waist (estimated if blank), plus hips only when typed. If no size covers the body, the largest is shown as "Runs
 small for you" and rendered tight. Ease of the chosen size: more than 4 cm over its body range = close; otherwise
 garment circumference - body (tops chest: <8 close, <16 regular, <25 relaxed, else oversized; bottoms hips: <6, <14,
 <24); without garment numbers, steps from the recommended size. Length: tops vs 0.39 x height (±5 cm), pants vs
 inseam - 4 cm (≤ -10 cropped, ≤ -4 ankle, ≤ +5 full, else long). Both go into the prompt.
+The pick (`pickSize`) moves the chart size by the shopper's preference: Regular = the chart size (default, so the
+documented sizes hold); Relaxed = size up until the garment reads relaxed (≤ 2 sizes; +1 without garment numbers);
+Close = one size down only if the body is ≤ 2 cm over that size's range and its garment chest still clears the body.
+A reference garment (top chest / pants hips laid flat, ×2 = circumference; optional length / inseam) beats the
+preference: the size whose garment chest (+0.5 × length diff) or hips (+0.3 × inseam diff) is closest. Never applied
+when no size covers the body. Comparison size (`sizePair`): a hand-picked size vs the pick; the pick vs the chart size
+when they differ, else the next size up (or down at the top). Profile keys (localStorage `fitroom.profile.v1`):
+fitTop, fitBottom, refTopChestFlatCm, refTopLengthCm, refBottomHipsFlatCm, refBottomInseamCm.
 
 ## Pitfalls (learned so far)
 | Symptom | Cause | Fix |
@@ -155,6 +237,13 @@ inseam - 4 cm (≤ -10 cropped, ≤ -4 ankle, ≤ +5 full, else long). Both go i
 | Imperial value drifts on blur (178 cm -> 177.8) | re-committing a rounded display value | commit only when the typed text differs from the stored value (MeasureSection NumberBox) |
 | A paid front whose angles then hit "a lot of photos today" | the cap check only made room for 1 photo | a new look needs room for all 4 (rateLimit.check) |
 | Shoot Again wiped 4 paid photos when the new front failed | the look was reset before the front succeeded | restore the earlier look with a notice (look/shoot.ts) |
+| Shots "look nothing like me" (generic, younger, smoother face) | the front photo was sent at 1024 px (face ~60 px wide), no frontal close-up, and the prompt composed a new "clothing model" shot instead of editing the photo | front shot edits the front photo (FRONT_EDIT), front sent at 1536 px, KEEP_IDENTITY in every view, landscape-photo warning; verify on the live URL with a well-lit upright front photo |
+| Generated shots still didn't look like the shopper after the likeness fixes | a general image model redraws the whole person | free try-on engine: repaint only the clothes in their own photo (Photo engines) |
+| "Space metadata could not be loaded" from @gradio/client | `Client.connect("owner/name")` asks huggingface.co first (rate limits, blocked hosts) | connect by the Space URL (tryon/space.ts SPACE_URL) |
+| Node scripts can't reach the Space or Hugging Face from a cloud session | Node's fetch ignores HTTPS_PROXY | `NODE_USE_ENV_PROXY=1 NODE_EXTRA_CA_CERTS=/root/.ccr/ca-bundle.crt node ...`; Playwright: `proxy: { server: HTTPS_PROXY, bypass: 'localhost' }` |
+| Try-on copied the product photo's undershirt / tuck / jacket | the catalogue photo is worn by a model with styling | garment-only goods_* shot when it exists (tryon/garment.ts) |
+| Try-on photo cropped (feet cut off) | frames were fixed at 2:3, results are the shopper's 9:16 | finished frames take the photo's own shape (.frame-done) |
+| UNIQLO API: HTTP/2 INTERNAL_ERROR / timeouts from a cloud session | UNIQLO blocks those IPs (it answers Vercel and home connections) | run `npm run catalog` locally |
 | Every deploy uploads 57 MB of unused 3D assets | web/public is copied into dist | .vercelignore excludes web/public/{hdri,models,garments} |
 
 ## Commands
@@ -165,6 +254,10 @@ inseam - 4 cm (≤ -10 cropped, ≤ -4 ankle, ≤ +5 full, else long). Both go i
     vercel --prod                  # deploy from the REPO ROOT, never from web/
     vercel logs <deployment-url>   # function errors
     npm run catalog                # rebuild web/public/catalog.json from UNIQLO (~20 s; --dry-run, --per-shape N)
+    cd web && npm run dev          # then /eval.html: try-on eval (dev only) on your photos, scored by src/eval/metrics.ts
+
+Quality: docs/quality-audit.md (2026-11-10) has the test results, open findings by priority and the phased plan with
+measurable gates; web/src/fit/sizing.population.test.ts holds the sizing invariants over 3,400 body x item cases.
 
 ## Conventions
 - Small commits with clear messages; pull before committing. Run `npm run build` before every deploy.

@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
+import { TRY_ON } from './look/engine';
 import { parseCatalog } from './catalog/types';
 import { hasUnsavedPhotos, useLooks } from './state/looks';
 import { useApp } from './state/store';
 import { Header } from './ui/Header';
 import { Lookbook } from './ui/Lookbook';
-import { MeasureSection } from './ui/MeasureSection';
+import { FitSection, MeasureSection } from './ui/MeasureSection';
 import { OutfitSection } from './ui/OutfitSection';
 import { PhotoSection } from './ui/PhotoSection';
 import { SceneSection } from './ui/SceneSection';
@@ -60,8 +61,9 @@ export function App() {
         <aside className="rail" aria-label="Controls">
           <PhotoSection />
           <MeasureSection />
+          <FitSection />
           <OutfitSection loadError={catalogError} />
-          <SceneSection />
+          {!TRY_ON && <SceneSection />}
         </aside>
       </main>
     </div>

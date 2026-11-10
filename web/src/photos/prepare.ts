@@ -6,11 +6,25 @@ export const PHOTO_SLOTS: PhotoSlot[] = ['front', 'side', 'face'];
 
 // maxChars: data URL budget per photo. Front + side + face + the finished front shot (900K) stay under 4M characters,
 // inside Vercel's 4.5 MB request cap and the server's MAX_TOTAL_PHOTO_CHARS.
+// The front photo carries the face the shots must keep (the front shot is an edit of it), so it gets more pixels:
+// at 1024 px a full-body photo leaves the face ~60 px wide; 1536 px gives ~90 px, still inside its 900K budget.
 export const PHOTO_GUIDE: Record<PhotoSlot, { label: string; hint: string; maxSide: number; maxChars: number }> = {
-  front: { label: 'Front', hint: 'Full body, facing the camera', maxSide: 1024, maxChars: 900_000 },
-  side: { label: 'Side', hint: 'Full body, turned sideways', maxSide: 1024, maxChars: 900_000 },
+  front: { label: 'Front', hint: 'Full body, facing the camera, face clear', maxSide: 1536, maxChars: 900_000 },
+  side: { label: 'Side', hint: 'Full body, left side to the camera', maxSide: 1024, maxChars: 900_000 },
   face: { label: 'Face', hint: 'Left profile, close up', maxSide: 768, maxChars: 450_000 },
 };
+
+/**
+ * A warning for a photo that will make poor shots, or null. Body photos taken in landscape leave the person small
+ * (the beach-photo case): the model then has too few pixels of them to keep their likeness.
+ */
+export function photoWarning(slot: PhotoSlot, photo: Pick<PreparedPhoto, 'width' | 'height'>): string | null {
+  if (slot === 'face') return null;
+  if (photo.width > photo.height) {
+    return "This is a landscape photo, so you're small in it. Use an upright one where you fill the frame from head to feet.";
+  }
+  return null;
+}
 
 export interface PreparedPhoto {
   dataUrl: string;

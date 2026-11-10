@@ -5,7 +5,17 @@
   "buildCommand": "npm --prefix web run build",
   "outputDirectory": "web/dist",
   "functions": {
-    "api/product.ts": { "maxDuration": 20 },
-    "api/photoreal.ts": { "maxDuration": 120 }
-  }
+    "api/product.ts": {
+      "maxDuration": 20
+    },
+    "api/photoreal.ts": {
+      "maxDuration": 120
+    }
+  },
+  "rewrites": [
+    {
+      "source": "/uniqlo/:path*",
+      "destination": "https://image.uniqlo.com/:path*"
+    }
+  ]
 }

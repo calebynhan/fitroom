@@ -1,6 +1,5 @@
 import { doneCount, useLooks } from '../state/looks';
-import { useLookInput } from '../look/useLookInput';
-import { makeLook } from '../look/shoot';
+import { makeShots, TRY_ON, useShotInput } from '../look/engine';
 import { lookProgress, useNow } from './progress';
 
 /** Where each missing part is filled in, so the button can take the shopper there. */
@@ -24,17 +23,19 @@ function revealMissing(missing: string): void {
 }
 
 function ShootButton() {
-  const input = useLookInput();
+  const input = useShotInput();
   const key = input.ready ? input.key : null;
   const look = useLooks((s) => (key ? s.looks[key] : undefined));
   const busy = useLooks((s) => s.busy);
   const remaining = useLooks((s) => s.remaining);
   const busyDone = useLooks((s) => (s.busy ? doneCount(s.looks[s.busy]) : 0));
+  const busyTotal = useLooks((s) => (s.busy ? (s.looks[s.busy]?.order.length ?? 0) : 0));
   const outOfLooks = remaining !== null && remaining <= 0;
 
   const again = doneCount(look) > 0;
-  let label = again ? 'Shoot Again' : 'Make My Shots';
-  if (busy) label = `Developing… ${busyDone}/4`;
+  let label = TRY_ON ? (again ? 'Try On Again' : 'Try It On') : again ? 'Shoot Again' : 'Make My Shots';
+  // all done while busy: a size comparison is developing
+  if (busy) label = busyTotal > 1 && busyDone < busyTotal ? `Developing… ${busyDone}/${busyTotal}` : 'Developing…';
   else if (outOfLooks) label = 'No Looks Left';
 
   const onClick = () => {
@@ -42,7 +43,7 @@ function ShootButton() {
     if (!input.ready) return revealMissing(input.missing[0]);
     // On phones the photos sit above the form: bring them into view so the shoot is visible.
     if (window.scrollY > 0) window.scrollTo({ top: 0, behavior: scrollBehavior() });
-    void makeLook();
+    void makeShots();
   };
 
   return (
@@ -84,7 +85,7 @@ export function Header() {
         FitRoom
       </div>
       <div className="topbar-actions">
-        {remaining !== null && (
+        {!TRY_ON && remaining !== null && (
           <span className="eyebrow muted looks-left">
             {remaining} {remaining === 1 ? 'look' : 'looks'} left
           </span>

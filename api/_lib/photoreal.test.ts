@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { parseLookRequest, parsePieces, type BodySpec, type LookPiece } from './look';
-import { claimAngle, issueLookToken, lookDigest, MAX_ATTEMPTS, settleAngle, TOKEN_TTL_MS, verifyLookToken } from './lookToken';
-import { buildLookPrompt, describeImages, describePiece } from './photorealPrompt';
+import { comparedItems, parseLookRequest, parsePieces, type BodySpec, type LookPiece } from './look';
+import { claimAngle, issueLookToken, lookDigest, MAX_ATTEMPTS, MAX_COMPARES, settleAngle, shotKey, TOKEN_TTL_MS, verifyLookToken } from './lookToken';
+import { buildLookPrompt, describeDelta, describeImages, describePiece, FRONT_EDIT, KEEP_IDENTITY } from './photorealPrompt';
 import {
   begin,
   check,
@@ -80,17 +80,71 @@ describe('look request', () => {
   });
 });
 
+describe('size comparison request', () => {
+  const compareBody = (compare: unknown, extra: Record<string, unknown> = {}) =>
+    validBody({ reference: PHOTO, lookToken: 'a.1.b', compare, ...extra });
+
+  it('accepts one worn slot in another size, with its fit and the chart differences', () => {
+    const parsed = parseLookRequest(compareBody({ slot: 'top', size: 'M', ease: 'relaxed', length: 'long', delta: { chestCm: 6, lengthCm: 3, bogus: 9 } }));
+    expect(parsed.ok && parsed.value.compare).toEqual({ slot: 'top', size: 'M', ease: 'relaxed', length: 'long', delta: { chestCm: 6, lengthCm: 3 } });
+    expect(parsed.ok && parsed.value.lookToken).toBe('a.1.b');
+  });
+
+  it('needs the finished front shot and its token, on the front view', () => {
+    expect(parseLookRequest(validBody({ compare: { slot: 'top', size: 'M' } }))).toMatchObject({ ok: false, error: expect.stringMatching(/front shot/) });
+    expect(parseLookRequest(compareBody({ slot: 'top', size: 'M' }, { view: 'back' }))).toMatchObject({ ok: false, error: expect.stringMatching(/front view/) });
+  });
+
+  it('refuses the size already shot, an unworn slot and wild numbers', () => {
+    expect(parseLookRequest(compareBody({ slot: 'top', size: 'S' }))).toMatchObject({ ok: false, error: expect.stringMatching(/already shows size S/) });
+    expect(parseLookRequest(compareBody({ slot: 'top', size: 'M' }, { items: [BOTTOM] }))).toMatchObject({ ok: false });
+    expect(parseLookRequest(compareBody({ slot: 'hat', size: 'M' }))).toMatchObject({ ok: false });
+    const wild = parseLookRequest(compareBody({ slot: 'bottom', size: 'M', ease: 'huge', delta: { hipsCm: 400, inseamCm: '2' } }));
+    expect(wild.ok && wild.value.compare).toEqual({ slot: 'bottom', size: 'M' });
+  });
+
+  it('swaps only the compared piece into its new size', () => {
+    const items = comparedItems([TOP, BOTTOM], { slot: 'top', size: 'M', ease: 'relaxed' });
+    expect(items[0]).toEqual({ ...TOP, size: 'M', ease: 'relaxed', length: undefined });
+    expect('length' in items[0]).toBe(false);
+    expect(items[1]).toBe(BOTTOM);
+    expect(comparedItems([TOP], undefined)).toEqual([TOP]);
+  });
+});
+
 describe('look prompt', () => {
   it('numbers the reference images in the order they are attached', () => {
     expect(describeImages({ reference: false, products: ['top'] })).toEqual([
       'Image 1: the person, front view, full body.',
-      'Image 2: the same person, side view, full body.',
+      'Image 2: the same person, side view, full body (for body shape; if it is unclear, rely on the front view).',
       "Image 3: the same person's face in left profile, close-up.",
       'Image 4: product photo of the top to wear.',
     ]);
+    expect(describeImages({ reference: false, products: [] }, true)[0]).toBe('Image 1: the person, front view, full body; this is the photo to edit.');
     const withRef = describeImages({ reference: true, products: ['top', 'bottom'] });
     expect(withRef[3]).toMatch(/^Image 4: the finished front photo of this exact look/);
     expect(withRef[5]).toBe('Image 6: product photo of the bottoms to wear.');
+  });
+
+  it('puts the photo to edit first for a size comparison and states the chart difference', () => {
+    const compare = { slot: 'top' as const, from: 'S', to: 'M', delta: { chestCm: 6, lengthCm: 3 } };
+    const lines = describeImages({ reference: true, products: ['top'], compare });
+    expect(lines[0]).toBe('Image 1: the finished front photo of this look, with the top in size S; this is the photo to edit.');
+    expect(lines[1]).toBe('Image 2: the person, front view, full body.');
+    expect(lines[4]).toBe('Image 5: product photo of the top to wear.');
+
+    const prompt = buildLookPrompt({ view: 'front', scene: 'studio', body: BODY, items: comparedItems([TOP, BOTTOM], { slot: 'top', size: 'M' }), roles: { reference: true, products: ['top'], compare } });
+    expect(prompt).toContain('Edit Image 1.');
+    expect(prompt).toContain('Change only the top: it is now size M instead of size S');
+    expect(prompt).toContain('size M measures 6 cm more around the chest, 3 cm longer than size S');
+    expect(prompt).toContain('Ignore the clothes they wear in Images 2-4.');
+    expect(prompt).toContain('size M.');
+  });
+
+  it('words chart differences both ways and skips the negligible ones', () => {
+    expect(describeDelta({ hipsCm: -6, inseamCm: -2, lengthCm: 0.2 })).toBe('6 cm less around the hips, 2 cm shorter in the leg');
+    expect(describeDelta({ lengthCm: 0.3 })).toBeNull();
+    expect(describeDelta(undefined)).toBeNull();
   });
 
   it('describes each piece with its size and how it fits this body', () => {
@@ -117,7 +171,27 @@ describe('look prompt', () => {
     expect(p).not.toContain('Image 4');
     expect(p).not.toContain('its product photo');
     expect(p).toContain('Reproduce each garment faithfully');
-    expect(p).toContain('product page');
+    expect(p).toContain('Edit Image 1');
+  });
+
+  it('makes the front shot an edit of their own front photo, and never a "model"', () => {
+    const front = buildLookPrompt({ view: 'front', scene: 'studio', body: BODY, items: [TOP, BOTTOM], roles: { reference: false, products: ['top'] } });
+    expect(front.startsWith(FRONT_EDIT)).toBe(true);
+    expect(front).toContain('Image 1: the person, front view, full body; this is the photo to edit.');
+    expect(front).toContain('keep their stance from Image 1');
+    expect(front).not.toContain('camera at chest height');
+    for (const view of ['front', 'three_quarter', 'side', 'back'] as const) {
+      const p = buildLookPrompt({ view, scene: 'studio', body: BODY, items: [TOP], roles: { reference: view !== 'front', products: [] } });
+      expect(p).toContain(KEEP_IDENTITY);
+      expect(p).not.toMatch(/like a clothing model|product page/);
+    }
+  });
+
+  it('takes the face for the other angles from the finished front shot and the profile', () => {
+    const side = buildLookPrompt({ view: 'side', scene: 'studio', body: BODY, items: [TOP], roles: { reference: true, products: [] } });
+    expect(side).not.toContain('Edit Image 1');
+    expect(side).toContain('Take their face from the finished front photo (Image 4) and the profile close-up (Image 3).');
+    expect(side).toContain('camera at chest height');
   });
 });
 
@@ -215,5 +289,23 @@ describe('look token', () => {
     expect(claimAngle(id, 'three_quarter')).toEqual({ ok: true });
     settleAngle(id, 'three_quarter', 'free'); // a failure that cost nothing frees the angle for a retry
     expect(claimAngle(id, 'three_quarter')).toEqual({ ok: true });
+  });
+
+  it(`allows ${MAX_COMPARES} size comparisons per look, each once`, () => {
+    const id = verifyLookToken(issueLookToken(SECRET, DIGEST), SECRET, DIGEST)!;
+    const top = shotKey('front', { slot: 'top', size: 'M' });
+    expect(top).toBe('compare:top:M');
+    expect(shotKey('back')).toBe('back');
+
+    expect(claimAngle(id, top)).toEqual({ ok: true });
+    settleAngle(id, top, 'done');
+    expect(claimAngle(id, top)).toMatchObject({ ok: false, status: 409, error: expect.stringMatching(/size comparison was already made/) });
+
+    const free = shotKey('front', { slot: 'bottom', size: 'XS' });
+    expect(claimAngle(id, free)).toEqual({ ok: true });
+    settleAngle(id, free, 'free'); // cost nothing: does not use up a comparison
+    expect(claimAngle(id, shotKey('front', { slot: 'bottom', size: 'M' }))).toEqual({ ok: true });
+    expect(claimAngle(id, shotKey('front', { slot: 'bottom', size: 'L' }))).toMatchObject({ ok: false, status: 429, error: expect.stringMatching(/compare 2 sizes/) });
+    expect(claimAngle(id, 'side')).toEqual({ ok: true }); // the angles are counted separately
   });
 });

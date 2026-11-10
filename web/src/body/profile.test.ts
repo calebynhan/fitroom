@@ -3,6 +3,7 @@ import {
   completeBody,
   EMPTY_PROFILE,
   estimate,
+  fitPrefs,
   fromDisplay,
   fromFeetInches,
   loadProfile,
@@ -58,5 +59,14 @@ describe('storage', () => {
     expect(parseProfile({ heightCm: 'tall', weightKg: 9999, units: 'cubits' })).toEqual(EMPTY_PROFILE);
     store.set('fitroom.profile.v1', '{not json');
     expect(loadProfile(storage)).toEqual(EMPTY_PROFILE);
+  });
+});
+
+describe('fit preferences', () => {
+  it('reads a preference per slot and the flat garment measurements as full circumferences', () => {
+    const p = parseProfile({ fitTop: 'relaxed', fitBottom: 'baggy', refTopChestFlatCm: 53, refTopLengthCm: 69, refBottomHipsFlatCm: 200 });
+    expect(p).toMatchObject({ fitTop: 'relaxed', fitBottom: 'regular', refTopChestFlatCm: 53, refBottomHipsFlatCm: null });
+    expect(fitPrefs(p)).toEqual({ top: { pref: 'relaxed', chestCm: 106, lengthCm: 69 }, bottom: { pref: 'regular' } });
+    expect(fitPrefs(EMPTY_PROFILE)).toEqual({ top: { pref: 'regular' }, bottom: { pref: 'regular' } });
   });
 });

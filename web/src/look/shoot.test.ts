@@ -1,11 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { parseLookRequest } from '@api/look';
 import catalog from '../../public/catalog.json';
+import { EMPTY_PROFILE } from '../body/profile';
 import { parseCatalog } from '../catalog/types';
 import { useLooks } from '../state/looks';
 import { useApp } from '../state/store';
 import { lookInput, missingParts } from './request';
-import { makeLook, postView, retryView } from './shoot';
+import { canCompare, makeLook, postView, retryView, shootCompare } from './shoot';
 
 vi.mock('../photos/prepare', () => ({ downscaleDataUrl: async (d: string) => d }));
 
@@ -18,7 +19,7 @@ function readyState() {
     catalog: parseCatalog(catalog),
     outfit: { top: { itemId: 'E453754-000', colorCode: '67' }, bottom: { itemId: 'E475598-000', colorCode: '09' } },
     scene: 'studio',
-    profile: { units: 'metric', heightCm: 178, weightKg: 65, chestCm: 92, waistCm: 75, hipsCm: 90, inseamCm: 84 },
+    profile: { ...EMPTY_PROFILE, units: 'metric', heightCm: 178, weightKg: 65, chestCm: 92, waistCm: 75, hipsCm: 90, inseamCm: 84 },
     photos: { front: PHOTO, side: PHOTO, face: PHOTO },
     photoVersion: 3,
   });
@@ -149,6 +150,56 @@ describe('makeLook', () => {
     readyState();
     await Promise.all([makeLook(), makeLook()]);
     expect(calls.filter((c) => c.view === 'front')).toHaveLength(1);
+  });
+});
+
+describe('lookInput compares', () => {
+  it('offers the next size up per item, with its fit and the chart differences', () => {
+    const input = lookInput(useApp.getState());
+    if (!input.ready) throw new Error('not ready');
+    expect(input.compares.top).toEqual({ slot: 'top', size: 'M', ease: 'relaxed', length: 'regular', delta: { chestCm: 6, lengthCm: 3 } });
+    expect(input.compares.bottom).toMatchObject({ slot: 'bottom', size: 'M', delta: { hipsCm: 6, inseamCm: 2 } });
+  });
+
+  it('follows the fit preference: a relaxed pick shoots in M and compares with the chart size', () => {
+    useApp.getState().setProfile({ fitTop: 'relaxed' });
+    const input = lookInput(useApp.getState());
+    if (!input.ready) throw new Error('not ready');
+    expect(input.base.items[0]).toMatchObject({ size: 'M', ease: 'relaxed' });
+    expect(input.compares.top).toMatchObject({ size: 'S', delta: { chestCm: -6, lengthCm: -3 } });
+  });
+});
+
+describe('shootCompare', () => {
+  const answer = (b: Record<string, unknown>) =>
+    b.compare
+      ? { image: 'data:image/jpeg;base64,Q01Q', view: 'front', compare: b.compare, remaining: 2 }
+      : { image: SHOT, view: b.view, lookToken: 'tok', remaining: 2 };
+
+  it('shoots the front again in the other size with the token, for the look on screen', async () => {
+    const calls = serve((b) => ({ json: answer(b) }));
+    await makeLook();
+    const key = useLooks.getState().latest!;
+    expect(canCompare(key)).toBe(true);
+    await shootCompare(key, 'top');
+    const last = calls[calls.length - 1];
+    expect(last).toMatchObject({ view: 'front', lookToken: 'tok', reference: SHOT, compare: { slot: 'top', size: 'M' } });
+    expect(parseLookRequest(last).ok).toBe(true);
+    expect(useLooks.getState().looks[key].compares?.top).toEqual({ size: 'M', state: { kind: 'done', image: 'data:image/jpeg;base64,Q01Q' } });
+    expect(useLooks.getState().busy).toBeNull();
+  });
+
+  it('shows why a comparison failed, and does nothing once the outfit changed', async () => {
+    const calls = serve((b) => (b.compare ? { status: 429, json: { error: 'Each look can compare 2 sizes.', retryable: false, remaining: 2 } } : { json: answer(b) }));
+    await makeLook();
+    const key = useLooks.getState().latest!;
+    await shootCompare(key, 'bottom');
+    expect(useLooks.getState().looks[key].compares?.bottom?.state).toMatchObject({ kind: 'error', message: 'Each look can compare 2 sizes.', retryable: false });
+
+    const before = calls.length;
+    useApp.getState().setSize('top', 'L');
+    await shootCompare(key, 'top');
+    expect(calls).toHaveLength(before);
   });
 });
 

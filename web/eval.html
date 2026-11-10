@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex" />
+    <title>FitRoom try-on eval (dev only)</title>
+  </head>
+  <body style="margin: 24px; font: 14px Inter, system-ui, sans-serif; color: #111">
+    <h1 style="font: 500 28px Georgia, serif; margin: 0 0 8px">Try-on eval</h1>
+    <p style="max-width: 760px; color: #3a3835">
+      Dev only (not in the production build: <code>npm run dev</code>, then open <code>/eval.html</code>). Pick a few full-body
+      photos of yourself; each is tried on with every garment in the set through the app's own pipeline (garment photo choice,
+      the free Space, the sharpening composite) and scored. Photos go to the public Space like in the app and nowhere else.
+      Each pass uses free GPU time (a free Hugging Face account allows ~5 min a day, anonymous ~2).
+    </p>
+    <p><input id="people" type="file" accept="image/*" multiple /> <button id="run" type="button">Run</button> <button id="json" type="button" disabled>Download JSON</button></p>
+    <pre id="log" style="background: #f4f1ec; padding: 8px; max-height: 160px; overflow: auto"></pre>
+    <div id="out"></div>
+    <script type="module" src="/src/eval/main.ts"></script>
+  </body>
+</html>

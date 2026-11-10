@@ -2,12 +2,13 @@
 //   { view, scene, body, items, photos: { front, side, face }, reference?, lookToken? }
 //   -> { image, view, lookToken?, remaining } | { error, detail?, retryable, remaining? }
 // The front shot costs one look and returns a lookToken; three-quarter, side and back send it back with the front
-// shot as `reference`, so all four photos show the same person, outfit, shoes and light.
+// shot as `reference`, so all four photos show the same person, outfit, shoes and light. A size comparison (front
+// view + `compare`) sends it too: the same front shot with one item in another size, at no extra look.
 // Photos are passed straight to the image model and never stored or logged.
 import { json, readJson } from './_lib/http';
 import { extension, fetchProductImage, decodeDataUrl, type ImageInput } from './_lib/images';
-import { parseLookRequest, type LookRequest } from './_lib/look';
-import { claimAngle, issueLookToken, lookDigest, settleAngle, verifyLookToken, type AngleOutcome } from './_lib/lookToken';
+import { comparedItems, parseLookRequest, type LookRequest } from './_lib/look';
+import { claimAngle, issueLookToken, lookDigest, settleAngle, shotKey, verifyLookToken, type AngleOutcome } from './_lib/lookToken';
 import { buildLookPrompt } from './_lib/photorealPrompt';
 import { begin, check, currentUsage, end, lookCookie, looksLeft, recordImage } from './_lib/rateLimit';
 import { describeNetworkError, describeTimeout, describeUpstreamError, type UpstreamFailure } from './_lib/upstreamError';
@@ -70,9 +71,14 @@ async function callOpenAI(key: string, form: FormData, timeoutMs: number): Promi
   }
 }
 
-/** Photos in prompt order: front, side, face, [finished front shot], [top product], [bottoms product]. */
+/**
+ * Photos in prompt order: front, side, face, [finished front shot], [top product], [bottoms product]. A size
+ * comparison edits the finished front shot, so it leads (high input fidelity favours the first image).
+ */
 async function gatherImages(req: LookRequest): Promise<{ images: ImageInput[]; products: ('top' | 'bottom')[] }> {
-  const own = [req.photos.front, req.photos.side, req.photos.face, ...(req.reference ? [req.reference] : [])].map(decodeDataUrl);
+  const photos = [req.photos.front, req.photos.side, req.photos.face];
+  const ordered = req.reference ? (req.compare ? [req.reference, ...photos] : [...photos, req.reference]) : photos;
+  const own = ordered.map(decodeDataUrl);
   const fetched = await Promise.all(req.items.map(async (p) => ({ slot: p.slot, img: p.image ? await fetchProductImage(p.image) : null })));
   const products = fetched.filter((f): f is { slot: 'top' | 'bottom'; img: ImageInput } => f.img !== null);
   return {
@@ -93,7 +99,8 @@ export async function POST(request: Request): Promise<Response> {
   const parsed = parseLookRequest(await readJson(request));
   if (!parsed.ok) return json({ error: parsed.error, retryable: false, remaining: looksLeft(usage) }, 400);
   const req = parsed.value;
-  const newLook = req.view === 'front';
+  const newLook = req.view === 'front' && !req.compare;
+  const shot = shotKey(req.view, req.compare);
 
   let lookId: string | null = null;
   if (!newLook) {
@@ -107,7 +114,7 @@ export async function POST(request: Request): Promise<Response> {
     return json({ error: verdict.error, retryable: verdict.retryable, remaining: looksLeft(usage) }, verdict.status, headers);
   }
   if (lookId) {
-    const angle = claimAngle(lookId, req.view);
+    const angle = claimAngle(lookId, shot);
     if (!angle.ok) return json({ error: angle.error, retryable: angle.retryable, remaining: looksLeft(usage) }, angle.status);
   }
 
@@ -115,7 +122,10 @@ export async function POST(request: Request): Promise<Response> {
   begin(usage.ip);
   try {
     const { images, products } = await gatherImages(req);
-    const prompt = buildLookPrompt({ ...req, roles: { reference: Boolean(req.reference), products } });
+    const from = req.compare && req.items.find((p) => p.slot === req.compare?.slot)?.size;
+    const compare = req.compare && from ? { slot: req.compare.slot, from, to: req.compare.size, delta: req.compare.delta } : undefined;
+    const items = comparedItems(req.items, req.compare);
+    const prompt = buildLookPrompt({ ...req, items, roles: { reference: Boolean(req.reference), products, compare } });
     const model = process.env.OPENAI_IMAGE_MODEL || DEFAULT_MODEL;
     const quality = process.env.OPENAI_IMAGE_QUALITY || DEFAULT_QUALITY;
     const timeoutMs = Math.max(MIN_UPSTREAM_MS, FUNCTION_BUDGET_MS - (Date.now() - started));
@@ -133,6 +143,10 @@ export async function POST(request: Request): Promise<Response> {
     recordImage(usage.ip);
     outcome = 'done';
     const image = `data:image/jpeg;base64,${result.b64}`;
+    if (req.compare) {
+      const echo = { slot: req.compare.slot, size: req.compare.size };
+      return json({ image, view: req.view, compare: echo, remaining: looksLeft(usage) });
+    }
     if (lookId) return json({ image, view: req.view, remaining: looksLeft(usage) });
     return json(
       { image, view: req.view, lookToken: issueLookToken(key, lookDigest(req)), remaining: looksLeft({ ...usage, looks: usage.looks + 1 }) },
@@ -140,7 +154,7 @@ export async function POST(request: Request): Promise<Response> {
       { 'Set-Cookie': lookCookie(usage, key) },
     );
   } finally {
-    if (lookId) settleAngle(lookId, req.view, outcome);
+    if (lookId) settleAngle(lookId, shot, outcome);
     end(usage.ip);
   }
 }

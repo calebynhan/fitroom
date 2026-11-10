@@ -17,7 +17,7 @@ import { mapLimit, pickCandidates, selectGroup, validateCatalogItem } from './ca
 const GROUPS = [
   { key: 'tees', path: '22211,23305,23386,', heroes: ['E455365-000', 'E422992-000'] },
   { key: 'sweaters', path: '22211,95668,95670,', heroes: ['E453754-000', 'E450543-000'] },
-  { key: 'pants', path: '22211,23306,,', heroes: ['E475598-000', 'E479000-000'] },
+  { key: 'pants', path: '22211,23306,,', heroes: ['E475598-000', 'E450251-000'] },
 ];
 const HEROES = GROUPS.flatMap((g) => g.heroes);
 const SHAPES: Shape[] = ['tee', 'sweater', 'pants'];
