@@ -125,7 +125,7 @@ async function shootViews(key: string, views: View[], input: Extract<TryOnInput,
     // The allowance is gone: say so on the photos not tried yet instead of failing them one by one.
     for (const rest of views.slice(i + 1)) {
       const e = new SpaceError(
-        "Not tried: Hugging Face's free GPU time for your connection is used up for now. Try again later.",
+        "Not tried: Hugging Face's free GPU time for your connection is used up. It resets within a day.",
         true,
         true,
       );

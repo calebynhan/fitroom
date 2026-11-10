@@ -117,8 +117,11 @@ any origin. Each photo the shopper gives (front required, side optional; no face
 then the bottoms on that result: ~26 s a pass. The photo keeps their face, body, pose and background; it shows the
 garment as photographed, not in their size, so size lives in the fit card (no size-comparison photo). Sizes are not in
 the look key: changing a size keeps the photo.
-Limits (observed 2026-11-10): the Space runs one job at a time for everyone (queue max 30); anonymous ZeroGPU allows a
-few runs per IP, then "You have exceeded your ZeroGPU runs limit" until it refills (minutes, not a day, in testing).
+Limits: the Space runs one job at a time for everyone (queue max 30). ZeroGPU daily quota (docs, 2026-11-10):
+unauthenticated 2 GPU-minutes, free account 5, PRO 40; it resets 24 h after the first use. Anonymous visitors get a few
+passes a day, then "You have exceeded your ZeroGPU runs limit". The Space belongs to FASHN (no SLA; they can pause or
+remove it). Free accounts in good standing (verified email, > 30 days old) can host 2 ZeroGPU Spaces, so a duplicate
+under our own account is the free way to control availability and get our own queue (visitors still use their quota).
 A quota error keeps any finished pass as a partial photo with a note and stops the remaining photos.
 UNIQLO's image CDN sends no CORS headers: product photos load from the same site via `/uniqlo/*` (vercel.json rewrite to
 https://image.uniqlo.com, vite.config.ts proxy in dev).

@@ -38,7 +38,7 @@ export function describeSpaceError(raw: string | undefined): SpaceError {
   const detail = text ? text.slice(0, 300) : null;
   if (/zerogpu|gpu quota|runs limit|exceeded your|quota/i.test(text)) {
     return new SpaceError(
-      "Hugging Face's free GPU time for your connection is used up for now. It refills over time; try again in a little while.",
+      "Hugging Face's free GPU time for your connection is used up for now. It resets within a day of your first try-on; try again then.",
       true,
       true,
       detail,
