@@ -128,10 +128,12 @@ export function PhotoSection() {
       </div>
       {TRY_ON ? (
         <>
-          <p className="note">
-            Upright, whole body in frame, arms a little away from your sides, in fitted clothes. Your photo stays as it is (face,
-            pose and background); only the clothes change.
-          </p>
+          <ul className="note tips">
+            <li>Sharp and still: whole body, upright, hands at your sides (blurry hands get redrawn).</li>
+            <li>Wear clothes that contrast with what you'll try: over dark jeans, dark pants barely show.</li>
+            <li>No bag or straps: the try-on removes them.</li>
+          </ul>
+          <p className="note">Your photo stays as it is (face, pose and background); only the clothes change.</p>
           <p className="note fine">
             Only photos of yourself. They go from this tab straight to the free{' '}
             <a href={SPACE_PAGE} target="_blank" rel="noreferrer">

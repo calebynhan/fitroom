@@ -79,7 +79,9 @@ full-zips, cardigans, button-up shirts, underwear, jackets and coats -> "not sup
 
 Current hero items: SUPIMA Cotton T-Shirt E455365-000 (tee), Crew Neck T-Shirt E422992-000 (tee), Washable Milano
 Ribbed Sweater E453754-000 (sweater), Cashmere Sweater E450543-000 (sweater), Ultra Stretch Pants E475598-000
-(pants), Barrel Jeans E479000-000 (pants).
+(pants), Slim Chino Pants E450251-000 (pants). Items with `sizeGender` WOMEN are refused ("sized for women"): Barrel
+Jeans E479000-000 (22-34 inch) came in through the men's listing; removed from catalog.json by hand on 2026-11-10
+(UNIQLO's API refuses cloud-session IPs; the next `npm run catalog` applies the rule to every item).
 
 ## Architecture
     web/       Vite + React + TS + zustand. No 3D.
@@ -90,6 +92,9 @@ Ribbed Sweater E453754-000 (sweater), Cashmere Sweater E450543-000 (sweater), Ul
       fit/fitCard.ts      the fit card: two sizes on this body in numbers (cm or in)
       look/engine.ts      which engine makes the photos (VITE_PHOTO_ENGINE): useShotInput / makeShots / retryShot
       tryon/space.ts      free engine: @gradio/client (lazy chunk) -> FASHN VTON v1.5 Space; errors in shopper words
+      tryon/garment.ts    garment photo: UNIQLO's garment-only shot (goods_*) when it exists, else the catalogue photo;
+                          flat-lay vs model judged from the top-centre backdrop
+      tryon/composite.ts  sharper results: the shopper's photo above the new garment's top edge, the model below
       tryon/shoot.ts      per photo: top, then bottoms on that result; partial photo kept; quota stops the rest
       look/request.ts     app state -> the request every view shares + a key (same key = same photos)
       look/shoot.ts       front first, then three-quarter / side / back in parallel with the front shot attached;
@@ -111,7 +116,7 @@ PHOTOREAL_DISABLED=1 (kill switch).
 **Try-on (default, free)**: FASHN VTON v1.5 (Apache-2.0) on https://huggingface.co/spaces/fashn-ai/fashn-vton-1.5,
 called from the shopper's browser with @gradio/client, connected by URL (https://fashn-ai-fashn-vton-1-5.hf.space/;
 by name it first asks huggingface.co for metadata). Endpoint `/try_on`: { person_image, garment_image, category:
-tops|bottoms|one-pieces, garment_photo_type: model|flat-lay (UNIQLO photos are worn: `model`), num_timesteps (we use 30,
+tops|bottoms|one-pieces, garment_photo_type: flat-lay|model (garment.ts decides per photo), num_timesteps (we use 30,
 default 50), guidance_scale 1.5, seed 42, segmentation_free true } -> one image (576x864 WebP). The Space sends CORS for
 any origin. Each photo the shopper gives (front required, side optional; no face close-up, no setting) gets the top,
 then the bottoms on that result: ~26 s a pass. The photo keeps their face, body, pose and background; it shows the
@@ -125,6 +130,18 @@ under our own account is the free way to control availability and get our own qu
 A quota error keeps any finished pass as a partial photo with a note and stops the remaining photos.
 UNIQLO's image CDN sends no CORS headers: product photos load from the same site via `/uniqlo/*` (vercel.json rewrite to
 https://image.uniqlo.com, vite.config.ts proxy in dev).
+Accuracy (tested 2026-11-10 on the owner's photos, 8 passes): identity, pose and background always kept; garment type
+and colour right. Fixed since: (1) the catalogue photo (usgoods_*) is worn by a model and the model copied its styling
+(undershirt under a sweater, tucked tee, a jacket over pants) -> use the garment-only shot
+`/UQ/ST3/WesternCommon/imagesgoods/<num>/item/goods_<code>_<num>_3x4.jpg` when it exists (some are model shots too:
+garment.ts measures non-backdrop pixels in the top centre, garment-only 0%, model 20-59%, threshold 5%), which also gave
+truer colour; (2) output is ~486x864 -> composite.ts takes everything above the first strongly changed rows (the
+collar, or the waistband for bottoms) from the shopper's photo at its own resolution (864x1536 for the front), feathered,
+and the model's result below; a per-pixel blend was tried and mixed old and new garments (dark pants over dark jeans
+barely differ). Not fixable in the model, handled in the UI: no size (the "Your size" panel under the photos shows
+UNIQLO's photo for colour, the size and the fit card); blurry hands get redrawn and bags/straps removed, and dark pants
+over dark jeans barely show (photo tips). A blur detector (Laplacian variance) couldn't tell a motion-blurred selfie
+(472) from a sharp photo (530), so there is none.
 **Generated (openai, paid)**: four views from /api/photoreal (below), size comparison shots, settings, 3 looks per visitor.
 
 ## Contracts
@@ -216,6 +233,9 @@ fitTop, fitBottom, refTopChestFlatCm, refTopLengthCm, refBottomHipsFlatCm, refBo
 | Generated shots still didn't look like the shopper after the likeness fixes | a general image model redraws the whole person | free try-on engine: repaint only the clothes in their own photo (Photo engines) |
 | "Space metadata could not be loaded" from @gradio/client | `Client.connect("owner/name")` asks huggingface.co first (rate limits, blocked hosts) | connect by the Space URL (tryon/space.ts SPACE_URL) |
 | Node scripts can't reach the Space or Hugging Face from a cloud session | Node's fetch ignores HTTPS_PROXY | `NODE_USE_ENV_PROXY=1 NODE_EXTRA_CA_CERTS=/root/.ccr/ca-bundle.crt node ...`; Playwright: `proxy: { server: HTTPS_PROXY, bypass: 'localhost' }` |
+| Try-on copied the product photo's undershirt / tuck / jacket | the catalogue photo is worn by a model with styling | garment-only goods_* shot when it exists (tryon/garment.ts) |
+| Try-on photo cropped (feet cut off) | frames were fixed at 2:3, results are the shopper's 9:16 | finished frames take the photo's own shape (.frame-done) |
+| UNIQLO API: HTTP/2 INTERNAL_ERROR / timeouts from a cloud session | UNIQLO blocks those IPs (it answers Vercel and home connections) | run `npm run catalog` locally |
 | Every deploy uploads 57 MB of unused 3D assets | web/public is copied into dist | .vercelignore excludes web/public/{hdri,models,garments} |
 
 ## Commands

@@ -8,7 +8,9 @@ import type { LookCaption } from '../look/request';
 import { exclusive } from '../look/shoot';
 import { doneCount, useLooks } from '../state/looks';
 import { useApp } from '../state/store';
-import { describeStatus, fetchBlob, garmentUrl, PASS_MS, runSpace, SpaceError, type TryOnCategory, type TryOnRunner } from './space';
+import { sharpenResult } from './composite';
+import { loadGarmentPhoto, type GarmentPhoto } from './garment';
+import { describeStatus, garmentUrl, PASS_MS, runSpace, SpaceError, type TryOnCategory, type TryOnRunner } from './space';
 
 type AppSnapshot = Pick<ReturnType<typeof useApp.getState>, 'catalog' | 'outfit' | 'photos' | 'photoVersion'>;
 
@@ -58,18 +60,20 @@ export function tryOnInput(state: AppSnapshot): TryOnInput {
 }
 
 const inputs = new Map<string, Extract<TryOnInput, { ready: true }>>();
-const garmentBlobs = new Map<string, Promise<Blob>>();
+const garmentPhotos = new Map<string, Promise<GarmentPhoto>>();
 
-function garmentBlob(url: string): Promise<Blob> {
-  let blob = garmentBlobs.get(url);
-  if (!blob) {
-    blob = fetchBlob(url).catch((err: unknown) => {
-      garmentBlobs.delete(url);
-      throw err;
+/** The garment-only shot when UNIQLO has one, else the catalogue photo; cached per URL for the session. */
+function garmentPhoto(url: string): Promise<GarmentPhoto> {
+  let photo = garmentPhotos.get(url);
+  if (!photo) {
+    photo = loadGarmentPhoto(url).then((p) => {
+      if (!p) throw new SpaceError("Couldn't load the product photo. Try again.", true, false, url);
+      return p;
     });
-    garmentBlobs.set(url, blob);
+    photo.catch(() => garmentPhotos.delete(url));
+    garmentPhotos.set(url, photo);
   }
-  return blob;
+  return photo;
 }
 
 /** Data URL of a result image (kept in memory like every photo; also what the Download link saves). */
@@ -93,24 +97,25 @@ async function shootView(key: string, view: View, input: Extract<TryOnInput, { r
   const expectedMs = PASS_MS * input.garments.length;
   const working = (status: string) => looks.setView(key, view, { kind: 'working', startedAt, expectedMs, status });
   working('Sending your photo…');
+  const photo = input.photos[view]!;
   let current: Blob | null = null;
-  let image: string | null = null;
   let worn: string[] = [];
+  // The shopper's own photo above the new garment, the model's result below it (composite.ts).
+  const finish = async (result: Blob) => sharpenResult(photo, result, await blobToDataUrl(result));
   try {
-    current = await (await fetch(input.photos[view]!)).blob();
+    current = await (await fetch(photo)).blob();
     for (const garment of input.garments) {
-      const garmentImage = await garmentBlob(garment.image);
-      current = await run(current, garmentImage, garment.category, (s) => working(describeStatus(s)));
-      image = await blobToDataUrl(current);
+      const g = await garmentPhoto(garment.image);
+      current = await run(current, g.blob, garment.category, g.type, (s) => working(describeStatus(s)));
       worn = [...worn, garment.slot];
     }
-    looks.setView(key, view, { kind: 'done', image: image! });
+    looks.setView(key, view, { kind: 'done', image: await finish(current) });
     return false;
   } catch (err: unknown) {
     const e = asSpaceError(err);
-    if (image) {
+    if (worn.length > 0 && current) {
       const missingNames = input.garments.filter((g) => !worn.includes(g.slot)).map((g) => g.name.split(' in ')[0]);
-      looks.setView(key, view, { kind: 'done', image, note: `Without the ${missingNames.join(' and ')}: ${e.message}` });
+      looks.setView(key, view, { kind: 'done', image: await finish(current), note: `Without the ${missingNames.join(' and ')}: ${e.message}` });
     } else {
       looks.setView(key, view, { kind: 'error', message: e.message, detail: e.detail, retryable: e.retryable });
     }

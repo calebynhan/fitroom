@@ -160,6 +160,13 @@ describe('toCatalogItem', () => {
     expect(out.item.fit).toBe('regular');
     expect(out.item.sizeChart).toBeNull();
   });
+  it("refuses items UNIQLO sizes for women, and keeps men's and unisex ones", () => {
+    expect(toCatalogItem('E479000-000', { ...RAW, name: 'Barrel Jeans', sizeGender: 'WOMEN' })).toEqual({
+      error: "Barrel Jeans is sized for women. FitRoom sizes men's clothes for now.",
+    });
+    expect('item' in toCatalogItem('E453754-000', { ...RAW, sizeGender: 'MEN' })).toBe(true);
+    expect('item' in toCatalogItem('E453754-000', { ...RAW, sizeGender: 'UNISEX' })).toBe(true);
+  });
   it('carries the fit tag and a parsed size chart', () => {
     const chart = { M: { chestCm: 104, body: { chestCm: [96, 104] as [number, number] } } };
     const raw = { ...RAW, tags: [{ group: 'top-fit', tag: 'relaxed', tagName: 'Relaxed' }] };

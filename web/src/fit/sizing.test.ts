@@ -36,10 +36,10 @@ describe('recommendSize', () => {
 
   it('says so, and renders it tight, when no size is made for this body', () => {
     const big = { ...CALEB, waistCm: 109.5, hipsCm: 113 };
-    const advice = sizeAdvice(item('E479000-000'), big); // Barrel Jeans top out at a 34" waist (86.5 cm)
-    expect(advice).toMatchObject({ size: '34inch', fits: false, compare: null });
-    expect(advice!.text).toMatch(/^Runs small for you: even the largest size \(34" waist\)/);
-    expect(easeFor(item('E479000-000'), '34inch', big)).toBe('close');
+    const advice = sizeAdvice(item('E482868-000'), big); // Baggy Jeans top out at a 40" waist (101.5 cm)
+    expect(advice).toMatchObject({ size: '40inch', fits: false, compare: null });
+    expect(advice!.text).toMatch(/^Runs small for you: even the largest size \(40" waist\)/);
+    expect(easeFor(item('E482868-000'), '40inch', big)).toBe('close');
   });
 
   it('falls back to the largest size for a body above the chart, and to null without a chart', () => {
@@ -56,7 +56,7 @@ describe('ease and length on this body', () => {
     expect(easeFor(milano, 'M', CALEB)).toBe('relaxed'); // 16
     expect(easeFor(milano, 'XL', CALEB)).toBe('oversized'); // 32
     expect(easeFor(item('E450251-000'), '30inch', CALEB)).toBe('close'); // slim chinos, hips 94.5
-    expect(easeFor(item('E479000-000'), '30inch', CALEB)).toBe('relaxed'); // barrel jeans, hips 111
+    expect(easeFor(item('E482868-000'), '30inch', CALEB)).toBe('relaxed'); // baggy jeans, hips 109
   });
 
   it('steps from the recommended size when the chart has no garment numbers', () => {
@@ -72,7 +72,7 @@ describe('ease and length on this body', () => {
     expect(lengthFor(item('E422992-000'), 'S', CALEB)).toBe('regular'); // 69 cm on 178 cm
     expect(lengthFor(item('E422992-000'), 'XL', CALEB)).toBe('long'); // 77 cm
     expect(lengthFor(item('E475598-000'), 'S', CALEB)).toBe('ankle'); // 71 cm inseam vs 84 cm crotch height
-    expect(lengthFor(item('E479000-000'), '30inch', CALEB)).toBe('full'); // 78.5
+    expect(lengthFor(item('E482868-000'), '30inch', CALEB)).toBe('full'); // 79
     expect(lengthFor(item('E450251-000'), '30inch', CALEB)).toBe('long'); // 86.5, sold unhemmed
     expect(lengthFor(item('E475598-000'), 'S', { ...CALEB, inseamCm: 95 })).toBe('cropped');
   });
@@ -121,8 +121,8 @@ describe('fit preferences', () => {
     const advice = sizeAdvice(item(MILANO), CALEB, pref('relaxed'));
     expect(advice).toMatchObject({ size: 'M', chart: 'S', reason: 'relaxed', compare: 'S' });
     expect(advice?.text).toBe("M for the relaxed fit you like; S by UNIQLO's chart.");
-    // Barrel jeans are cut relaxed already: no size up needed
-    expect(pickSize(item('E479000-000'), CALEB, pref('relaxed'))?.size).toBe(recommendSize(item('E479000-000'), CALEB));
+    // Baggy jeans are cut relaxed already: no size up needed
+    expect(pickSize(item('E482868-000'), CALEB, pref('relaxed'))?.size).toBe(recommendSize(item('E482868-000'), CALEB));
   });
 
   it('sizes down for a close fit only when the smaller size is nearly made for this body', () => {
@@ -145,7 +145,7 @@ describe('fit preferences', () => {
 
   it('ignores preferences when no size is made for this body', () => {
     const big = { ...CALEB, waistCm: 109.5, hipsCm: 113 };
-    expect(pickSize(item('E479000-000'), big, pref('relaxed'))).toMatchObject({ size: '34inch', fits: false, reason: 'chart' });
+    expect(pickSize(item('E482868-000'), big, pref('relaxed'))).toMatchObject({ size: '40inch', fits: false, reason: 'chart' });
   });
 });
 

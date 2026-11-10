@@ -5,7 +5,7 @@ import { parseCatalog } from '../catalog/types';
 import { useLooks } from '../state/looks';
 import { useApp } from '../state/store';
 import { makeTryOnLook, retryTryOnView, tryOnInput } from './shoot';
-import { SpaceError, type TryOnCategory, type TryOnRunner } from './space';
+import { SpaceError, type GarmentPhotoType, type TryOnCategory, type TryOnRunner } from './space';
 
 const PHOTO = { dataUrl: 'data:image/jpeg;base64,/9j/4AAQSkZJRg==', width: 600, height: 900 };
 
@@ -22,11 +22,11 @@ function readyState(side = false) {
 
 /** A fake Space: records each pass, returns "<input>+<category>" so the chain of passes is visible in the result. */
 function fakeSpace(fail?: (category: TryOnCategory, n: number) => SpaceError | null) {
-  const passes: { person: string; category: TryOnCategory }[] = [];
-  const run: TryOnRunner = async (person, _garment, category, onStatus) => {
+  const passes: { person: string; category: TryOnCategory; garment?: string; type?: GarmentPhotoType }[] = [];
+  const run: TryOnRunner = async (person, garment, category, type, onStatus) => {
     onStatus({ kind: 'queued', position: 1, etaS: 30 });
     const name = await person.text();
-    passes.push({ person: name, category });
+    passes.push({ person: name, category, garment: await garment.text(), type });
     const err = fail?.(category, passes.length);
     if (err) throw err;
     return new Blob([`${name}+${category}`], { type: 'image/webp' });
@@ -42,10 +42,16 @@ beforeEach(() => {
   // The person photo arrives as a data URL; garment photos come from the same-site /uniqlo/ proxy.
   vi.stubGlobal(
     'fetch',
-    vi.fn(async (url: string) => (url.startsWith('data:') ? new Response(new Blob(['me'])) : new Response(new Blob([`garment ${url}`])))),
+    vi.fn(async (url: string) =>
+      url.startsWith('data:') ? new Response(new Blob(['me'])) : new Response(new Blob([`garment ${url}`], { type: 'image/jpeg' })),
+    ),
   );
+  vi.spyOn(console, 'warn').mockImplementation(() => undefined); // no canvas in Node: results stay unsharpened
 });
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
 
 describe('tryOnInput', () => {
   it('needs only a front photo and something to wear, and does not depend on the size', () => {
@@ -76,12 +82,15 @@ describe('makeTryOnLook', () => {
     readyState(true);
     const space = fakeSpace();
     await makeTryOnLook(space.run);
-    expect(space.passes).toEqual([
+    expect(space.passes.map(({ person, category }) => ({ person, category }))).toEqual([
       { person: 'me', category: 'tops' },
       { person: 'me+tops', category: 'bottoms' },
       { person: 'me', category: 'tops' },
       { person: 'me+tops', category: 'bottoms' },
     ]);
+    // the garment-only shot is tried first; with no canvas to inspect it, it's sent as worn ("model")
+    expect(space.passes[0].garment).toBe('garment /uniqlo/UQ/ST3/WesternCommon/imagesgoods/453754/item/goods_67_453754_3x4.jpg');
+    expect(space.passes[0].type).toBe('model');
     const look = useLooks.getState().looks[useLooks.getState().latest!];
     expect(look.order).toEqual(['front', 'side']);
     for (const view of look.order) {
@@ -128,5 +137,22 @@ describe('makeTryOnLook', () => {
     const look = useLooks.getState().looks[useLooks.getState().latest!];
     expect(look.views.front.kind).toBe('done');
     expect(look.notice).toMatch(/earlier photos are kept/);
+  });
+});
+
+describe('garment photo fallback', () => {
+  it('falls back to the catalogue photo when there is no garment-only shot', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (url.startsWith('data:')) return new Response(new Blob(['me']));
+        if (url.includes('/goods_')) return new Response('missing', { status: 404, headers: { 'content-type': 'text/html' } });
+        return new Response(new Blob([`garment ${url}`], { type: 'image/jpeg' }));
+      }),
+    );
+    useApp.getState().setColor('bottom', '08'); // a colour not fetched by earlier tests (photos are cached per URL)
+    const space = fakeSpace();
+    await makeTryOnLook(space.run);
+    expect(space.passes[1].garment).toBe('garment /uniqlo/UQ/ST3/us/imagesgoods/475598/item/usgoods_08_475598_3x4.jpg');
   });
 });

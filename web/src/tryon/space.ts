@@ -16,8 +16,17 @@ export type TryOnCategory = 'tops' | 'bottoms';
 
 export type SpaceStatus = { kind: 'queued'; position: number | null; etaS: number | null } | { kind: 'running' };
 
+/** `flat-lay`: the garment photographed on its own; `model`: worn by a model (see garment.ts). */
+export type GarmentPhotoType = 'flat-lay' | 'model';
+
 /** One try-on: `person` wearing `garment`; resolves to the result image. */
-export type TryOnRunner = (person: Blob, garment: Blob, category: TryOnCategory, onStatus: (s: SpaceStatus) => void) => Promise<Blob>;
+export type TryOnRunner = (
+  person: Blob,
+  garment: Blob,
+  category: TryOnCategory,
+  photoType: GarmentPhotoType,
+  onStatus: (s: SpaceStatus) => void,
+) => Promise<Blob>;
 
 /** A failure in words the shopper can act on. `quota`: today's free allowance is used up (stop further passes). */
 export class SpaceError extends Error {
@@ -57,12 +66,6 @@ export function garmentUrl(url: string): string {
   return url.replace(/^https:\/\/image\.uniqlo\.com\//, '/uniqlo/');
 }
 
-export async function fetchBlob(url: string): Promise<Blob> {
-  const res = await fetch(url);
-  if (!res.ok) throw new SpaceError("Couldn't load the product photo. Try again.", true, false, `HTTP ${res.status} for ${url}`);
-  return res.blob();
-}
-
 type GradioClient = Awaited<ReturnType<typeof import('@gradio/client').Client.connect>>;
 let client: Promise<GradioClient> | null = null;
 
@@ -87,7 +90,7 @@ interface StatusMessage {
 }
 
 /** Runs one try-on on the Space. Throws SpaceError. */
-export const runSpace: TryOnRunner = async (person, garment, category, onStatus) => {
+export const runSpace: TryOnRunner = async (person, garment, category, photoType, onStatus) => {
   let app: GradioClient;
   try {
     app = await connect();
@@ -98,7 +101,7 @@ export const runSpace: TryOnRunner = async (person, garment, category, onStatus)
     person_image: person,
     garment_image: garment,
     category,
-    garment_photo_type: 'model', // UNIQLO's product photos show the garment worn
+    garment_photo_type: photoType,
     num_timesteps: TIMESTEPS,
     guidance_scale: 1.5,
     seed: 42,

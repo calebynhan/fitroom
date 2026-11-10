@@ -281,6 +281,12 @@ export function toCatalogItem(
   const base = raw.prices?.base?.value;
   if (!name || typeof base !== 'number') return { error: 'That product page did not include a name and price.' };
 
+  // FitRoom sizes men's clothes (ANSUR men's body model, men's size charts); a women's item can still turn up in the
+  // men's listing (Barrel Jeans E479000-000 did: sizes 22-34 inch, worn by a woman in its photos).
+  if (typeof raw.sizeGender === 'string' && /^women/i.test(raw.sizeGender.trim())) {
+    return { error: `${name} is sized for women. FitRoom sizes men's clothes for now.` };
+  }
+
   const mapped = shapeOf(raw, sizeChart);
   if (!mapped) {
     const crumbs = raw.breadcrumbs ?? {};

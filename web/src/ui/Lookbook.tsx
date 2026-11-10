@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { VIEW_LABEL, type SizeCompare, type View } from '@api/look';
 import { fitPrefs, sizingBody } from '../body/profile';
-import type { Slot } from '../catalog/types';
+import { findColor, productImage, type Slot } from '../catalog/types';
 import { fitCard } from '../fit/fitCard';
-import { formatSize } from '../fit/sizing';
+import { formatSize, sizeAdvice, sizePair } from '../fit/sizing';
 import { engineViews, retryShot, TRY_ON, useShotInput, type ShotInput } from '../look/engine';
 import { canCompare, shootCompare } from '../look/shoot';
 import { useLookInput } from '../look/useLookInput';
@@ -181,6 +181,67 @@ function CompareBlock({ look, slot, compare, shotSize }: { look: Look; slot: Slo
   );
 }
 
+/** One item of a try-on look: UNIQLO's photo (to check the colour against), the size to buy, and how it fits in numbers. */
+function TryOnSize({ slot }: { slot: Slot }) {
+  const catalog = useApp((s) => s.catalog);
+  const selection = useApp((s) => s.outfit[slot]);
+  const profile = useApp((s) => s.profile);
+  const item = selection && catalog.find((i) => i.id === selection.itemId);
+  if (!item || !selection) return null;
+  const body = sizingBody(profile);
+  const prefs = fitPrefs(profile)[slot];
+  const advice = body ? sizeAdvice(item, body, prefs) : null;
+  const pair = sizePair(selection.size, advice);
+  const card = body && pair ? fitCard(item, pair.compare ? [pair.size, pair.compare] : [pair.size], body, profile.units, prefs) : null;
+  const image = productImage(item, selection.colorCode);
+  return (
+    <div className="tryon-size">
+      {image && (
+        <a className="tryon-size-photo" href={item.url} target="_blank" rel="noreferrer" title="Colour as UNIQLO shows it">
+          <img src={image} alt={`${item.name} in ${findColor(item, selection.colorCode).name}, on UNIQLO`} width={120} height={160} loading="lazy" />
+          <span className="eyebrow muted">UNIQLO's colour</span>
+        </a>
+      )}
+      <div className="tryon-size-body">
+        <h3 className="compare-title" translate="no">
+          {item.name}
+        </h3>
+        <p className={`size-note ${advice && !advice.fits ? 'warn' : ''}`}>
+          {!pair
+            ? 'Add your height and weight to get your size and see how it fits.'
+            : advice && pair.size !== advice.size
+              ? `Showing size ${formatSize(pair.size)} (your pick). ${advice.text}`
+              : (advice?.text ?? `Size ${formatSize(pair.size)}.`)}
+        </p>
+        {card && <FitTable card={card} caption={`${item.name}: how ${card.sizes.join(' and ')} fit you`} firstTag="yours" className="compare-card" />}
+      </div>
+    </div>
+  );
+}
+
+/** Under try-on photos: the size story the photo can't tell (the model draws the garment as photographed, in any size). */
+function TryOnSizes() {
+  const outfit = useApp((s) => s.outfit);
+  const slots = (['top', 'bottom'] as const).filter((slot) => outfit[slot]);
+  if (slots.length === 0) return null;
+  return (
+    <section className="compare" aria-labelledby="tryon-size-title">
+      <div className="compare-head">
+        <h2 className="eyebrow" id="tryon-size-title">
+          Your size
+        </h2>
+        <p className="note">
+          The photo shows the look and colour, drawn from UNIQLO's photo; it looks the same in every size. How your size fits is
+          in the numbers below. Bags and other accessories may disappear from the photo.
+        </p>
+      </div>
+      {slots.map((slot) => (
+        <TryOnSize key={slot} slot={slot} />
+      ))}
+    </section>
+  );
+}
+
 /** Two sizes side by side: the finished front shot, the same shot in the other size, and the fit card. */
 function ComparePanel({ look }: { look: Look }) {
   const input = useLookInput();
@@ -284,6 +345,7 @@ function Shots({ look, stale }: { look: Look; stale: boolean }) {
         </div>
       </div>
       {!stale && !TRY_ON && <ComparePanel look={look} />}
+      {TRY_ON && <TryOnSizes />}
       {open && openDone && <Lightbox look={look} view={open} onClose={() => setOpen(null)} onNavigate={setOpen} />}
     </div>
   );
