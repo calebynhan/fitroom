@@ -4,7 +4,7 @@ import { EMPTY_PROFILE } from '../body/profile';
 import { parseCatalog } from '../catalog/types';
 import { useLooks } from '../state/looks';
 import { useApp } from '../state/store';
-import { makeTryOnLook, retryTryOnView, tryOnInput } from './shoot';
+import { canRetryTryOn, cancelTryOn, makeTryOnLook, retryTryOnView, tryOnInput } from './shoot';
 import { SpaceError, type GarmentPhotoType, type TryOnCategory, type TryOnRunner } from './space';
 
 const PHOTO = { dataUrl: 'data:image/jpeg;base64,/9j/4AAQSkZJRg==', width: 600, height: 900 };
@@ -154,5 +154,90 @@ describe('garment photo fallback', () => {
     const space = fakeSpace();
     await makeTryOnLook(space.run);
     expect(space.passes[1].garment).toBe('garment /uniqlo/UQ/ST3/us/imagesgoods/475598/item/usgoods_08_475598_3x4.jpg');
+  });
+});
+
+/** A Space that waits until released, and honours cancellation like runSpace does. */
+function heldSpace() {
+  const sent: string[] = [];
+  let release: (() => void) | null = null;
+  const run: TryOnRunner = (person, _garment, category, _type, _onStatus, signal) =>
+    new Promise<Blob>((resolve, reject) => {
+      void person.text().then((p) => sent.push(`${p}:${category}`));
+      const abort = () => reject(new SpaceError('Cancelled.', true, false, null, true));
+      if (signal?.aborted) return abort();
+      signal?.addEventListener('abort', abort, { once: true });
+      release = () => resolve(new Blob(['done'], { type: 'image/webp' }));
+    });
+  const started = async () => {
+    for (let i = 0; i < 50 && !release; i += 1) await new Promise((r) => setTimeout(r, 0));
+  };
+  return { run, sent, started, release: () => release?.() };
+}
+
+describe('cancel, removed photos and safe retries', () => {
+  it('Cancel stops the run at once and frees the app', async () => {
+    const space = heldSpace();
+    const shooting = makeTryOnLook(space.run);
+    await space.started();
+    expect(useLooks.getState().busy).not.toBeNull();
+    cancelTryOn();
+    await shooting;
+    const key = useLooks.getState().latest!;
+    expect(useLooks.getState().busy).toBeNull();
+    expect(useLooks.getState().looks[key].views.front).toMatchObject({ kind: 'error', message: 'Cancelled.', retryable: true });
+  });
+
+  it('removing a photo stops a run still using it, and nothing is retried with it', async () => {
+    readyState(true);
+    const space = heldSpace();
+    const shooting = makeTryOnLook(space.run);
+    await space.started();
+    const key = useLooks.getState().latest!;
+    useApp.getState().setPhoto('front', null); // the shopper removes their front photo mid-run
+    await shooting;
+    expect(useLooks.getState().busy).toBeNull();
+    expect(useLooks.getState().looks[key].views.front).toMatchObject({ kind: 'error', message: 'Stopped: your photos changed.', retryable: false });
+    expect(useLooks.getState().looks[key].views.side).toMatchObject({ kind: 'error', retryable: false });
+    const sentBefore = space.sent.length;
+    expect(canRetryTryOn(key)).toBe(false);
+    await retryTryOnView(key, 'side', space.run);
+    expect(space.sent.length).toBe(sentBefore); // nothing uploaded
+  });
+
+  it('a retry that fails keeps the photo already there', async () => {
+    const quota = new SpaceError('quota gone', true, true);
+    const space = fakeSpace((category) => (category === 'bottoms' ? quota : null));
+    await makeTryOnLook(space.run); // top on, bottoms refused: a partial photo with a note
+    const key = useLooks.getState().latest!;
+    const partial = useLooks.getState().looks[key].views.front;
+    expect(partial.kind).toBe('done');
+    const stillOut = fakeSpace(() => quota); // the retry fails on the first pass
+    await retryTryOnView(key, 'front', stillOut.run);
+    const after = useLooks.getState().looks[key].views.front;
+    expect(after.kind).toBe('done');
+    if (after.kind === 'done' && partial.kind === 'done') {
+      expect(after.image).toBe(partial.image);
+      expect(after.note).toBe('quota gone Your earlier photo is kept.');
+    }
+  });
+});
+
+describe('product photo loading', () => {
+  it("doesn't settle for the styled catalogue photo when the garment-only one fails on the network", async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (url.startsWith('data:')) return new Response(new Blob(['me']));
+        if (url.includes('/goods_')) throw new TypeError('Failed to fetch');
+        return new Response(new Blob([`garment ${url}`], { type: 'image/jpeg' }));
+      }),
+    );
+    useApp.getState().setColor('top', '09'); // a colour no earlier test cached
+    const space = fakeSpace();
+    await makeTryOnLook(space.run);
+    expect(space.passes).toHaveLength(0);
+    const key = useLooks.getState().latest!;
+    expect(useLooks.getState().looks[key].views.front).toMatchObject({ kind: 'error', retryable: true, message: expect.stringMatching(/Check your connection/) });
   });
 });

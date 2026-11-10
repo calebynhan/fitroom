@@ -128,13 +128,21 @@ passes a day, then "You have exceeded your ZeroGPU runs limit". The Space belong
 remove it). Free accounts in good standing (verified email, > 30 days old) can host 2 ZeroGPU Spaces, so a duplicate
 under our own account is the free way to control availability and get our own queue (visitors still use their quota).
 A quota error keeps any finished pass as a partial photo with a note and stops the remaining photos.
+Deadlines (tryon/space.ts): connect 30 s; a job is given up when there is no progress (no new queue position or stage)
+for 120 s or after 10 min in all, then `job.cancel()` and a retryable "taking too long"; result download 30 s; garment
+photo 15 s. A Cancel link on the developing frame aborts the run and frees the app. Changing or removing a photo drops
+every cached input holding the old one (tryon/shoot.ts, and the OpenAI `sessions`) and stops a run still using it;
+out-of-date looks have no Retry. A retry that makes nothing keeps the photo already there. gradio's own messages
+("This application is currently busy", "GPU task aborted", "No GPU was available") read as busy. Garment photos fall
+back to the catalogue photo only on 403/404/410 or a non-image; network errors and 5xx fail (and aren't cached).
 UNIQLO's image CDN sends no CORS headers: product photos load from the same site via `/uniqlo/*` (vercel.json rewrite to
 https://image.uniqlo.com, vite.config.ts proxy in dev).
 Accuracy (tested 2026-11-10 on the owner's photos, 8 passes): identity, pose and background always kept; garment type
 and colour right. Fixed since: (1) the catalogue photo (usgoods_*) is worn by a model and the model copied its styling
 (undershirt under a sweater, tucked tee, a jacket over pants) -> use the garment-only shot
 `/UQ/ST3/WesternCommon/imagesgoods/<num>/item/goods_<code>_<num>_3x4.jpg` when it exists (some are model shots too:
-garment.ts measures non-backdrop pixels in the top centre, garment-only 0%, model 20-59%, threshold 5%), which also gave
+garment.ts: model = something in the top-centre band (> 5%) AND skin tones in the upper third (> 1%); coverage alone
+misread tall flat pants whose waistband reaches the band; 68/68 on the catalog's photos), which also gave
 truer colour; (2) output is ~486x864 -> composite.ts takes everything above the first strongly changed rows (the
 collar, or the waistband for bottoms) from the shopper's photo at its own resolution (864x1536 for the front), feathered,
 and the model's result below; a per-pixel blend was tried and mixed old and new garments (dark pants over dark jeans

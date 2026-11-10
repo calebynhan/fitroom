@@ -1,5 +1,7 @@
 # FitRoom quality audit, 2026-11-10
 
+Status: Phase 0 (measurement) and Phase 1 (robustness and privacy) done; findings 1-5 and 9-12 fixed.
+
 What was tested, what is wrong, and a plan to improve it that can be measured. Covers the free try-on engine (the
 default), sizing and the fit card, the catalog and the UI, on branch `claude/focused-turing-yuhkiq` (PR #2).
 
@@ -96,10 +98,15 @@ Each phase has a gate that is measured, not judged by eye.
 Baseline (2026-11-10, owner's photos): changed 1.6-9.5% on clean runs, above-garment 0.7-1.7, colour dE 4.7-9.4 with
 garment-only photos; flags on the selfie (38% redrawn) and dark-on-dark pants (0.5% changed).
 
-### Phase 1: robustness and privacy (P0, P1 3-5, 9-10)
+### Phase 1: robustness and privacy (P0, P1 3-5, 9-10) - done 2026-11-10
 Fix findings 1-5, 9, 10, 11, 12 with tests for each (fake runner for timeouts/cancel, real gradio messages, retry and
 removed-photo paths). **Gate:** fault-injection script passes: a hanging Space ends in a retryable message within the
 deadline and Cancel frees the app; no request carries a removed photo; retry never loses a finished photo.
+
+Result: all fixed, each with tests (web: 82 passing). Gate run in Chromium against a Space that answers config and
+uploads but never the job: stalled run ended after 120 s with "taking too long" + Retry and the app free; Cancel freed
+it in 3 ms; removing the photo mid-run stopped it in 3 ms with no further uploads and no Retry; photo tiles two per
+row. Detector re-checked on all 68 catalog photos: 68/68.
 
 ### Phase 2: fit honesty (P1 6-7, P2 14, 16)
 Stretch-aware wording; borderline-size confidence ("between S and M, measure X"), ranked by which measurement would

@@ -80,7 +80,7 @@ export function Lightbox({ look, view, onClose, onNavigate }: LightboxProps) {
                 </button>
               </>
             )}
-            <a className="btn btn-dark" href={state.image} download={downloadName(view)}>
+            <a className="btn btn-dark" href={state.image} download={downloadName(view, state.image)}>
               Download
             </a>
             <button ref={closeRef} type="button" className="btn btn-outline" onClick={onClose}>

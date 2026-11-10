@@ -4,7 +4,7 @@
 import { useMemo } from 'react';
 import type { View } from '@api/look';
 import { useApp } from '../state/store';
-import { makeTryOnLook, retryTryOnView, tryOnInput } from '../tryon/shoot';
+import { cancelTryOn, makeTryOnLook, retryTryOnView, tryOnInput } from '../tryon/shoot';
 import type { LookCaption } from './request';
 import { makeLook, retryView } from './shoot';
 import { useLookInput } from './useLookInput';
@@ -44,3 +44,6 @@ export function makeShots(): Promise<void> {
 export function retryShot(key: string, view: View): Promise<void> {
   return TRY_ON ? retryTryOnView(key, view) : retryView(key, view);
 }
+
+/** Stops the shoot in progress, where the engine can (the free try-on; a paid OpenAI photo can't be stopped midway). */
+export const cancelShots: (() => void) | null = TRY_ON ? cancelTryOn : null;

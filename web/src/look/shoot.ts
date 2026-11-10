@@ -16,8 +16,16 @@ interface Session {
   base: LookBase;
   token?: string;
   reference?: string;
+  /** photoVersion of the photos in `base`. */
+  version: number;
 }
 const sessions = new Map<string, Session>();
+
+// Photos removed or replaced: drop every session still holding the old ones, so nothing re-sends them.
+useApp.subscribe((state, prev) => {
+  if (state.photoVersion === prev.photoVersion) return;
+  for (const [key, session] of sessions) if (session.version !== state.photoVersion) sessions.delete(key);
+});
 
 type Answer = LookSuccess | (LookFailure & { status?: number });
 
@@ -103,7 +111,7 @@ export function makeLook(): Promise<void> {
   return exclusive(key, async () => {
     const previous = useLooks.getState().looks[key];
     const previousSession = sessions.get(key);
-    const session: Session = { base };
+    const session: Session = { base, version: useApp.getState().photoVersion };
     sessions.set(key, session);
     useLooks.getState().start(key, caption);
     if (await shootFront(key, session)) {
@@ -149,7 +157,8 @@ export function shootCompare(key: string, slot: Slot): Promise<void> {
 /** Tries one failed view again. A failed front shot is retried first, then the angles that still need it. */
 export function retryView(key: string, view: View): Promise<void> {
   const session = sessions.get(key);
-  if (!session) return makeLook();
+  // No session: its photos were removed or replaced (or the page was reloaded). Retrying would shoot something else.
+  if (!session) return Promise.resolve();
   return exclusive(key, async () => {
     if (view === 'front' || !session.token) {
       if (await shootFront(key, session)) await shootRemaining(key, session);

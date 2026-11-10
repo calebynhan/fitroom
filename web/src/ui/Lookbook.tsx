@@ -4,7 +4,7 @@ import { fitPrefs, sizingBody } from '../body/profile';
 import { findColor, productImage, type Slot } from '../catalog/types';
 import { fitCard } from '../fit/fitCard';
 import { formatSize, sizeAdvice, sizePair } from '../fit/sizing';
-import { engineViews, retryShot, TRY_ON, useShotInput, type ShotInput } from '../look/engine';
+import { cancelShots, engineViews, retryShot, TRY_ON, useShotInput, type ShotInput } from '../look/engine';
 import { canCompare, shootCompare } from '../look/shoot';
 import { useLookInput } from '../look/useLookInput';
 import { SPACE_PAGE } from '../tryon/space';
@@ -15,7 +15,7 @@ import { FitTable } from './FitTable';
 import { Lightbox } from './Lightbox';
 import { useNow, viewProgress } from './progress';
 
-function Frame({ look, view, onOpen }: { look: Look; view: View; onOpen: () => void }) {
+function Frame({ look, view, stale, onOpen }: { look: Look; view: View; stale: boolean; onOpen: () => void }) {
   const state = look.views[view];
   const busy = useLooks((s) => s.busy !== null);
   const now = useNow(state.kind === 'working');
@@ -32,9 +32,11 @@ function Frame({ look, view, onOpen }: { look: Look; view: View; onOpen: () => v
           {state.note && (
             <p className="frame-note" role="status">
               {state.note}
-              <button type="button" className="link-btn" disabled={busy} onClick={() => void retryShot(look.key, view)}>
-                Retry
-              </button>
+              {!stale && (
+                <button type="button" className="link-btn" disabled={busy} onClick={() => void retryShot(look.key, view)}>
+                  Retry
+                </button>
+              )}
             </p>
           )}
         </>
@@ -48,6 +50,11 @@ function Frame({ look, view, onOpen }: { look: Look; view: View; onOpen: () => v
             <span style={{ transform: `scaleX(${viewProgress(state, now).toFixed(3)})` }} />
           </span>
           <span className="eyebrow muted">{state.status ?? (view === 'front' ? 'Usually under a minute' : 'Matching the front shot')}</span>
+          {cancelShots && (
+            <button type="button" className="link-btn" onClick={cancelShots}>
+              Cancel
+            </button>
+          )}
         </div>
       );
       break;
@@ -56,7 +63,7 @@ function Frame({ look, view, onOpen }: { look: Look; view: View; onOpen: () => v
         <div className="frame-status frame-fail" role="alert">
           <span>{state.message}</span>
           {state.detail && <span className="error-detail">{state.detail}</span>}
-          {state.retryable && (
+          {state.retryable && !stale && (
             <button type="button" className="link-btn" disabled={busy} onClick={() => void retryShot(look.key, view)}>
               Retry
             </button>
@@ -78,7 +85,7 @@ function Frame({ look, view, onOpen }: { look: Look; view: View; onOpen: () => v
       <figcaption>
         <span className="eyebrow">{VIEW_LABEL[view]}</span>
         {state.kind === 'done' && (
-          <a className="frame-dl" href={state.image} download={downloadName(view)}>
+          <a className="frame-dl" href={state.image} download={downloadName(view, state.image)}>
             Download
           </a>
         )}
@@ -271,7 +278,7 @@ function downloadAll(look: Look) {
     window.setTimeout(() => {
       const a = document.createElement('a');
       a.href = state.image;
-      a.download = downloadName(view);
+      a.download = downloadName(view, state.image);
       a.click();
     }, i * 300); // browsers drop rapid-fire downloads
   });
@@ -309,7 +316,7 @@ function Shots({ look, stale }: { look: Look; stale: boolean }) {
       </div>
       <div className={`frames frames-${look.order.length}`}>
         {look.order.map((view) => (
-          <Frame key={view} look={look} view={view} onOpen={() => setOpen(view)} />
+          <Frame key={view} look={look} view={view} stale={stale} onOpen={() => setOpen(view)} />
         ))}
       </div>
       <p className="sr-only" aria-live="polite">
