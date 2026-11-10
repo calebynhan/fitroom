@@ -84,7 +84,8 @@ async function shootRemaining(key: string, session: Session): Promise<void> {
   await Promise.all(todo.map((v) => shootAngle(key, session, v)));
 }
 
-async function exclusive(key: string, run: () => Promise<void>): Promise<void> {
+/** Runs one shoot at a time across the app (a second request while one runs is ignored). */
+export async function exclusive(key: string, run: () => Promise<void>): Promise<void> {
   if (useLooks.getState().busy) return;
   useLooks.getState().setBusy(key);
   try {

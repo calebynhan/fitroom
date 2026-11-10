@@ -6,13 +6,18 @@ size (front, three-quarter, side, back), like the model photos on a product page
 **Why:** People return clothes because they looked different on the model. FitRoom shows the clothes on *you*.
 **Status:** The SideQuest Sunday hackathon (Nov 8, 2026) produced a 3D proof of concept, live at fitroom-woad.vercel.app.
 On 2026-11-09 the app moved from the 3D mannequin to generating the photos directly from the shopper's own photos;
-the Blender pipeline is kept in the repo but no longer used (see Legacy). Quality over speed, and nothing ships broken.
+the Blender pipeline is kept in the repo but no longer used (see Legacy). On 2026-11-10 generated photos (OpenAI) were
+found not to keep the shopper's likeness, so the default engine became free virtual try-on: the shopper's own photo,
+re-dressed by FASHN VTON v1.5 on its free Hugging Face Space (see Photo engines). Quality over speed, and nothing ships
+broken.
 
 ## Product principles
 - **Honest fit beats flattering.** The size chart decides how the garment sits (ease and hem length) and the prompt says
   so; never slim, bulk up or idealise the person. A size up must look roomier in the shots.
-- **Their photos are theirs.** Photos stay in browser memory (never localStorage), pass straight through
-  /api/photoreal to OpenAI, and are never stored or logged by FitRoom. Only photos of yourself (the UI says so).
+- **Their photos are theirs.** Photos stay in browser memory (never localStorage) and are never stored or logged by
+  FitRoom. Try-on engine: they go from the browser straight to the public FASHN Space, which keeps uploads on its
+  server for a while (Gradio's file cache, outside our control); the UI says so. OpenAI engine: they pass through
+  /api/photoreal to OpenAI. Only photos of yourself (the UI says so).
 - **Every feature works on the live URL, on desktop and mobile**, with real error messages instead of silent failures.
 - **Black-and-white, Banana Republic-style design.** Use the FitRoom design system:
   paper #FFFFFF, bone #F4F1EC, stone #E4DFD6, hairline #D6D1C8, ink #111111, graphite #3A3835, muted #6F6A63,
@@ -83,19 +88,41 @@ Ribbed Sweater E453754-000 (sweater), Cashmere Sweater E450543-000 (sweater), Ul
       body/profile.ts     measurements, ANSUR estimates, units, fit preferences + reference garment, localStorage
       fit/sizing.ts       size pick (chart, preference or reference garment), ease/length, comparison size + deltas
       fit/fitCard.ts      the fit card: two sizes on this body in numbers (cm or in)
+      look/engine.ts      which engine makes the photos (VITE_PHOTO_ENGINE): useShotInput / makeShots / retryShot
+      tryon/space.ts      free engine: @gradio/client (lazy chunk) -> FASHN VTON v1.5 Space; errors in shopper words
+      tryon/shoot.ts      per photo: top, then bottoms on that result; partial photo kept; quota stops the rest
       look/request.ts     app state -> the request every view shares + a key (same key = same photos)
       look/shoot.ts       front first, then three-quarter / side / back in parallel with the front shot attached;
                           shootCompare = the front again with one item in its comparison size
-      state/looks.ts      photos per look key (revisiting an outfit costs nothing), busy flag, looks left
+      state/looks.ts      photos per look key (revisiting an outfit costs nothing), each look's views (`order`),
+                          busy flag, looks left
       ui/                 Header (Make my shots), Lookbook (4 frames + Lightbox + Compare sizes), FitTable,
                           Photo/Measure/Fit/Outfit/Scene sections
     api/       Vercel functions: /api/product, /api/photoreal (shared contract: api/_lib/look.ts)
     scripts/   Node/TS data scripts: catalog ingest, size-chart parsing -> web/public/catalog.json
     pipeline/  LEGACY (unused by the app): Python + bpy 3D mannequin and garments. See Legacy below.
 
-Env (Vercel + .env.local): OPENAI_API_KEY (required), OPENAI_IMAGE_MODEL (default gpt-image-1.5),
+Env (Vercel + .env.local): VITE_PHOTO_ENGINE (build time: unset = free try-on Space, `openai` = the paid generator
+below), OPENAI_API_KEY (only for the openai engine), OPENAI_IMAGE_MODEL (default gpt-image-1.5),
 OPENAI_IMAGE_QUALITY (default medium), PHOTOREAL_DAILY_CAP (photos per warm instance per day, default 200),
 PHOTOREAL_DISABLED=1 (kill switch).
+
+## Photo engines
+**Try-on (default, free)**: FASHN VTON v1.5 (Apache-2.0) on https://huggingface.co/spaces/fashn-ai/fashn-vton-1.5,
+called from the shopper's browser with @gradio/client, connected by URL (https://fashn-ai-fashn-vton-1-5.hf.space/;
+by name it first asks huggingface.co for metadata). Endpoint `/try_on`: { person_image, garment_image, category:
+tops|bottoms|one-pieces, garment_photo_type: model|flat-lay (UNIQLO photos are worn: `model`), num_timesteps (we use 30,
+default 50), guidance_scale 1.5, seed 42, segmentation_free true } -> one image (576x864 WebP). The Space sends CORS for
+any origin. Each photo the shopper gives (front required, side optional; no face close-up, no setting) gets the top,
+then the bottoms on that result: ~26 s a pass. The photo keeps their face, body, pose and background; it shows the
+garment as photographed, not in their size, so size lives in the fit card (no size-comparison photo). Sizes are not in
+the look key: changing a size keeps the photo.
+Limits (observed 2026-11-10): the Space runs one job at a time for everyone (queue max 30); anonymous ZeroGPU allows a
+few runs per IP, then "You have exceeded your ZeroGPU runs limit" until it refills (minutes, not a day, in testing).
+A quota error keeps any finished pass as a partial photo with a note and stops the remaining photos.
+UNIQLO's image CDN sends no CORS headers: product photos load from the same site via `/uniqlo/*` (vercel.json rewrite to
+https://image.uniqlo.com, vite.config.ts proxy in dev).
+**Generated (openai, paid)**: four views from /api/photoreal (below), size comparison shots, settings, 3 looks per visitor.
 
 ## Contracts
 **Catalog item** (web/public/catalog.json `{ source, generatedAt, items }` and the /api/product response):
@@ -183,6 +210,9 @@ fitTop, fitBottom, refTopChestFlatCm, refTopLengthCm, refBottomHipsFlatCm, refBo
 | A paid front whose angles then hit "a lot of photos today" | the cap check only made room for 1 photo | a new look needs room for all 4 (rateLimit.check) |
 | Shoot Again wiped 4 paid photos when the new front failed | the look was reset before the front succeeded | restore the earlier look with a notice (look/shoot.ts) |
 | Shots "look nothing like me" (generic, younger, smoother face) | the front photo was sent at 1024 px (face ~60 px wide), no frontal close-up, and the prompt composed a new "clothing model" shot instead of editing the photo | front shot edits the front photo (FRONT_EDIT), front sent at 1536 px, KEEP_IDENTITY in every view, landscape-photo warning; verify on the live URL with a well-lit upright front photo |
+| Generated shots still didn't look like the shopper after the likeness fixes | a general image model redraws the whole person | free try-on engine: repaint only the clothes in their own photo (Photo engines) |
+| "Space metadata could not be loaded" from @gradio/client | `Client.connect("owner/name")` asks huggingface.co first (rate limits, blocked hosts) | connect by the Space URL (tryon/space.ts SPACE_URL) |
+| Node scripts can't reach the Space or Hugging Face from a cloud session | Node's fetch ignores HTTPS_PROXY | `NODE_USE_ENV_PROXY=1 NODE_EXTRA_CA_CERTS=/root/.ccr/ca-bundle.crt node ...`; Playwright: `proxy: { server: HTTPS_PROXY, bypass: 'localhost' }` |
 | Every deploy uploads 57 MB of unused 3D assets | web/public is copied into dist | .vercelignore excludes web/public/{hdri,models,garments} |
 
 ## Commands

@@ -57,5 +57,9 @@ function devApi(): Plugin {
 export default defineConfig({
   plugins: [react(), devApi()],
   resolve: { alias: { '@api': `${API_DIR}/_lib` } },
-  server: { fs: { allow: [REPO_ROOT] } },
+  server: {
+    fs: { allow: [REPO_ROOT] },
+    // Same as the vercel.json rewrite: UNIQLO's image CDN sends no CORS headers, so product photos come via this site.
+    proxy: { '/uniqlo': { target: 'https://image.uniqlo.com', changeOrigin: true, rewrite: (path) => path.replace(/^\/uniqlo/, '') } },
+  },
 });

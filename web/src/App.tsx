@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { TRY_ON } from './look/engine';
 import { parseCatalog } from './catalog/types';
 import { hasUnsavedPhotos, useLooks } from './state/looks';
 import { useApp } from './state/store';
@@ -62,7 +63,7 @@ export function App() {
           <MeasureSection />
           <FitSection />
           <OutfitSection loadError={catalogError} />
-          <SceneSection />
+          {!TRY_ON && <SceneSection />}
         </aside>
       </main>
     </div>

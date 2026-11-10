@@ -90,6 +90,12 @@ input[type='text']:focus, textarea:focus { outline: 1px solid var(--ink); outlin
 .frame-bar { width: 60%; height: 2px; background: var(--stone); }
 .frame-bar > span { display: block; height: 2px; background: var(--ink); transform-origin: left center; transform: scaleX(0); transition: transform 0.25s linear; }
 .frame-fail { background: var(--paper); font: 400 13px/1.4 var(--sans); color: var(--sale); }
+.frame-note { position: absolute; left: 0; right: 0; bottom: 0; margin: 0; padding: 8px; background: rgba(255, 255, 255, 0.92); font: 400 11px/1.4 var(--sans); color: var(--graphite); }
+.frame-note .link-btn { margin-left: 4px; font-size: 11px; }
+/* Try-on looks have one or two photos: keep them at a sensible size instead of stretching across four columns. */
+.frames-1 { grid-template-columns: minmax(0, 1fr); max-width: 420px; }
+.frames-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); max-width: 820px; }
+.photo-tiles-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .error-detail { font-size: 11px; line-height: 1.4; color: var(--muted); overflow-wrap: anywhere; }
 .lookbook-foot { display: flex; align-items: center; gap: 24px; }
 .lookbook-foot .note { max-width: 560px; }
@@ -254,6 +260,7 @@ input[type='text']:focus, textarea:focus { outline: 1px solid var(--ink); outlin
 @media (max-width: 1280px) {
   .frames { grid-template-columns: repeat(2, minmax(0, 1fr)); max-width: 620px; }
   .compare-body { grid-template-columns: minmax(0, 1fr); max-width: 620px; }
+  .frames-1 { grid-template-columns: minmax(0, 1fr); max-width: 420px; }
   .lookbook { padding: 24px 24px 48px; }
 }
 
