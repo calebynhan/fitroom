@@ -1,8 +1,9 @@
 // Shoots a look: the front first, then three-quarter, side and back at once, each given the finished front shot so
 // all four show the same person, outfit, shoes and light. Each view is its own request and can be retried alone.
 import { VIEWS, type LookFailure, type LookSuccess, type View } from '@api/look';
+import type { Slot } from '../catalog/types';
 import { downscaleDataUrl } from '../photos/prepare';
-import { doneCount, useLooks } from '../state/looks';
+import { doneCount, useLooks, type ViewState } from '../state/looks';
 import { useApp } from '../state/store';
 import { lookInput, type LookBase } from './request';
 
@@ -36,28 +37,32 @@ export async function postView(body: object, fetcher: typeof fetch = fetch): Pro
   }
 }
 
-function report(key: string, view: View, answer: Answer): answer is LookSuccess {
-  const looks = useLooks.getState();
-  looks.setRemaining(typeof answer.remaining === 'number' ? answer.remaining : null);
-  if ('image' in answer && answer.image) {
-    looks.setView(key, view, { kind: 'done', image: answer.image });
-    return true;
-  }
+/** The photo, or the failure as the shopper sees it. */
+function outcome(answer: Answer): ViewState {
+  if ('image' in answer && answer.image) return { kind: 'done', image: answer.image };
   const failure = answer as LookFailure;
-  looks.setView(key, view, {
+  return {
     kind: 'error',
     message: failure.error ?? 'Something went wrong.',
     detail: failure.detail ?? null,
     retryable: failure.retryable ?? true,
-  });
-  return false;
+  };
+}
+
+function report(key: string, view: View, answer: Answer): answer is LookSuccess {
+  const looks = useLooks.getState();
+  looks.setRemaining(typeof answer.remaining === 'number' ? answer.remaining : null);
+  const state = outcome(answer);
+  looks.setView(key, view, state);
+  return state.kind === 'done';
 }
 
 async function shootFront(key: string, session: Session): Promise<boolean> {
   useLooks.getState().setView(key, 'front', { kind: 'working', startedAt: Date.now() });
   const answer = await postView({ ...session.base, view: 'front' });
+  // The token first: the finished front shot shows the size comparison, which needs it.
+  if ('image' in answer && answer.image) session.token = answer.lookToken;
   if (!report(key, 'front', answer)) return false;
-  session.token = answer.lookToken;
   try {
     session.reference = await downscaleDataUrl(answer.image, REFERENCE_MAX_SIDE, REFERENCE_MAX_CHARS);
   } catch {
@@ -111,6 +116,32 @@ export function makeLook(): Promise<void> {
       useLooks.getState().restore(previous, `Couldn't shoot this look again: ${reason} Your earlier photos are kept.`);
       if (previousSession) sessions.set(key, previousSession);
     }
+  });
+}
+
+/** True when the look on screen has a finished front shot and a token to compare a size with. */
+export function canCompare(key: string): boolean {
+  const session = sessions.get(key);
+  return Boolean(session?.token && session.reference);
+}
+
+/**
+ * The front shot again with the item in `slot` in its comparison size. Costs no look; the server allows two per look.
+ * Only for the look on screen, so the comparison size matches what the shopper is looking at.
+ */
+export function shootCompare(key: string, slot: Slot): Promise<void> {
+  const session = sessions.get(key);
+  const input = lookInput(useApp.getState());
+  if (!session?.token || !session.reference || !input.ready || input.key !== key) return Promise.resolve();
+  const compare = input.compares[slot];
+  if (!compare) return Promise.resolve();
+  const { token, reference } = session;
+  return exclusive(key, async () => {
+    const looks = useLooks.getState();
+    looks.setCompare(key, slot, { size: compare.size, state: { kind: 'working', startedAt: Date.now() } });
+    const answer = await postView({ ...session.base, view: 'front', reference, lookToken: token, compare });
+    useLooks.getState().setRemaining(typeof answer.remaining === 'number' ? answer.remaining : null);
+    useLooks.getState().setCompare(key, slot, { size: compare.size, state: outcome(answer) });
   });
 }
 

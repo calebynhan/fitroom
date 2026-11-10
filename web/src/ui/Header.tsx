@@ -34,7 +34,7 @@ function ShootButton() {
 
   const again = doneCount(look) > 0;
   let label = again ? 'Shoot Again' : 'Make My Shots';
-  if (busy) label = `Developing… ${busyDone}/4`;
+  if (busy) label = busyDone === 4 ? 'Developing…' : `Developing… ${busyDone}/4`; // 4/4: a size comparison
   else if (outOfLooks) label = 'No Looks Left';
 
   const onClick = () => {

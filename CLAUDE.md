@@ -28,6 +28,9 @@ the Blender pipeline is kept in the repo but no longer used (see Legacy). Qualit
       each other (same garments, shoes, light), about 30–60 s, with per-photo progress, retry, and download.
 - [ ] Size recommendation per item ("You're an M; L if you want it roomier"), from UNIQLO size charts vs. the
       user's measurements. The chosen size changes how the garment sits in the shots (ease + length).
+- [ ] Fit confidence: a fit card per item (the chosen size vs one other, in numbers: chest/hip room, where the hem
+      lands, shoulders/thigh, sleeve/inseam), a free size-comparison front shot under the lookbook, and fit
+      preferences (Close / Regular / Relaxed per slot, or a top / pants of their own measured flat) that drive the pick.
 
 **Catalog**
 - [ ] UNIQLO men's tees, sweaters and pants (aim for 30+ items), with real names, prices, colors, swatches,
@@ -76,12 +79,15 @@ Ribbed Sweater E453754-000 (sweater), Cashmere Sweater E450543-000 (sweater), Ul
 ## Architecture
     web/       Vite + React + TS + zustand. No 3D.
       photos/prepare.ts   decode (EXIF-aware), downscale (body 1024 px, face 768 px), JPEG data URL; memory only
-      body/profile.ts     measurements, ANSUR estimates, units, localStorage
-      fit/sizing.ts       size recommendation + ease/length of the chosen size on this body
+      body/profile.ts     measurements, ANSUR estimates, units, fit preferences + reference garment, localStorage
+      fit/sizing.ts       size pick (chart, preference or reference garment), ease/length, comparison size + deltas
+      fit/fitCard.ts      the fit card: two sizes on this body in numbers (cm or in)
       look/request.ts     app state -> the request every view shares + a key (same key = same photos)
-      look/shoot.ts       front first, then three-quarter / side / back in parallel with the front shot attached
+      look/shoot.ts       front first, then three-quarter / side / back in parallel with the front shot attached;
+                          shootCompare = the front again with one item in its comparison size
       state/looks.ts      photos per look key (revisiting an outfit costs nothing), busy flag, looks left
-      ui/                 Header (Make my shots), Lookbook (4 frames + Lightbox), Photo/Measure/Outfit/Scene sections
+      ui/                 Header (Make my shots), Lookbook (4 frames + Lightbox + Compare sizes), FitTable,
+                          Photo/Measure/Fit/Outfit/Scene sections
     api/       Vercel functions: /api/product, /api/photoreal (shared contract: api/_lib/look.ts)
     scripts/   Node/TS data scripts: catalog ingest, size-chart parsing -> web/public/catalog.json
     pipeline/  LEGACY (unused by the app): Python + bpy 3D mannequin and garments. See Legacy below.
@@ -111,8 +117,8 @@ waist only. Garment chest minus the user's chest = real ease, if you want to dri
 **POST /api/photoreal** (one photo of one view; types and validation in api/_lib/look.ts)
 `{ view: "front"|"three_quarter"|"side"|"back", scene: "studio"|"city"|"night", body: { heightCm, weightKg, chestCm,
 waistCm, hipsCm, inseamCm }, items: [{ slot, name, color, fabric, size?, ease?, length?, image? }], photos: { front,
-side, face }, reference?, lookToken? }` -> `{ image, view, lookToken?, remaining }` or `{ error, detail?, retryable,
-remaining? }`.
+side, face }, reference?, lookToken?, compare? }` -> `{ image, view, lookToken?, compare?, remaining }` or `{ error,
+detail?, retryable, remaining? }`.
 - photos / reference: JPEG/PNG/WebP data URLs, ≤ 1.5 M chars each and ≤ 4 M together (Vercel rejects bodies over
   4.5 MB). The browser budgets front/side 900 K, face 450 K and the finished front shot 900 K (photos/prepare.ts,
   look/shoot.ts), lowering JPEG quality, then size, to fit. `body` is complete (the client fills estimates). `ease` = close|regular|relaxed|oversized,
@@ -124,7 +130,15 @@ remaining? }`.
   look still fit under today's IP and instance caps. Other views need `lookToken` + `reference` (the finished front
   shot, ≤ 1024 px) and cost no look; each angle is claimed while it develops (a duplicate gets 409), succeeds once per
   token (409 after), and gets at most 3 billed attempts. 403 = expired/forged token or a different look.
-  `remaining` = looks left. 400 bad input (message is shopper-facing); 429 limits (the "already developing on your
+  `remaining` = looks left.
+- Size comparison: `view: "front"` + `lookToken` + `reference` + `compare: { slot, size, ease?, length?, delta?: {
+  chestCm?, lengthCm?, hipsCm?, inseamCm? } }` (delta = garment cm of `size` minus the size shot, |d| ≤ 40). `items`
+  stay exactly as shot (the token is checked against them); the server swaps in `compare` for that one slot
+  (`comparedItems`). Costs no look; at most 2 per token (`MAX_COMPARES`, a free failure doesn't count), each
+  size once (409 after); 400 if the size equals the one shot or the slot isn't worn. Echoes `compare: { slot, size }`.
+  Images: [finished front shot] first (the photo to edit), then front, side, face, products; the prompt says
+  "Edit Image 1 ... change only the top: size M instead of S ... measures 6 cm more around the chest, 3 cm longer".
+- 400 bad input (message is shopper-facing); 429 limits (the "already developing on your
   network" one is `retryable` with `Retry-After`); 503 not configured / paused. The OpenAI call gets what is left of a
   112 s budget (vercel.json maxDuration 120); the product-photo fetch times out at 4 s.
 - OpenAI images.edit, multipart `image[]` in this order: front photo, side photo, face profile, [front shot],
@@ -133,13 +147,21 @@ remaining? }`.
   identity and real proportions with the body numbers, never slimmer/taller/younger; each garment exactly as its
   product photo with size and fit on this body; plain white sneakers; per-view direction; setting; no logos or text.
 
-**Size recommendation** (web/src/fit/sizing.ts): the smallest size whose body ranges cover the user's. Tops go by
+**Size recommendation** (web/src/fit/sizing.ts): the chart size is the smallest size whose body ranges cover the user's. Tops go by
 chest, plus waist only when the user typed one (an ANSUR estimate, SD 4.4 cm, must not push a size up); bottoms go
 by waist (estimated if blank), plus hips only when typed. If no size covers the body, the largest is shown as "Runs
 small for you" and rendered tight. Ease of the chosen size: more than 4 cm over its body range = close; otherwise
 garment circumference - body (tops chest: <8 close, <16 regular, <25 relaxed, else oversized; bottoms hips: <6, <14,
 <24); without garment numbers, steps from the recommended size. Length: tops vs 0.39 x height (±5 cm), pants vs
 inseam - 4 cm (≤ -10 cropped, ≤ -4 ankle, ≤ +5 full, else long). Both go into the prompt.
+The pick (`pickSize`) moves the chart size by the shopper's preference: Regular = the chart size (default, so the
+documented sizes hold); Relaxed = size up until the garment reads relaxed (≤ 2 sizes; +1 without garment numbers);
+Close = one size down only if the body is ≤ 2 cm over that size's range and its garment chest still clears the body.
+A reference garment (top chest / pants hips laid flat, ×2 = circumference; optional length / inseam) beats the
+preference: the size whose garment chest (+0.5 × length diff) or hips (+0.3 × inseam diff) is closest. Never applied
+when no size covers the body. Comparison size (`sizePair`): a hand-picked size vs the pick; the pick vs the chart size
+when they differ, else the next size up (or down at the top). Profile keys (localStorage `fitroom.profile.v1`):
+fitTop, fitBottom, refTopChestFlatCm, refTopLengthCm, refBottomHipsFlatCm, refBottomInseamCm.
 
 ## Pitfalls (learned so far)
 | Symptom | Cause | Fix |

@@ -1,7 +1,7 @@
 // Size recommendation from UNIQLO size charts, and how the chosen size sits on this body. The photo prompt uses
 // the result (ease + hem length), so a size up really does look roomier in the shots.
-import type { Ease, Length } from '@api/look';
-import type { SizingBody } from '../body/profile';
+import type { Ease, Length, SizeDelta } from '@api/look';
+import type { SizingBody, SlotPrefs } from '../body/profile';
 import type { CatalogItem, SizeSpec } from '../catalog/types';
 
 /** Sizes in UNIQLO's order that have a size-chart row. */
@@ -64,6 +64,11 @@ function classify(diff: number, table: [number, Ease][]): Ease {
   return table.find(([limit]) => diff < limit)?.[1] ?? 'oversized';
 }
 
+/** How a garment with this much room (garment minus body circumference, cm) reads on the body. */
+export function easeOfRoom(slot: CatalogItem['slot'], roomCm: number): Ease {
+  return classify(roomCm, slot === 'top' ? TOP_EASE : BOTTOM_EASE);
+}
+
 const BY_STEP: Ease[] = ['close', 'regular', 'relaxed', 'oversized'];
 
 /** Over the size's body range by more than this, the garment reads as tight whatever its cut. */
@@ -122,25 +127,165 @@ function article(size: string): string {
   return /^[AEFHILMNORSX8]/i.test(size) ? 'an' : 'a';
 }
 
-export interface SizeAdvice {
+/**
+ * Why a size was picked: UNIQLO's chart alone, the shopper's close / relaxed preference, or the size whose garment
+ * measurements come closest to a top or pants of their own that fits well.
+ */
+export type PickReason = 'chart' | 'close' | 'relaxed' | 'reference';
+
+export interface SizePick {
   size: string;
-  roomier: string | null;
+  /** The chart size: the smallest whose body range covers the shopper. */
+  chart: string;
   fits: boolean;
+  reason: PickReason;
+}
+
+/** A size down still counts as wearable for a close fit when the body is at most this far over its range. */
+const CLOSE_OVER_CM = 2;
+/** Relaxed: size up until the garment reads relaxed, at most this many sizes over the chart size. */
+const RELAXED_MAX_STEPS = 2;
+
+/** Garment measurement compared with a reference garment: tops by chest (then length), bottoms by hips (then inseam). */
+function referenceScore(item: CatalogItem, spec: SizeSpec, prefs: SlotPrefs): number | null {
+  const g = spec.garment;
+  if (item.slot === 'top') {
+    if (!prefs.chestCm || !g?.chestCm) return null;
+    const length = g.lengthCm ?? spec.lengthCm;
+    return Math.abs(g.chestCm - prefs.chestCm) + (prefs.lengthCm && length ? 0.5 * Math.abs(length - prefs.lengthCm) : 0);
+  }
+  if (!prefs.hipsCm || !g?.hipsCm) return null;
+  const inseam = g.inseamCm ?? spec.inseamCm;
+  return Math.abs(g.hipsCm - prefs.hipsCm) + (prefs.inseamCm && inseam ? 0.3 * Math.abs(inseam - prefs.inseamCm) : 0);
+}
+
+/** True when the shopper gave a reference garment this item can be compared with. */
+export function hasReference(item: CatalogItem, prefs: SlotPrefs | undefined): boolean {
+  return Boolean(prefs && (item.slot === 'top' ? prefs.chestCm : prefs.hipsCm));
+}
+
+/** The chart size, moved by the shopper's fit preference or matched to a garment of their own. */
+export function pickSize(item: CatalogItem, body: SizingBody, prefs?: SlotPrefs): SizePick | null {
+  const rec = recommend(item, body);
+  if (!rec) return null;
+  const chart = rec.size;
+  const plain: SizePick = { size: chart, chart, fits: rec.fits, reason: 'chart' };
+  if (!rec.fits || !prefs) return plain;
+  const sizes = chartSizes(item);
+  const i = sizes.indexOf(chart);
+
+  if (hasReference(item, prefs)) {
+    let best: { size: string; score: number; dist: number } | null = null;
+    for (const [j, size] of sizes.entries()) {
+      const score = referenceScore(item, item.sizeChart![size], prefs);
+      if (score === null) continue;
+      const dist = Math.abs(j - i);
+      if (!best || score < best.score - 0.01 || (Math.abs(score - best.score) <= 0.01 && dist < best.dist)) best = { size, score, dist };
+    }
+    if (best) return { ...plain, size: best.size, reason: 'reference' };
+  }
+
+  if (prefs.pref === 'relaxed') {
+    const last = Math.min(sizes.length - 1, i + RELAXED_MAX_STEPS);
+    for (let j = i; j <= last; j += 1) {
+      const g = item.sizeChart![sizes[j]].garment;
+      const room = item.slot === 'top' ? g?.chestCm && g.chestCm - body.chestCm : g?.hipsCm && g.hipsCm - body.hipsCm;
+      if (typeof room !== 'number') return { ...plain, size: sizes[Math.min(i + 1, sizes.length - 1)], reason: 'relaxed' };
+      const ease = easeOfRoom(item.slot, room);
+      if (ease === 'relaxed' || ease === 'oversized') return { ...plain, size: sizes[j], reason: 'relaxed' };
+    }
+    return { ...plain, size: sizes[last], reason: 'relaxed' };
+  }
+
+  if (prefs.pref === 'close' && i > 0) {
+    const down = sizes[i - 1];
+    const spec = item.sizeChart![down];
+    const over = overCm(item, spec, body);
+    const chest = spec.garment?.chestCm;
+    const roomOk = item.slot !== 'top' || !chest || chest - body.chestCm >= 0;
+    if (over !== null && over <= CLOSE_OVER_CM && roomOk) return { ...plain, size: down, reason: 'close' };
+  }
+  return { ...plain, reason: prefs.pref === 'regular' ? 'chart' : prefs.pref };
+}
+
+export function preferredSize(item: CatalogItem, body: SizingBody, prefs?: SlotPrefs): string | null {
+  return pickSize(item, body, prefs)?.size ?? null;
+}
+
+export interface SizeAdvice extends SizePick {
+  /** The size worth comparing with the pick: the chart size if they differ, else the next size up (or down). */
+  compare: string | null;
   text: string;
 }
 
+const sizeLabel = (s: string) => (/inch$/i.test(s) ? `${formatSize(s)} waist` : formatSize(s));
+
+function adviceText(item: CatalogItem, pick: SizePick, compare: string | null, body: SizingBody): string {
+  const { size, chart } = pick;
+  const you = `You're ${article(size)} ${sizeLabel(size)}`;
+  const byChart = `${sizeLabel(chart)} by UNIQLO's chart.`;
+  const theirs = item.slot === 'top' ? 'the top you measured' : 'the pants you measured';
+  const sizes = chartSizes(item);
+  const roomier = sizes[sizes.indexOf(size) + 1];
+  switch (pick.reason) {
+    case 'reference':
+      return size === chart ? `${you}, the closest to ${theirs}.` : `${sizeLabel(size)} is the closest to ${theirs}; ${byChart}`;
+    case 'relaxed': {
+      if (size !== chart) return `${sizeLabel(size)} for the relaxed fit you like; ${byChart}`;
+      const ease = easeFor(item, size, body);
+      if (ease === 'relaxed' || ease === 'oversized') return `${you}; it's already a relaxed fit on you.`;
+      return `${you}; there's no roomier size.`;
+    }
+    case 'close':
+      if (size !== chart) return `${sizeLabel(size)} for the close fit you like; ${byChart}`;
+      return sizes.indexOf(size) > 0 ? `${you}; a size down would be too small.` : `${you}, the smallest size.`;
+    default:
+      return `${you}${roomier && compare === roomier ? `; ${formatSize(roomier)} if you want it roomier.` : '.'}`;
+  }
+}
+
 /** "You're an S; M if you want it roomier." (or a plain warning when no size is made for this body) */
-export function sizeAdvice(item: CatalogItem, body: SizingBody): SizeAdvice | null {
-  const rec = recommend(item, body);
-  if (!rec) return null;
-  const label = (s: string) => (/inch$/i.test(s) ? `${formatSize(s)} waist` : formatSize(s));
-  if (!rec.fits) {
-    return { size: rec.size, roomier: null, fits: false, text: `Runs small for you: even the largest size (${label(rec.size)}) is made for a smaller body.` };
+export function sizeAdvice(item: CatalogItem, body: SizingBody, prefs?: SlotPrefs): SizeAdvice | null {
+  const pick = pickSize(item, body, prefs);
+  if (!pick) return null;
+  if (!pick.fits) {
+    return { ...pick, compare: null, text: `Runs small for you: even the largest size (${sizeLabel(pick.size)}) is made for a smaller body.` };
   }
   const sizes = chartSizes(item);
-  const roomier = sizes[sizes.indexOf(rec.size) + 1] ?? null;
-  const text = `You're ${article(rec.size)} ${label(rec.size)}${roomier ? `; ${formatSize(roomier)} if you want it roomier.` : '.'}`;
-  return { size: rec.size, roomier, fits: true, text };
+  const i = sizes.indexOf(pick.size);
+  const compare = pick.size !== pick.chart ? pick.chart : (sizes[i + 1] ?? sizes[i - 1] ?? null);
+  return { ...pick, compare, text: adviceText(item, pick, compare, body) };
+}
+
+/**
+ * The size on screen and the one to compare it with: a size the shopper chose by hand is compared with the pick,
+ * the pick with `advice.compare`.
+ */
+export function sizePair(chosen: string | undefined, advice: SizeAdvice | null): { size: string; compare: string | null } | null {
+  const size = chosen ?? advice?.size;
+  if (!size) return null;
+  if (!advice?.fits) return { size, compare: null };
+  return { size, compare: size !== advice.size ? advice.size : advice.compare };
+}
+
+/** Garment differences of size `to` against size `from` (cm): what a size comparison photo has to show. */
+export function sizeDelta(item: CatalogItem, from: string, to: string): SizeDelta | undefined {
+  const a = item.sizeChart?.[from];
+  const b = item.sizeChart?.[to];
+  if (!a || !b) return undefined;
+  const diff = (x: number | undefined, y: number | undefined) => (typeof x === 'number' && typeof y === 'number' ? Math.round((y - x) * 10) / 10 : undefined);
+  const out: SizeDelta = {};
+  const set = (k: keyof SizeDelta, v: number | undefined) => {
+    if (v !== undefined) out[k] = v;
+  };
+  if (item.slot === 'top') {
+    set('chestCm', diff(a.garment?.chestCm, b.garment?.chestCm));
+    set('lengthCm', diff(a.garment?.lengthCm ?? a.lengthCm, b.garment?.lengthCm ?? b.lengthCm));
+  } else {
+    set('hipsCm', diff(a.garment?.hipsCm, b.garment?.hipsCm));
+    set('inseamCm', diff(a.garment?.inseamCm ?? a.inseamCm, b.garment?.inseamCm ?? b.inseamCm));
+  }
+  return Object.keys(out).length ? out : undefined;
 }
 
 const EASE_WORDS: Record<Ease, string> = { close: 'Close fit', regular: 'Regular fit', relaxed: 'Relaxed fit', oversized: 'Oversized' };

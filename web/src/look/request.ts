@@ -1,9 +1,9 @@
 // Turns the app state into the parts of a /api/photoreal request that every view of a look shares, plus a key:
 // two states with the same key would produce the same photographs.
-import type { LookPhotos, LookPiece, LookRequest } from '@api/look';
-import { completeBody, sizingBody } from '../body/profile';
+import type { LookPhotos, LookPiece, LookRequest, SizeCompare } from '@api/look';
+import { completeBody, fitPrefs, sizingBody } from '../body/profile';
 import { findColor, productImage, type CatalogItem, type Selection, type Slot } from '../catalog/types';
-import { easeFor, formatSize, lengthFor, recommendSize } from '../fit/sizing';
+import { easeFor, formatSize, lengthFor, preferredSize, sizeAdvice, sizeDelta, sizePair } from '../fit/sizing';
 import type { useApp } from '../state/store';
 import { SCENES } from './scenes';
 
@@ -17,7 +17,12 @@ export interface LookCaption {
   meta: string;
 }
 
-export type LookInput = { ready: true; key: string; base: LookBase; caption: LookCaption } | { ready: false; missing: string[] };
+/** Per slot: the same front shot with that item in the size worth comparing (see sizePair). */
+export type LookCompares = Partial<Record<Slot, SizeCompare>>;
+
+export type LookInput =
+  | { ready: true; key: string; base: LookBase; caption: LookCaption; compares: LookCompares }
+  | { ready: false; missing: string[] };
 
 interface Worn {
   item: CatalogItem;
@@ -30,8 +35,25 @@ function worn(state: AppSnapshot, slot: Slot): Worn | null {
   const item = selection && state.catalog.find((i) => i.id === selection.itemId);
   if (!item || !selection) return null;
   const body = sizingBody(state.profile);
-  const size = selection.size ?? (body ? recommendSize(item, body) ?? undefined : undefined);
+  const size = selection.size ?? (body ? preferredSize(item, body, fitPrefs(state.profile)[slot]) ?? undefined : undefined);
   return { item, selection, size };
+}
+
+/** The comparison request for a worn item: its other size, how that one sits, and the garment differences. */
+function compareFor(w: Worn, state: AppSnapshot): SizeCompare | undefined {
+  const body = sizingBody(state.profile);
+  if (!body || !w.size) return undefined;
+  const advice = sizeAdvice(w.item, body, fitPrefs(state.profile)[w.item.slot]);
+  const other = sizePair(w.size, advice)?.compare;
+  if (!other || other === w.size) return undefined;
+  const compare: SizeCompare = { slot: w.item.slot, size: other };
+  const ease = easeFor(w.item, other, body);
+  const length = lengthFor(w.item, other, body);
+  const delta = sizeDelta(w.item, w.size, other);
+  if (ease) compare.ease = ease;
+  if (length) compare.length = length;
+  if (delta) compare.delta = delta;
+  return compare;
 }
 
 function toPiece(w: Worn, state: AppSnapshot): LookPiece {
@@ -84,5 +106,10 @@ export function lookInput(state: AppSnapshot): LookInput {
     meta: [...sizes, SCENES[state.scene].label, `${Math.round(body.heightCm)}\u00a0cm`].join(' · '),
   };
   const key = JSON.stringify({ v: state.photoVersion, scene: state.scene, body, items });
-  return { ready: true, key, base, caption };
+  const compares: LookCompares = {};
+  for (const w of pieces) {
+    const c = compareFor(w, state);
+    if (c) compares[w.item.slot] = c;
+  }
+  return { ready: true, key, base, caption, compares };
 }

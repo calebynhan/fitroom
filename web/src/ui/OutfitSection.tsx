@@ -1,8 +1,10 @@
 import { useState } from 'react';
-import { sizingBody } from '../body/profile';
+import { fitPrefs, sizingBody } from '../body/profile';
 import { colorImage, findColor, formatMoney, formatPrice, type CatalogItem, type Selection, type Slot } from '../catalog/types';
-import { chartSizes, easeFor, fitSummary, formatSize, lengthFor, shortSize, sizeAdvice } from '../fit/sizing';
+import { fitCard } from '../fit/fitCard';
+import { chartSizes, easeFor, fitSummary, formatSize, lengthFor, shortSize, sizeAdvice, sizePair } from '../fit/sizing';
 import { useApp } from '../state/store';
+import { FitTable } from './FitTable';
 import { PasteLink } from './PasteLink';
 import { onRadioKeys, rovingTab } from './radioKeys';
 
@@ -25,10 +27,13 @@ function SizePicker({ item, selection }: { item: CatalogItem; selection: Selecti
   const profile = useApp((s) => s.profile);
   const setSize = useApp((s) => s.setSize);
   const body = sizingBody(profile);
+  const prefs = fitPrefs(profile)[item.slot];
   const sizes = chartSizes(item);
-  const advice = body ? sizeAdvice(item, body) : null;
+  const advice = body ? sizeAdvice(item, body, prefs) : null;
   const chosen = selection.size ?? advice?.size;
   const summary = body && chosen ? fitSummary(easeFor(item, chosen, body), lengthFor(item, chosen, body)) : null;
+  const pair = sizePair(selection.size, advice);
+  const card = body && pair ? fitCard(item, pair.compare ? [pair.size, pair.compare] : [pair.size], body, profile.units, prefs) : null;
 
   if (sizes.length === 0) return <p className="size-note">No size chart for this item, so the shots show your usual size.</p>;
   return (
@@ -61,6 +66,7 @@ function SizePicker({ item, selection }: { item: CatalogItem; selection: Selecti
           </>
         )}
       </p>
+      {card && <FitTable card={card} caption={`${item.name}: how ${card.sizes.join(' and ')} fit you`} />}
     </div>
   );
 }

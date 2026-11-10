@@ -1,10 +1,16 @@
 import { useEffect, useState } from 'react';
-import { VIEW_LABEL, VIEWS, type View } from '@api/look';
+import { VIEW_LABEL, VIEWS, type SizeCompare, type View } from '@api/look';
+import { fitPrefs, sizingBody } from '../body/profile';
+import type { Slot } from '../catalog/types';
+import { fitCard } from '../fit/fitCard';
+import { formatSize } from '../fit/sizing';
 import type { LookInput } from '../look/request';
-import { retryView } from '../look/shoot';
+import { canCompare, retryView, shootCompare } from '../look/shoot';
 import { useLookInput } from '../look/useLookInput';
-import { doneCount, useLooks, type Look } from '../state/looks';
-import { downloadName } from './download';
+import { doneCount, useLooks, type Look, type ViewState } from '../state/looks';
+import { useApp } from '../state/store';
+import { compareDownloadName, downloadName } from './download';
+import { FitTable } from './FitTable';
 import { Lightbox } from './Lightbox';
 import { useNow, viewProgress } from './progress';
 
@@ -67,6 +73,122 @@ function Frame({ look, view, onOpen }: { look: Look; view: View; onOpen: () => v
         )}
       </figcaption>
     </figure>
+  );
+}
+
+/** The comparison photo's frame: a button to shoot it, its progress, the photo, or why it failed. */
+function CompareFrame({ look, slot, size, state }: { look: Look; slot: Slot; size: string; state: ViewState | undefined }) {
+  const busy = useLooks((s) => s.busy !== null);
+  const now = useNow(state?.kind === 'working');
+  const shoot = () => void shootCompare(look.key, slot);
+  let body;
+  switch (state?.kind) {
+    case 'done':
+      body = <img src={state.image} alt={`You, front view, in size ${formatSize(size)}`} width={1024} height={1536} />;
+      break;
+    case 'working':
+      body = (
+        <div className="frame-status">
+          <span className="frame-title">Developing…</span>
+          <span className="frame-bar">
+            <span style={{ transform: `scaleX(${viewProgress(state, now).toFixed(3)})` }} />
+          </span>
+          <span className="eyebrow muted">Same shot, size {formatSize(size)}</span>
+        </div>
+      );
+      break;
+    case 'error':
+      body = (
+        <div className="frame-status frame-fail" role="alert">
+          <span>{state.message}</span>
+          {state.detail && <span className="error-detail">{state.detail}</span>}
+          {state.retryable && (
+            <button type="button" className="link-btn" disabled={busy} onClick={shoot}>
+              Retry
+            </button>
+          )}
+        </div>
+      );
+      break;
+    default:
+      body = (
+        <div className="frame-status">
+          <button type="button" className="btn btn-dark" disabled={busy} onClick={shoot}>
+            See It in {formatSize(size)}
+          </button>
+          <span className="eyebrow muted">{busy ? 'After the photos above' : 'Free · about 30 s'}</span>
+        </div>
+      );
+  }
+  return (
+    <figure className={`frame frame-${state?.kind ?? 'waiting'}`}>
+      <div className="frame-media">{body}</div>
+      <figcaption>
+        <span className="eyebrow">Size {formatSize(size)}</span>
+        {state?.kind === 'done' && (
+          <a className="frame-dl" href={state.image} download={compareDownloadName(size)}>
+            Download
+          </a>
+        )}
+      </figcaption>
+    </figure>
+  );
+}
+
+function CompareBlock({ look, slot, compare, shotSize }: { look: Look; slot: Slot; compare: SizeCompare; shotSize: string }) {
+  const catalog = useApp((s) => s.catalog);
+  const outfit = useApp((s) => s.outfit);
+  const profile = useApp((s) => s.profile);
+  const item = catalog.find((i) => i.id === outfit[slot]?.itemId);
+  const body = sizingBody(profile);
+  const shot = look.compares?.[slot];
+  // A photo already made (or developing) keeps its size even if the suggestion moved since (e.g. a new preference).
+  const size = shot && shot.state.kind !== 'error' ? shot.size : compare.size;
+  const front = look.views.front;
+  if (!item || !body || front.kind !== 'done') return null;
+  const card = fitCard(item, [shotSize, size], body, profile.units, fitPrefs(profile)[slot]);
+  return (
+    <div className="compare-block">
+      <h3 className="compare-title">
+        <span translate="no">{item.name}</span>: {formatSize(shotSize)} <em>or</em> {formatSize(size)}?
+      </h3>
+      <div className="compare-body">
+        <div className="compare-pair">
+          <figure className="frame frame-done">
+            <div className="frame-media">
+              <img src={front.image} alt={`You, front view, in size ${formatSize(shotSize)}`} width={1024} height={1536} />
+            </div>
+            <figcaption>
+              <span className="eyebrow">Size {formatSize(shotSize)} · shot</span>
+            </figcaption>
+          </figure>
+          <CompareFrame look={look} slot={slot} size={size} state={shot?.size === size ? shot.state : undefined} />
+        </div>
+        {card && <FitTable card={card} caption={`${item.name}: ${card.sizes.join(' and ')} on you`} firstTag="shot" className="compare-card" />}
+      </div>
+    </div>
+  );
+}
+
+/** Two sizes side by side: the finished front shot, the same shot in the other size, and the fit card. */
+function ComparePanel({ look }: { look: Look }) {
+  const input = useLookInput();
+  if (!input.ready || input.key !== look.key || look.views.front.kind !== 'done' || !canCompare(look.key)) return null;
+  const slots = (['top', 'bottom'] as const).filter((slot) => input.compares[slot]);
+  if (slots.length === 0) return null;
+  return (
+    <section className="compare" aria-labelledby="compare-title">
+      <div className="compare-head">
+        <h2 className="eyebrow" id="compare-title">
+          Compare sizes
+        </h2>
+        <p className="note">Between two sizes? See the same front shot in the other one, with the numbers. It doesn't use a look.</p>
+      </div>
+      {slots.map((slot) => {
+        const shotSize = input.base.items.find((p) => p.slot === slot)?.size;
+        return shotSize ? <CompareBlock key={slot} look={look} slot={slot} compare={input.compares[slot]!} shotSize={shotSize} /> : null;
+      })}
+    </section>
   );
 }
 
@@ -139,6 +261,7 @@ function Shots({ look, stale }: { look: Look; stale: boolean }) {
           )}
         </div>
       </div>
+      {!stale && <ComparePanel look={look} />}
       {open && openDone && <Lightbox look={look} view={open} onClose={() => setOpen(null)} onNavigate={setOpen} />}
     </div>
   );

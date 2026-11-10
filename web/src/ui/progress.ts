@@ -12,8 +12,10 @@ export function viewProgress(state: ViewState, now: number): number {
   return Math.min(CAP, 1 - Math.exp(-2.2 * t));
 }
 
-/** Estimated progress of a whole look: front first, then three angles at once. */
+/** Estimated progress of a whole look: front first, then three angles at once (or the size comparison running). */
 export function lookProgress(look: Look, now: number): number {
+  const comparing = Object.values(look.compares ?? {}).find((c) => c?.state.kind === 'working');
+  if (comparing) return viewProgress(comparing.state, now);
   const front = viewProgress(look.views.front, now);
   const rest = VIEWS.filter((v) => v !== 'front').map((v) => viewProgress(look.views[v], now));
   return 0.5 * front + 0.5 * (rest.reduce((a, b) => a + b, 0) / rest.length);

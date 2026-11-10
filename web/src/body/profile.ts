@@ -1,11 +1,19 @@
 // The shopper's measurements. Height and weight are required; chest, waist, hips and inseam are optional and
 // estimated from height + weight when blank. Stored in metric; shown in either unit system.
+// Also how they like clothes to fit: a preference per slot, and optionally a garment of their own that fits well,
+// measured laid flat (people know fit by the clothes they own better than by a tape measure).
 import type { BodySpec } from '@api/look';
 
 export type Units = 'metric' | 'imperial';
 export const OPTIONAL = ['chestCm', 'waistCm', 'hipsCm', 'inseamCm'] as const;
 export type OptionalKey = (typeof OPTIONAL)[number];
-export type MeasureKey = 'heightCm' | 'weightKg' | OptionalKey;
+/** A garment of the shopper's own that fits well: top chest and pants hips laid flat (half the circumference). */
+export const REFERENCE = ['refTopChestFlatCm', 'refTopLengthCm', 'refBottomHipsFlatCm', 'refBottomInseamCm'] as const;
+export type ReferenceKey = (typeof REFERENCE)[number];
+export type MeasureKey = 'heightCm' | 'weightKg' | OptionalKey | ReferenceKey;
+
+export const FIT_PREFS = ['close', 'regular', 'relaxed'] as const;
+export type FitPref = (typeof FIT_PREFS)[number];
 
 export interface Profile {
   units: Units;
@@ -15,9 +23,29 @@ export interface Profile {
   waistCm: number | null;
   hipsCm: number | null;
   inseamCm: number | null;
+  fitTop: FitPref;
+  fitBottom: FitPref;
+  refTopChestFlatCm: number | null;
+  refTopLengthCm: number | null;
+  refBottomHipsFlatCm: number | null;
+  refBottomInseamCm: number | null;
 }
 
-export const EMPTY_PROFILE: Profile = { units: 'imperial', heightCm: null, weightKg: null, chestCm: null, waistCm: null, hipsCm: null, inseamCm: null };
+export const EMPTY_PROFILE: Profile = {
+  units: 'imperial',
+  heightCm: null,
+  weightKg: null,
+  chestCm: null,
+  waistCm: null,
+  hipsCm: null,
+  inseamCm: null,
+  fitTop: 'regular',
+  fitBottom: 'regular',
+  refTopChestFlatCm: null,
+  refTopLengthCm: null,
+  refBottomHipsFlatCm: null,
+  refBottomInseamCm: null,
+};
 
 /** Accepted ranges (metric). Inside the server's own limits in api/_lib/look.ts. */
 export const LIMITS: Record<MeasureKey, [number, number]> = {
@@ -27,6 +55,10 @@ export const LIMITS: Record<MeasureKey, [number, number]> = {
   waistCm: [55, 150],
   hipsCm: [70, 150],
   inseamCm: [60, 100],
+  refTopChestFlatCm: [35, 90],
+  refTopLengthCm: [45, 100],
+  refBottomHipsFlatCm: [35, 85],
+  refBottomInseamCm: [40, 100],
 };
 
 // ANSUR II (2012) men, linear regression on height + weight; copied from web/public/models/fit_model.json `estimate`
@@ -63,6 +95,35 @@ export function sizingBody(p: Profile): SizingBody | null {
   if (!body) return null;
   const measured = Object.fromEntries(OPTIONAL.map((k) => [k, inRange(k, p[k])])) as Record<OptionalKey, boolean>;
   return { ...body, measured };
+}
+
+/**
+ * How this shopper likes one slot to fit. `chestCm` / `hipsCm` are the full garment circumference of their own
+ * well-fitting top / pants (twice the flat width), comparable with UNIQLO's garment measurements.
+ */
+export interface SlotPrefs {
+  pref: FitPref;
+  chestCm?: number;
+  lengthCm?: number;
+  hipsCm?: number;
+  inseamCm?: number;
+}
+
+export type FitPrefs = Record<'top' | 'bottom', SlotPrefs>;
+
+export function fitPrefs(p: Profile): FitPrefs {
+  const ref = (k: ReferenceKey, factor = 1) => (inRange(k, p[k]) ? round1(p[k] * factor) : undefined);
+  const top: SlotPrefs = { pref: p.fitTop };
+  const bottom: SlotPrefs = { pref: p.fitBottom };
+  const chest = ref('refTopChestFlatCm', 2);
+  const length = ref('refTopLengthCm');
+  const hips = ref('refBottomHipsFlatCm', 2);
+  const inseam = ref('refBottomInseamCm');
+  if (chest !== undefined) top.chestCm = chest;
+  if (length !== undefined) top.lengthCm = length;
+  if (hips !== undefined) bottom.hipsCm = hips;
+  if (inseam !== undefined) bottom.inseamCm = inseam;
+  return { top, bottom };
 }
 
 /** Full body for the photo request (entered values, estimates for the blanks), or null without height + weight. */
@@ -114,6 +175,7 @@ const STORAGE_KEY = 'fitroom.profile.v1';
 export function parseProfile(data: unknown): Profile {
   const d = (data && typeof data === 'object' ? data : {}) as Record<string, unknown>;
   const num = (k: MeasureKey) => (typeof d[k] === 'number' && inRange(k, d[k] as number) ? (d[k] as number) : null);
+  const pref = (v: unknown): FitPref => ((FIT_PREFS as readonly unknown[]).includes(v) ? (v as FitPref) : 'regular');
   return {
     units: d.units === 'metric' ? 'metric' : 'imperial',
     heightCm: num('heightCm'),
@@ -122,6 +184,12 @@ export function parseProfile(data: unknown): Profile {
     waistCm: num('waistCm'),
     hipsCm: num('hipsCm'),
     inseamCm: num('inseamCm'),
+    fitTop: pref(d.fitTop),
+    fitBottom: pref(d.fitBottom),
+    refTopChestFlatCm: num('refTopChestFlatCm'),
+    refTopLengthCm: num('refTopLengthCm'),
+    refBottomHipsFlatCm: num('refBottomHipsFlatCm'),
+    refBottomInseamCm: num('refBottomInseamCm'),
   };
 }
 

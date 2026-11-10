@@ -200,6 +200,46 @@ input[type='text']:focus, textarea:focus { outline: 1px solid var(--ink); outlin
 .alt-name { font: 500 16px/1.2 var(--serif); }
 .alt-price { font: 400 11px var(--sans); color: var(--muted); font-variant-numeric: tabular-nums; }
 
+/* Fit card: sizes side by side in numbers */
+.fit-card { display: flex; flex-direction: column; gap: 4px; }
+.fit-card table { width: 100%; border-collapse: collapse; table-layout: fixed; font: 400 11px/1.3 var(--sans); font-variant-numeric: tabular-nums; }
+.fit-card thead th { padding: 0 0 4px; text-align: left; font: 500 10px var(--sans); letter-spacing: 0.16em; text-transform: uppercase; border-bottom: 1px solid var(--ink); }
+.fit-card thead td { border-bottom: 1px solid var(--ink); }
+.fit-card-tag { font-weight: 400; color: var(--muted); letter-spacing: 0.12em; }
+.fit-card tbody th { width: 34%; padding: 4px 8px 4px 0; text-align: left; font-weight: 400; color: var(--muted); vertical-align: top; }
+.fit-card tbody td { padding: 4px 8px 4px 0; vertical-align: top; }
+.fit-card tbody tr + tr > * { border-top: 1px solid var(--stone); }
+.fit-main { display: block; color: var(--ink); }
+.fit-sub { display: block; color: var(--muted); }
+.fit-card .note { margin-top: 4px; }
+.sizes .fit-card tbody th { width: 28%; }
+
+/* Size comparison under the four photos */
+.compare { display: flex; flex-direction: column; gap: 24px; padding-top: 24px; border-top: 1px solid var(--hairline); }
+.compare-head { display: flex; flex-direction: column; gap: 4px; }
+.compare-block { display: flex; flex-direction: column; gap: 16px; }
+.compare-title { margin: 0; font: 500 24px/1.15 var(--serif); text-wrap: pretty; }
+.compare-title em { font-weight: 400; }
+.compare-body { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 24px; align-items: start; }
+.compare-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.compare-pair .frame-media img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.compare-pair .frame-status .btn { white-space: normal; height: auto; min-height: 32px; padding: 8px 16px; }
+.compare-card table { font-size: 12px; }
+
+/* Fit preferences */
+.prefs { display: flex; flex-direction: column; gap: 8px; }
+.pref-row { display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; }
+.pref-label { width: 64px; font: 500 12px var(--sans); }
+.pref-note { flex-basis: 100%; padding-left: 80px; margin-top: -4px; font: 400 11px var(--sans); color: var(--muted); }
+.ref-garment { display: flex; flex-direction: column; gap: 8px; }
+.ref-garment summary { cursor: pointer; font: 500 12px var(--sans); }
+.ref-garment[open] summary { margin-bottom: 8px; }
+.ref-garment > .note { margin-bottom: 8px; }
+.ref-group { display: flex; flex-direction: column; gap: 8px; }
+.ref-group + .ref-group { margin-top: 16px; }
+.ref-title { font: 500 10px var(--sans); letter-spacing: 0.2em; text-transform: uppercase; color: var(--muted); }
+.ref-feedback { color: var(--graphite); }
+
 /* Setting tiles */
 .scene-tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .scene-tile { padding: 0; background: transparent; border: 0; display: flex; flex-direction: column; gap: 8px; text-align: left; }
@@ -212,6 +252,7 @@ input[type='text']:focus, textarea:focus { outline: 1px solid var(--ink); outlin
 /* Medium screens: 2 x 2 photos. */
 @media (max-width: 1280px) {
   .frames { grid-template-columns: repeat(2, minmax(0, 1fr)); max-width: 620px; }
+  .compare-body { grid-template-columns: minmax(0, 1fr); max-width: 620px; }
   .lookbook { padding: 24px 24px 48px; }
 }
 
@@ -240,6 +281,9 @@ input[type='text']:focus, textarea:focus { outline: 1px solid var(--ink); outlin
   .frames { max-width: none; gap: 8px; }
   .intro-start { display: inline-flex; }
   .lookbook-foot { flex-direction: column; align-items: flex-start; gap: 16px; }
+  .compare-body { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  .compare-pair { gap: 8px; }
+  .compare-title { font-size: 22px; }
   .rail { width: 100%; border-left: 0; border-top: 1px solid var(--hairline); overflow: visible; }
   .rail-section { padding: 24px 16px; }
   .lightbox { padding: 8px; }
