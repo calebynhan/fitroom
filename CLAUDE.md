@@ -222,6 +222,15 @@ preference: the size whose garment chest (+0.5 × length diff) or hips (+0.3 × 
 when no size covers the body. Comparison size (`sizePair`): a hand-picked size vs the pick; the pick vs the chart size
 when they differ, else the next size up (or down at the top). Profile keys (localStorage `fitroom.profile.v1`):
 fitTop, fitBottom, refTopChestFlatCm, refTopLengthCm, refBottomHipsFlatCm, refBottomInseamCm.
+Honesty rules (Phase 2, 2026-11-10): (1) Borderline: when the deciding measurement (tops chest, pants waist) is an
+estimate and the pick changes within +-1 SD of it (3.2 / 4.4 cm, the ANSUR residuals), the advice says "Between S and M:
+your chest is estimated. Likely an S; measure your chest to be sure" (more than three sizes: "Anywhere from 28" waist to
+32" waist"), compares with the other likely size, and links to the field (`borderline` on SizeAdvice; 78% of tops and
+84% of pants for height + weight only). Never for typed measurements or a measured garment. (2) Stretch: a garment
+smaller than a body inside the size's own range is "stretches 2 cm / snug by design", "N cm tight" only when the body is
+over the range. (3) A measured garment more than 10 cm beyond every size of the item is ignored for the pick (measured
+all the way round instead of flat), and the Fit section says so for > 50 cm of room. (4) Range hints round inward so
+every value they offer is accepted. (5) Colourways sharing a name show UNIQLO's code: "Blue (67)".
 
 ## Pitfalls (learned so far)
 | Symptom | Cause | Fix |

@@ -150,6 +150,28 @@ export function toDisplay(key: MeasureKey, metric: number, units: Units): number
   return key === 'weightKg' ? Math.round(metric / KG_PER_LB) : Math.round((metric / CM_PER_IN) * 2) / 2;
 }
 
+/**
+ * The accepted range as shown in `units`, rounded inward (min up, max down) so every value it offers is accepted:
+ * rounding to the nearest showed 90 cm as 35.5 in, which is 90.2 cm and was then rejected.
+ */
+export function displayRange(key: MeasureKey, units: Units): [number, number] {
+  const [min, max] = LIMITS[key];
+  if (units === 'metric') return [min, max];
+  if (key === 'weightKg') return [Math.ceil(min / KG_PER_LB), Math.floor(max / KG_PER_LB)];
+  return [Math.ceil((min / CM_PER_IN) * 2) / 2, Math.floor((max / CM_PER_IN) * 2) / 2];
+}
+
+/** Height range in whole inches, rounded inward, as feet + inches. */
+export function heightRangeFeet(): [{ ft: number; in: number }, { ft: number; in: number }] {
+  const [min, max] = LIMITS.heightCm;
+  const lo = Math.ceil(min / CM_PER_IN);
+  const hi = Math.floor(max / CM_PER_IN);
+  return [
+    { ft: Math.floor(lo / 12), in: lo % 12 },
+    { ft: Math.floor(hi / 12), in: hi % 12 },
+  ];
+}
+
 export function fromDisplay(key: MeasureKey, shown: number, units: Units): number {
   if (units === 'metric') return shown;
   return round1(key === 'weightKg' ? shown * KG_PER_LB : shown * CM_PER_IN);

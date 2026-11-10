@@ -4,7 +4,7 @@
 // fail again until Hugging Face's allowance refills. Every run can be cancelled, and photos the shopper removed or
 // replaced are never sent again: their cached inputs are dropped and a run still using them is stopped.
 import type { View } from '@api/look';
-import { findColor, productImage, type Slot } from '../catalog/types';
+import { colorLabel, productImage, type Slot } from '../catalog/types';
 import type { LookCaption } from '../look/request';
 import { exclusive } from '../look/shoot';
 import { doneCount, useLooks } from '../state/looks';
@@ -47,7 +47,7 @@ export function tryOnInput(state: AppSnapshot): TryOnInput {
     if (!item || !selection || !image) continue;
     garments.push({
       slot,
-      name: `${item.name} in ${findColor(item, selection.colorCode).name}`,
+      name: `${item.name} in ${colorLabel(item, selection.colorCode)}`,
       category: slot === 'top' ? 'tops' : 'bottoms',
       image: garmentUrl(image),
     });

@@ -40,6 +40,16 @@ export function formatPrice(item: CatalogItem): string {
   return formatMoney(item.salePrice ?? item.price);
 }
 
+/**
+ * The colour's name, with UNIQLO's colour code when another colourway of the item has the same name (10/34 items
+ * do, e.g. Crew Neck T-Shirt: three "Blue"). UNIQLO's own site shows them the same way ("67 BLUE").
+ */
+export function colorLabel(item: CatalogItem, code: string): string {
+  const color = findColor(item, code);
+  const twins = item.colors.filter((c) => c.name === color.name).length;
+  return twins > 1 ? `${color.name} (${color.code})` : color.name;
+}
+
 export function findColor(item: CatalogItem, code: string): CatalogColor {
   return item.colors.find((c) => c.code === code) ?? item.colors[0];
 }

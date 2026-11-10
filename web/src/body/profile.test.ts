@@ -2,8 +2,14 @@ import { describe, expect, it } from 'vitest';
 import {
   completeBody,
   EMPTY_PROFILE,
+  displayRange,
   estimate,
   fitPrefs,
+  fromFeetInches as feetToCm,
+  heightRangeFeet,
+  inRange,
+  LIMITS,
+  type MeasureKey,
   fromDisplay,
   fromFeetInches,
   loadProfile,
@@ -68,5 +74,22 @@ describe('fit preferences', () => {
     expect(p).toMatchObject({ fitTop: 'relaxed', fitBottom: 'regular', refTopChestFlatCm: 53, refBottomHipsFlatCm: null });
     expect(fitPrefs(p)).toEqual({ top: { pref: 'relaxed', chestCm: 106, lengthCm: 69 }, bottom: { pref: 'regular' } });
     expect(fitPrefs(EMPTY_PROFILE)).toEqual({ top: { pref: 'regular' }, bottom: { pref: 'regular' } });
+  });
+});
+
+describe('range hints', () => {
+  it('only offer values that are then accepted, in both unit systems', () => {
+    for (const key of Object.keys(LIMITS) as MeasureKey[]) {
+      for (const units of ['metric', 'imperial'] as const) {
+        if (key === 'heightCm' && units === 'imperial') continue;
+        const [lo, hi] = displayRange(key, units);
+        expect(inRange(key, fromDisplay(key, lo, units)), `${key} ${units} min ${lo}`).toBe(true);
+        expect(inRange(key, fromDisplay(key, hi, units)), `${key} ${units} max ${hi}`).toBe(true);
+      }
+    }
+    expect(displayRange('refTopChestFlatCm', 'imperial')).toEqual([14, 35]); // was shown as 14-35.5, and 35.5 in was refused
+    const [lo, hi] = heightRangeFeet();
+    expect(inRange('heightCm', feetToCm(lo.ft, lo.in))).toBe(true);
+    expect(inRange('heightCm', feetToCm(hi.ft, hi.in))).toBe(true);
   });
 });

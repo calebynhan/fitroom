@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { VIEW_LABEL, type SizeCompare, type View } from '@api/look';
 import { fitPrefs, sizingBody } from '../body/profile';
-import { findColor, productImage, type Slot } from '../catalog/types';
+import { colorLabel, productImage, type Slot } from '../catalog/types';
 import { fitCard } from '../fit/fitCard';
 import { formatSize, sizeAdvice, sizePair } from '../fit/sizing';
 import { cancelShots, engineViews, retryShot, TRY_ON, useShotInput, type ShotInput } from '../look/engine';
@@ -12,6 +12,7 @@ import { doneCount, useLooks, type Look, type ViewState } from '../state/looks';
 import { useApp } from '../state/store';
 import { compareDownloadName, downloadName } from './download';
 import { FitTable } from './FitTable';
+import { MeasureLink } from './measureLink';
 import { Lightbox } from './Lightbox';
 import { useNow, viewProgress } from './progress';
 
@@ -205,7 +206,7 @@ function TryOnSize({ slot }: { slot: Slot }) {
     <div className="tryon-size">
       {image && (
         <a className="tryon-size-photo" href={item.url} target="_blank" rel="noreferrer" title="Colour as UNIQLO shows it">
-          <img src={image} alt={`${item.name} in ${findColor(item, selection.colorCode).name}, on UNIQLO`} width={120} height={160} loading="lazy" />
+          <img src={image} alt={`${item.name} in ${colorLabel(item, selection.colorCode)}, on UNIQLO`} width={120} height={160} loading="lazy" />
           <span className="eyebrow muted">UNIQLO's colour</span>
         </a>
       )}
@@ -219,6 +220,12 @@ function TryOnSize({ slot }: { slot: Slot }) {
             : advice && pair.size !== advice.size
               ? `Showing size ${formatSize(pair.size)} (your pick). ${advice.text}`
               : (advice?.text ?? `Size ${formatSize(pair.size)}.`)}
+          {advice?.borderline && (
+            <>
+              {' '}
+              <MeasureLink borderline={advice.borderline} />
+            </>
+          )}
         </p>
         {card && <FitTable card={card} caption={`${item.name}: how ${card.sizes.join(' and ')} fit you`} firstTag="yours" className="compare-card" />}
       </div>

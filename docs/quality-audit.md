@@ -1,6 +1,6 @@
 # FitRoom quality audit, 2026-11-10
 
-Status: Phase 0 (measurement) and Phase 1 (robustness and privacy) done; findings 1-5 and 9-12 fixed.
+Status: Phases 0, 1 and 2 done; findings 1-7, 9-12, 14 and 16 fixed.
 
 What was tested, what is wrong, and a plan to improve it that can be measured. Covers the free try-on engine (the
 default), sizing and the fit card, the catalog and the UI, on branch `claude/focused-turing-yuhkiq` (PR #2).
@@ -108,10 +108,16 @@ uploads but never the job: stalled run ended after 120 s with "taking too long" 
 it in 3 ms; removing the photo mid-run stopped it in 3 ms with no further uploads and no Retry; photo tiles two per
 row. Detector re-checked on all 68 catalog photos: 68/68.
 
-### Phase 2: fit honesty (P1 6-7, P2 14, 16)
+### Phase 2: fit honesty (P1 6-7, P2 14, 16) - done 2026-11-10
 Stretch-aware wording; borderline-size confidence ("between S and M, measure X"), ranked by which measurement would
 change the answer; colour names with codes. **Gate:** the population test's to-do is on and passing; for estimated
 bodies, every answer that flips within 1 SD is labelled borderline (0 silent flips).
+
+Result: gate passed (`sizing.population.test.ts`: never "tight" inside a size's range; over 34 items x 100 bodies x 3
+preferences, every flip within 1 SD is labelled and only those, typed measurements never). Borderline is common with
+height + weight only (78% of tops, 84% of pants), so one prompt in Measurements names the two measurements that settle
+most sizes (chest, waist), and each borderline item links to its field. Found while testing: a top measured all the
+way round (35 in "flat") picked a 3XL; now a garment more than 10 cm beyond every size is ignored and flagged.
 
 ### Phase 3: try-on quality (P1 8, eval-driven)
 Run the eval set before and after each change; keep a change only if it improves the metrics without new flags.
