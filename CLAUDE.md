@@ -246,6 +246,10 @@ fitTop, fitBottom, refTopChestFlatCm, refTopLengthCm, refBottomHipsFlatCm, refBo
     vercel --prod                  # deploy from the REPO ROOT, never from web/
     vercel logs <deployment-url>   # function errors
     npm run catalog                # rebuild web/public/catalog.json from UNIQLO (~20 s; --dry-run, --per-shape N)
+    cd web && npm run dev          # then /eval.html: try-on eval (dev only) on your photos, scored by src/eval/metrics.ts
+
+Quality: docs/quality-audit.md (2026-11-10) has the test results, open findings by priority and the phased plan with
+measurable gates; web/src/fit/sizing.population.test.ts holds the sizing invariants over 3,400 body x item cases.
 
 ## Conventions
 - Small commits with clear messages; pull before committing. Run `npm run build` before every deploy.
