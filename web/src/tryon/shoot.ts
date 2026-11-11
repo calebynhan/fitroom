@@ -13,7 +13,7 @@ import type { LookCaption } from '../look/request';
 import { exclusive } from '../look/shoot';
 import { doneCount, useLooks, type Look } from '../state/looks';
 import { useApp } from '../state/store';
-import { sharpenResult } from './composite';
+import { sharpenResult, skinColouredHex } from './composite';
 import { loadGarmentPhoto, type GarmentPhoto } from './garment';
 import { describeStatus, garmentUrl, PASS_MS, runSpace, SpaceError, within, type TryOnCategory, type TryOnRunner } from './space';
 
@@ -25,6 +25,8 @@ export interface TryOnGarment {
   category: TryOnCategory;
   /** Same-site URL of the UNIQLO product photo in the chosen colour. */
   image: string;
+  /** The colour reads as skin (beige, tan, pink...): the compositor then doesn't keep the shopper's skin. */
+  skinTone?: boolean;
 }
 
 export type TryOnInput =
@@ -55,6 +57,7 @@ export function tryOnInput(state: AppSnapshot): TryOnInput {
       name: `${item.name} in ${colorLabel(item, selection.colorCode)}`,
       category: slot === 'top' ? 'tops' : 'bottoms',
       image: garmentUrl(image),
+      skinTone: skinColouredHex(item.colors.find((c) => c.code === selection.colorCode)?.hex),
     });
   }
   const missing: string[] = [];
@@ -176,7 +179,8 @@ async function shootView(key: string, view: View, input: Ready, run: TryOnRunner
   let current: Blob | null = null;
   let worn: string[] = input.garments.slice(0, reused).map((g) => g.slot);
   // The shopper's own photo above the new garment, the model's result below it (composite.ts).
-  const finish = async (result: Blob) => sharpenResult(photo, result, await blobToDataUrl(result));
+  const keepSkin = !input.garments.some((g) => g.skinTone);
+  const finish = async (result: Blob) => sharpenResult(photo, result, await blobToDataUrl(result), { keepSkin });
   try {
     current = reused ? passes.get(passKey(input.version, view, input.garments.slice(0, reused)))! : await (await fetch(photo)).blob();
     for (const [i, garment] of input.garments.entries()) {

@@ -183,7 +183,10 @@ the shopper's photo (at its own resolution, 864x1536 for the front) everywhere e
 channel difference > 24 (40 left holes in the garment, 16 caught sand and wall texture); per row, leftmost to rightmost
 dense change, smoothed over 3% of the height (widest wins, which also fills rows inside the garment), widened 3% of the
 width, between the first and last garment rows +-1.2%, feathered 1.2%; unsharp mask 0.5 (radius 2 px) on the enlarged
-output inside that box (1.0 haloed). On the owner's photos the model's output now covers 13-31% of the image (was
+output inside that box (1.0 haloed). Inside the region, where both images show skin in the same place (YCbCr skin box,
+light to very dark tones alike; largest channel difference < 48; eroded 1 px, softened) the shopper's own skin is kept:
+sharper hands, forearms and neck. Off when a new garment's colour is itself skin-like (catalog hex; 54/237 colourways),
+so an old beige garment can never pass for skin under a new beige one. On the owner's photos the model's output now covers 13-31% of the image (was
 everything below the collar): legs under a new top, shoes, floor and the wall beside the person stay sharp. Per-pixel
 blending was tried and mixed old and new garments (dark pants over dark jeans barely differ); a solid per-row region
 can't leave holes in the garment. Not fixable in the model, handled in the UI: no size (the "Your size" panel under the photos shows

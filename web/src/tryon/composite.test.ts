@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { changedMask, changedPerRow, garmentRegion, garmentTop, regionAlpha, sameFraming, unsharp } from './composite';
+import { changedMask, changedPerRow, garmentRegion, garmentTop, isSkin, regionAlpha, sameFraming, sameSkin, skinColouredHex, unsharp } from './composite';
 
 function image(w: number, h: number, paint?: (x: number, y: number) => [number, number, number]) {
   const px = new Uint8ClampedArray(w * h * 4);
@@ -84,5 +84,32 @@ describe('sharpening the enlarged model output', () => {
     expect(edge[(10 * 20 + 9) * 4]).toBeLessThan(100); // dark side of the edge darker
     expect(edge[(10 * 20 + 10) * 4]).toBeGreaterThan(160); // light side lighter
     expect(edge[(10 * 20 + 2) * 4]).toBe(100); // far from the edge: unchanged
+  });
+});
+
+describe("keeping the shopper's own skin", () => {
+  it('recognises light to dark skin tones, not greys, blues or deep shadow', () => {
+    const tones: [number, number, number][] = [[255, 224, 196], [234, 192, 134], [198, 134, 66], [141, 85, 36], [92, 58, 40], [60, 40, 30]];
+    for (const [r, g, b] of tones) expect(isSkin(r, g, b)).toBe(true);
+    const others: [number, number, number][] = [[120, 120, 120], [20, 60, 90], [20, 15, 12], [240, 240, 240]];
+    for (const [r, g, b] of others) expect(isSkin(r, g, b)).toBe(false);
+  });
+
+  it('flags skin-coloured garments (beige, tan) but not navy or grey', () => {
+    expect(skinColouredHex('#c0997c')).toBe(true);
+    expect(skinColouredHex('#1f2a44')).toBe(false);
+    expect(skinColouredHex('#808080')).toBe(false);
+    expect(skinColouredHex(undefined)).toBe(false);
+  });
+
+  it('keeps skin that is in the same place in both, not skin the new garment now covers', () => {
+    const tone: [number, number, number] = [198, 134, 66];
+    // an arm: columns 10-29 skin in both; columns 40-59 skin before, sleeve after
+    const before = image(w, h, (x) => ((x >= 10 && x < 30) || (x >= 40 && x < 60) ? tone : [120, 120, 120]));
+    const after = image(w, h, (x) => (x >= 10 && x < 30 ? [tone[0] + 6, tone[1] + 4, tone[2]] : x >= 40 && x < 60 ? [20, 60, 90] : [120, 120, 120]));
+    const skin = sameSkin(before, after, w, h);
+    expect(skin[100 * w + 20]).toBeCloseTo(1, 2);
+    expect(skin[100 * w + 50]).toBe(0);
+    expect(skin[100 * w + 80]).toBe(0);
   });
 });

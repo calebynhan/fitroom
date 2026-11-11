@@ -201,6 +201,50 @@ export function unsharp(data: Uint8ClampedArray, width: number, height: number, 
   }
 }
 
+/**
+ * Skin (YCbCr box, Chai & Ngan 1999): covers very light to very dark skin tones alike, which an RGB rule like
+ * garment.ts's (tuned for detecting a model in product photos) does not. Y > 40 leaves out deep shadow.
+ */
+export function isSkin(r: number, g: number, b: number): boolean {
+  const y = 0.299 * r + 0.587 * g + 0.114 * b;
+  const cb = 128 - 0.168736 * r - 0.331264 * g + 0.5 * b;
+  const cr = 128 + 0.5 * r - 0.418688 * g - 0.081312 * b;
+  return y > 40 && cb >= 77 && cb <= 127 && cr >= 133 && cr <= 173;
+}
+
+/** "#c0997c" -> skin-coloured? (a garment in a skin-like colour turns skin keeping off) */
+export function skinColouredHex(hex: string | undefined): boolean {
+  const m = hex?.match(/^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i);
+  return m ? isSkin(parseInt(m[1], 16), parseInt(m[2], 16), parseInt(m[3], 16)) : false;
+}
+
+/** Skin keeping: both images skin within this (largest channel difference), eroded 1 px, softened 1 px. */
+const SKIN_DIFF = 48;
+
+/**
+ * 1 where both images show skin in the same place, nearly the same colour (0..1, softened): the model redraws hands, arms
+ * and the neck a little softer, and this keeps the shopper's own. Only used when no new garment is skin-coloured, or an
+ * old beige garment could pass for skin under a new beige one (the mixing that per-pixel blending caused).
+ */
+export function sameSkin(before: Uint8ClampedArray, after: Uint8ClampedArray, width: number, height: number): Float32Array {
+  const skin = new Uint8Array(width * height);
+  for (let i = 0; i < width * height; i += 1) {
+    const k = i * 4;
+    if (!isSkin(before[k], before[k + 1], before[k + 2]) || !isSkin(after[k], after[k + 1], after[k + 2])) continue;
+    const d = Math.max(Math.abs(before[k] - after[k]), Math.abs(before[k + 1] - after[k + 1]), Math.abs(before[k + 2] - after[k + 2]));
+    if (d < SKIN_DIFF) skin[i] = 1;
+  }
+  // erode (never right at a sleeve's edge), then soften
+  const eroded = new Float32Array(width * height);
+  for (let y = 1; y < height - 1; y += 1) {
+    for (let x = 1; x < width - 1; x += 1) {
+      const i = y * width + x;
+      if (skin[i] && skin[i - 1] && skin[i + 1] && skin[i - width] && skin[i + width]) eroded[i] = 1;
+    }
+  }
+  return boxBlur(eroded, width, height, 1);
+}
+
 /** Same framing (the Space keeps the aspect ratio; anything else means it cropped and can't be lined up). */
 export function sameFraming(a: { width: number; height: number }, b: { width: number; height: number }): boolean {
   return Math.abs(a.width / a.height - b.width / b.height) < 0.01;
@@ -224,7 +268,7 @@ async function decode(src: Blob | string): Promise<ImageBitmap> {
  * The try-on result at the photo's own resolution: the model's output where the clothes changed, the shopper's photo
  * everywhere else. Falls back to the model's result (as a data URL) when the two can't be lined up or nothing changed.
  */
-export async function sharpenResult(photo: string, result: Blob, fallback: string): Promise<string> {
+export async function sharpenResult(photo: string, result: Blob, fallback: string, options: { keepSkin?: boolean } = {}): Promise<string> {
   let original: ImageBitmap | null = null;
   let output: ImageBitmap | null = null;
   try {
@@ -239,9 +283,12 @@ export async function sharpenResult(photo: string, result: Blob, fallback: strin
     small.drawImage(original, 0, 0, W, H);
     const [, out] = canvas(W, H);
     out.drawImage(output, 0, 0);
-    const region = garmentRegion(changedMask(small.getImageData(0, 0, W, H).data, out.getImageData(0, 0, W, H).data, W, H), W, H);
+    const before = small.getImageData(0, 0, W, H).data;
+    const after = out.getImageData(0, 0, W, H).data;
+    const region = garmentRegion(changedMask(before, after, W, H), W, H);
     if (!region) return fallback;
     const alpha = regionAlpha(region, W, H);
+    const skin = options.keepSkin === false ? null : sameSkin(before, after, W, H);
     let area = 0;
     for (const a of alpha) area += a;
     if (area / (W * H) > MAX_AREA) return fallback;
@@ -249,7 +296,7 @@ export async function sharpenResult(photo: string, result: Blob, fallback: strin
     // the shopper's photo, kept where alpha is low: its own alpha is 1 - the model's, drawn over the model's output
     const [keep, k] = canvas(W, H);
     const mask = k.createImageData(W, H);
-    for (let i = 0; i < W * H; i += 1) mask.data[i * 4 + 3] = Math.round(255 * (1 - alpha[i]));
+    for (let i = 0; i < W * H; i += 1) mask.data[i * 4 + 3] = Math.round(255 * (1 - alpha[i] * (1 - (skin?.[i] ?? 0))));
     k.putImageData(mask, 0, 0);
     const [final, f] = canvas(OW, OH);
     f.imageSmoothingQuality = 'high';
