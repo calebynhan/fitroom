@@ -1,8 +1,10 @@
+import { useAccount } from '../account/store';
 import { TRY_ON } from '../look/engine';
 import { SPACE_PAGE } from '../tryon/space';
 
 /** How it works, what happens to your data, and whose work this stands on. */
 export function AboutSection() {
+  const paid = useAccount((s) => s.view?.billing === true);
   return (
     <section className="rail-section about" id="about" aria-labelledby="about-title">
       <h2 className="eyebrow" id="about-title">
@@ -32,6 +34,8 @@ export function AboutSection() {
       <p className="note">
         <strong>Your data.</strong> Photos stay in this tab and FitRoom never stores them. Measurements and saved outfits stay in
         this browser. Share links carry the outfit only. Page counts are anonymous, without cookies.
+        {paid && ' Signing in with Google keeps your email and how many try-ons you have used and bought; payments are handled by Stripe.'}{' '}
+        <a href="/privacy.html">Privacy policy</a>.
       </p>
       <p className="note fine">
         {TRY_ON && (
@@ -43,7 +47,8 @@ export function AboutSection() {
             (Apache-2.0) on Hugging Face's free GPUs, which allow a few try-ons a day per connection.{' '}
           </>
         )}
-        Product names, photos and size charts are UNIQLO's, used for a non-commercial demo; FitRoom isn't affiliated with UNIQLO.
+        Product names, photos and size charts are UNIQLO's{paid ? '' : ', used for a non-commercial demo'}; FitRoom isn't affiliated with
+        UNIQLO.
         Every item links to{' '}
         <a href="https://www.uniqlo.com/us/en/" target="_blank" rel="noreferrer">
           uniqlo.com

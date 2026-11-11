@@ -5,7 +5,9 @@
 // replaced are never sent again: their cached inputs are dropped and a run still using them is stopped.
 // Free GPU time is scarce (about 4 passes a day), so every finished pass is kept in memory: the same photo in the same
 // top is reused when only the bottoms change, and a retry after a partial photo starts from the part that worked.
+// Paid try-ons (account/gate.ts): a look that needs GPU passes is charged first and given back if it makes no photo.
 import type { View } from '@api/look';
+import { admit, billingOff, lookId, release, type Ticket } from '../account/gate';
 import { outcomeOf, trackTryOn } from '../analytics';
 import { recordPass, recordQuota } from './allowance';
 import { colorLabel, productImage, type Slot } from '../catalog/types';
@@ -244,6 +246,35 @@ async function shootViews(key: string, views: View[], input: Ready, run: TryOnRu
   }
 }
 
+/** The id a look is charged under: its front photo and garments (the side photo is the same look). */
+export function tryOnLookId(input: Ready): Promise<string> {
+  return lookId([input.photos.front ?? '', ...input.garments.map((g) => g.image)]);
+}
+
+/**
+ * One of the shopper's looks for this try-on, if it needs GPU passes (photos already made cost nothing). Null: the
+ * shopper must sign in or buy more first (the dialog is open).
+ */
+async function ticketFor(input: Ready, views: View[]): Promise<Ticket | 'free' | null> {
+  if (passesNeeded(input, views) === 0 || billingOff()) return 'free';
+  return admit(await tryOnLookId(input));
+}
+
+/**
+ * The account check awaits the server, and the shopper may replace or remove a photo meanwhile: then nothing may be
+ * sent (removed photos are never sent again) and the look is given back. True when the run can go ahead.
+ */
+async function stillCurrent(input: Ready, ticket: Ticket | 'free'): Promise<boolean> {
+  if (input.version === useApp.getState().photoVersion) return true;
+  if (ticket !== 'free') await release(ticket);
+  return false;
+}
+
+/** Gives the look back if the try-on made no photo at all (failed, cancelled, out of GPU time). */
+async function settle(ticket: Ticket | 'free', key: string): Promise<void> {
+  if (ticket !== 'free' && doneCount(useLooks.getState().looks[key]) === 0) await release(ticket);
+}
+
 /** Re-dresses every photo for the outfit on screen (starting over if it was shot before). */
 export function makeTryOnLook(run: TryOnRunner = runSpace): Promise<void> {
   const input = tryOnInput(useApp.getState());
@@ -251,12 +282,15 @@ export function makeTryOnLook(run: TryOnRunner = runSpace): Promise<void> {
   const { key } = input;
   return exclusive(key, async () => {
     const previous = useLooks.getState().looks[key];
-    inputs.set(key, input);
     // a reshoot keeps the side photo if the shopper had asked for it (finished passes make it free)
     const order: View[] = previous?.order.includes('side') && input.photos.side ? [...input.order, 'side'] : input.order;
+    const ticket = await ticketFor(input, order);
+    if (!ticket || !(await stillCurrent(input, ticket))) return;
+    inputs.set(key, input);
     const { top, bottom } = useApp.getState().outfit;
     useLooks.getState().start(key, input.caption, order, { ...(top ? { top } : {}), ...(bottom ? { bottom } : {}) });
     await shootViews(key, order, input, run);
+    await settle(ticket, key);
     // A reshoot that produced nothing: keep the earlier photos rather than a failed, empty look.
     const look = useLooks.getState().looks[key];
     if (previous && doneCount(previous) > 0 && doneCount(look) === 0) {
@@ -271,7 +305,12 @@ export function makeTryOnLook(run: TryOnRunner = runSpace): Promise<void> {
 export function retryTryOnView(key: string, view: View, run: TryOnRunner = runSpace): Promise<void> {
   const input = inputs.get(key);
   if (!input || !canRetryTryOn(key)) return Promise.resolve();
-  return exclusive(key, () => shootViews(key, [view], input, run));
+  return exclusive(key, async () => {
+    const ticket = await ticketFor(input, [view]);
+    if (!ticket || !(await stillCurrent(input, ticket))) return;
+    await shootViews(key, [view], input, run);
+    await settle(ticket, key);
+  });
 }
 
 /** True when the look's side photo can be tried on: given, not tried yet, and still the photo on screen. */

@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>FitRoom privacy policy</title>
+    <meta name="description" content="What FitRoom collects, why, who receives it, how long it is kept, and your controls." />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+    <style>
+      :root { --paper: #fff; --bone: #f4f1ec; --hairline: #d6d1c8; --ink: #111; --graphite: #3a3835; --muted: #6f6a63; --serif: 'Cormorant Garamond', 'Times New Roman', serif; --sans: Inter, system-ui, -apple-system, sans-serif; }
+      * { box-sizing: border-box; }
+      body { margin: 0; background: var(--bone); color: var(--ink); font-family: var(--sans); -webkit-font-smoothing: antialiased; }
+      main { max-width: 720px; margin: 48px auto; padding: 48px; background: var(--paper); border: 1px solid var(--hairline); }
+      .wordmark { font: 500 28px/1 var(--serif); color: var(--ink); text-decoration: none; }
+      .eyebrow { margin: 48px 0 8px; font: 500 10px var(--sans); letter-spacing: 0.22em; text-transform: uppercase; color: var(--muted); }
+      h1 { margin: 0 0 8px; font: 500 40px/1.1 var(--serif); }
+      h2 { margin: 32px 0 8px; font: 500 24px/1.2 var(--serif); }
+      p, li { font: 400 15px/1.6 var(--sans); color: var(--graphite); }
+      ul { padding-left: 20px; }
+      a { color: var(--ink); text-underline-offset: 3px; }
+      .fine { font-size: 12px; color: var(--muted); }
+      @media (max-width: 640px) { main { margin: 0; padding: 24px 16px; border: 0; min-height: 100vh; } h1 { font-size: 32px; } }
+    </style>
+  </head>
+  <body>
+    <main>
+      <a class="wordmark" href="/">FitRoom</a>
+      <p class="eyebrow">Privacy</p>
+      <h1>Privacy policy</h1>
+      <p class="fine">Last updated 11 November 2026. Applies to the FitRoom website and the FitRoom plugin for ChatGPT.</p>
+
+      <h2>Your photos</h2>
+      <ul>
+        <li><strong>FitRoom never stores or logs your photos.</strong> On the website they stay in your browser tab and are gone when you close it.</li>
+        <li>To make a try-on, your photo goes from your browser to the FASHN VTON try-on model on Hugging Face (a public demo run by FASHN), which keeps uploads on its server for a while; FitRoom doesn't control that.</li>
+        <li>In ChatGPT, the photo you attach is held by ChatGPT (OpenAI) under its terms. For a try-on, FitRoom's server downloads it into memory, sends it to FASHN's try-on API, which keeps no copy of the image after the request, and returns the result to the FitRoom card in your chat. FitRoom doesn't store or log it.</li>
+        <li>Only use photos of yourself.</li>
+      </ul>
+
+      <h2>What FitRoom keeps</h2>
+      <ul>
+        <li><strong>Your account</strong> (only if you sign in): your Google account id and email address, how many free try-ons you've used, how many you've bought, and a fingerprint of each look charged (a one-way digest of the photo and outfit, never the photo). Purpose: counting your try-ons, the same on the website and in ChatGPT.</li>
+        <li><strong>Purchases</strong>: the Stripe checkout session id of each purchase, so it is credited once. Stripe handles payment; FitRoom never sees card details.</li>
+        <li><strong>Sign-in to ChatGPT</strong>: when you connect FitRoom in ChatGPT, FitRoom issues ChatGPT signed tokens that name your account. They are not stored by FitRoom; they expire (an hour; refresh tokens 60 days).</li>
+        <li><strong>In your browser only</strong>: your measurements, fit preferences, saved outfits and a count of today's free GPU use (localStorage). FitRoom's servers never receive your measurements, except the ones you give ChatGPT for a size, which are used for that answer and not kept.</li>
+        <li><strong>ChatGPT without a FitRoom account</strong> (when try-ons there are free): a count of try-on photos per month, kept under a one-way digest of ChatGPT's anonymous user id.</li>
+        <li><strong>Analytics</strong>: anonymous page views without cookies, and counts of try-on outcomes and checkout steps (Vercel Web Analytics). Never photos, emails or outfits.</li>
+      </ul>
+
+      <h2>Who receives data</h2>
+      <ul>
+        <li>Hugging Face and FASHN: your photo and the garment photo, for the try-on (on the website, FASHN's public demo on Hugging Face; in ChatGPT, FASHN's API).</li>
+        <li>Google: sign-in. Stripe: payments. Vercel and Upstash: hosting and the account store.</li>
+        <li>OpenAI: when you use FitRoom in ChatGPT (the conversation and attachments are ChatGPT's), and, only if the paid photo generator is switched on, your photos to make the generated shots.</li>
+        <li>FitRoom doesn't sell data or use it for advertising.</li>
+      </ul>
+
+      <h2>How long</h2>
+      <ul>
+        <li>Photos: not kept by FitRoom.</li>
+        <li>Look fingerprints: 90 days. Purchase records: about 13 months. Your account counts: while your account exists.</li>
+      </ul>
+
+      <h2>Your controls</h2>
+      <ul>
+        <li>Sign out on the website at any time; disconnect FitRoom in ChatGPT's settings.</li>
+        <li>Clear your measurements and saved outfits by clearing this site's data in your browser.</li>
+        <li>To get a copy of your account data or have it deleted, contact FitRoom (below).</li>
+      </ul>
+
+      <h2>Contact</h2>
+      <p id="contact">Contact address to be added by the site owner before the plugin is published.</p>
+
+      <p class="fine"><a href="/">FitRoom</a> · <a href="/try-ons.html">How try-ons work</a> · Not affiliated with UNIQLO.</p>
+    </main>
+  </body>
+</html>

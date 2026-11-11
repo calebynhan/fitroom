@@ -14,9 +14,44 @@
     "api/mcp.ts": {
       "maxDuration": 60,
       "includeFiles": "{web/public/catalog.json,api/_lib/mcp/widget.html}"
+    },
+    "api/account.ts": {
+      "maxDuration": 15
+    },
+    "api/credits.ts": {
+      "maxDuration": 15
+    },
+    "api/checkout.ts": {
+      "maxDuration": 25
+    },
+    "api/stripe.ts": {
+      "maxDuration": 15
+    },
+    "api/oauth.ts": {
+      "maxDuration": 15
     }
   },
   "rewrites": [
+    {
+      "source": "/.well-known/oauth-protected-resource",
+      "destination": "/api/oauth?step=resource"
+    },
+    {
+      "source": "/.well-known/oauth-protected-resource/:path*",
+      "destination": "/api/oauth?step=resource"
+    },
+    {
+      "source": "/.well-known/oauth-authorization-server",
+      "destination": "/api/oauth?step=server"
+    },
+    {
+      "source": "/.well-known/oauth-authorization-server/:path*",
+      "destination": "/api/oauth?step=server"
+    },
+    {
+      "source": "/api/oauth/:step",
+      "destination": "/api/oauth?step=:step"
+    },
     {
       "source": "/uniqlo/:path*",
       "destination": "https://image.uniqlo.com/:path*"

@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>How FitRoom try-ons work</title>
+    <meta name="description" content="What a FitRoom try-on is, how many are free, and how they work on the website and in ChatGPT." />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+    <style>
+      :root { --paper: #fff; --bone: #f4f1ec; --hairline: #d6d1c8; --ink: #111; --graphite: #3a3835; --muted: #6f6a63; --serif: 'Cormorant Garamond', 'Times New Roman', serif; --sans: Inter, system-ui, -apple-system, sans-serif; }
+      * { box-sizing: border-box; }
+      body { margin: 0; background: var(--bone); color: var(--ink); font-family: var(--sans); -webkit-font-smoothing: antialiased; }
+      main { max-width: 640px; margin: 48px auto; padding: 48px; background: var(--paper); border: 1px solid var(--hairline); }
+      .wordmark { font: 500 28px/1 var(--serif); color: var(--ink); text-decoration: none; }
+      .eyebrow { margin: 48px 0 8px; font: 500 10px var(--sans); letter-spacing: 0.22em; text-transform: uppercase; color: var(--muted); }
+      h1 { margin: 0 0 24px; font: 500 40px/1.1 var(--serif); }
+      h2 { margin: 32px 0 8px; font: 500 24px/1.2 var(--serif); }
+      p, li { font: 400 15px/1.6 var(--sans); color: var(--graphite); }
+      ul { padding-left: 20px; }
+      a { color: var(--ink); text-underline-offset: 3px; }
+      .fine { font-size: 12px; color: var(--muted); }
+      @media (max-width: 640px) { main { margin: 0; padding: 24px 16px; border: 0; min-height: 100vh; } h1 { font-size: 32px; } }
+    </style>
+  </head>
+  <body>
+    <main>
+      <a class="wordmark" href="/">FitRoom</a>
+      <p class="eyebrow">Try-ons</p>
+      <h1>How try-ons work</h1>
+      <p>A try-on is your own full-body photo, re-dressed in UNIQLO pieces: only the clothes change, so the face, body and background stay yours.</p>
+
+      <h2>What counts as a try-on</h2>
+      <ul>
+        <li>A new outfit on your photo, or the same outfit with one piece changed, is one try-on.</li>
+        <li>Trying the same outfit again, or on your side photo, is free.</li>
+        <li>A try-on that makes no photo (the model was busy, you cancelled) is given back.</li>
+      </ul>
+
+      <h2>How many you have</h2>
+      <p id="allowance">Every FitRoom account (sign in with Google) gets free try-ons.</p>
+      <p id="packs">More try-ons are available on the FitRoom website, for the same account. They count wherever you use FitRoom, including in ChatGPT.</p>
+
+      <h2>In ChatGPT</h2>
+      <p>Connect FitRoom in ChatGPT with the same Google account and your try-ons are there too: each photo FitRoom makes there uses one. Nothing is sold in ChatGPT; when an account has no try-ons left, FitRoom says so. Size advice is always free.</p>
+
+      <h2>One more limit</h2>
+      <p>On the website, try-ons run on Hugging Face's free GPUs, which allow a few a day per connection, whatever your FitRoom balance. When they're used up for the day, try again tomorrow.</p>
+
+      <p class="fine"><a href="/">FitRoom</a> · <a href="/privacy.html">Privacy</a> · Not affiliated with UNIQLO.</p>
+    </main>
+    <script>
+      // The current numbers, from the same place the app reads them (nothing here starts a purchase).
+      fetch('/api/account')
+        .then((r) => (r.ok ? r.json() : null))
+        .then((a) => {
+          if (!a || !a.billing) {
+            document.getElementById('allowance').textContent = 'Try-ons are free right now: no account needed.';
+            document.getElementById('packs').textContent = '';
+            return;
+          }
+          const n = a.freeLooks;
+          document.getElementById('allowance').textContent = n > 0 ? `Every FitRoom account (sign in with Google) gets ${n} free try-on${n === 1 ? '' : 's'}.` : 'Try-ons come with a FitRoom account (sign in with Google).';
+          if (a.pack) document.getElementById('packs').textContent = `After that, packs of ${a.pack.looks} try-ons (${a.pack.price}) are available on the FitRoom website, for the same account. They count wherever you use FitRoom, including in ChatGPT.`;
+        })
+        .catch(() => undefined);
+    </script>
+  </body>
+</html>

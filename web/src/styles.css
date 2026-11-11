@@ -340,6 +340,27 @@ input[type='text']:focus, textarea:focus { outline: 1px solid var(--ink); outlin
 .allowance.warn { color: var(--sale); }
 .add-side { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
 
+/* Paid try-ons: the account chip, the rail's account section and the account dialog (AccountSection, AccountDialog). */
+.note.warn { color: var(--sale); }
+.account-chip { color: var(--ink); white-space: nowrap; }
+.account-left { margin: 0; font: italic 400 22px/1.2 var(--serif); }
+.account-buy { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+.account-who { overflow-wrap: anywhere; }
+.google-button { min-height: 44px; }
+.dialog-backdrop { position: fixed; inset: 0; z-index: 10; overflow: auto; overscroll-behavior: contain; background: rgba(17, 17, 17, 0.6); display: flex; align-items: center; justify-content: center; padding: 24px; animation: fade-in 0.2s ease-out; }
+.account-dialog { width: min(440px, 100%); display: flex; flex-direction: column; gap: 16px; padding: 24px; background: var(--paper); border: 1px solid var(--hairline); }
+.dialog-head { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+.dialog-head .link-btn { min-height: 24px; }
+.dialog-title { margin: 0; font: 500 30px/1.1 var(--serif); letter-spacing: -0.01em; }
+.dialog-copy { margin: 0; font: 400 14px/1.55 var(--sans); color: var(--graphite); }
+.dialog-cta { align-self: flex-start; height: 40px; }
+@media (max-width: 520px) {
+  .account-chip { font-size: 11px; }
+  .dialog-backdrop { align-items: flex-end; padding: 0; }
+  .account-dialog { width: 100%; padding: 24px 16px 32px; border-width: 1px 0 0; }
+  .dialog-cta { align-self: stretch; }
+}
+
 /* Before / after in the lightbox (BeforeAfter). */
 .before-after { display: flex; flex-direction: column; gap: 8px; width: fit-content; max-width: 100%; margin: 0 auto; }
 .before-after-stage { position: relative; width: fit-content; max-width: 100%; margin: 0 auto; touch-action: pan-y; cursor: ew-resize; user-select: none; -webkit-user-select: none; }

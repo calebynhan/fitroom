@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import catalog from '../../public/catalog.json';
+import type { AccountView } from '@api/accountTypes';
+import { forgetAdmitted } from '../account/gate';
+import { useAccount } from '../account/store';
 import { EMPTY_PROFILE } from '../body/profile';
 import { parseCatalog } from '../catalog/types';
 import { useLooks } from '../state/looks';
@@ -40,9 +43,13 @@ function fakeSpace(fail?: (category: TryOnCategory, n: number) => SpaceError | n
 
 const decode = (dataUrl: string) => atob(dataUrl.split(',')[1]);
 
+const FREE: AccountView = { billing: false, googleClientId: null, freeLooks: 5, pack: null, user: null };
+
 beforeEach(() => {
   readyState();
   useLooks.setState({ looks: {}, busy: null, latest: null, remaining: null });
+  useAccount.setState({ view: FREE, dialog: null, pending: false }); // paid try-ons off unless a test turns them on
+  forgetAdmitted();
   // The person photo arrives as a data URL; garment photos come from the same-site /uniqlo/ proxy.
   vi.stubGlobal(
     'fetch',
@@ -331,5 +338,101 @@ describe('product photo loading', () => {
     expect(space.passes).toHaveLength(0);
     const key = useLooks.getState().latest!;
     expect(useLooks.getState().looks[key].views.front).toMatchObject({ kind: 'error', retryable: true, message: expect.stringMatching(/Check your connection/) });
+  });
+});
+
+describe('paid try-ons', () => {
+  const user = { email: 'a@b.c', exempt: false, freeUsed: 0, credits: 0, left: 5 };
+  const PAID: AccountView = { billing: true, googleClientId: 'cid', freeLooks: 5, pack: { looks: 20, price: '$4.99' }, user };
+  let calls: { action: string; look: string }[];
+  let answer: () => Response;
+
+  beforeEach(() => {
+    calls = [];
+    answer = () => Response.json({ ok: true, charged: true, account: { ...PAID, user: { ...user, freeUsed: 1, left: 4 } } });
+    useAccount.setState({ view: PAID });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        if (url === '/api/credits') {
+          const body = JSON.parse(String(init?.body)) as { action: string; look: string };
+          calls.push(body);
+          return body.action === 'refund' ? Response.json({ ok: true, account: PAID }) : answer();
+        }
+        return url.startsWith('data:') ? new Response(new Blob(['me'])) : new Response(new Blob([`garment ${url}`], { type: 'image/jpeg' }));
+      }),
+    );
+  });
+
+  it('asks a signed-out shopper to sign in, and tries nothing on', async () => {
+    useAccount.setState({ view: { ...PAID, user: null } });
+    const space = fakeSpace();
+    await makeTryOnLook(space.run);
+    expect(useAccount.getState().dialog).toEqual({ kind: 'signin' });
+    expect(space.passes).toHaveLength(0);
+    expect(calls).toHaveLength(0);
+  });
+
+  it('charges one look before the try-on, and nothing to try the same outfit again', async () => {
+    const space = fakeSpace();
+    await makeTryOnLook(space.run);
+    expect(calls.map((c) => c.action)).toEqual(['charge']);
+    expect(calls[0].look).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(useAccount.getState().view?.user?.left).toBe(4);
+    await makeTryOnLook(space.run);
+    expect(calls).toHaveLength(1);
+    expect(space.passes).toHaveLength(2);
+  });
+
+  it('opens the buy dialog when the free looks are used up', async () => {
+    answer = () => Response.json({ error: "You've used your 5 free try-ons.", code: 'payment', account: { ...PAID, user: { ...user, freeUsed: 5, left: 0 } } }, { status: 402 });
+    const space = fakeSpace();
+    await makeTryOnLook(space.run);
+    expect(useAccount.getState().dialog).toEqual({ kind: 'buy' });
+    expect(useAccount.getState().view?.user?.left).toBe(0);
+    expect(space.passes).toHaveLength(0);
+    expect(useLooks.getState().busy).toBeNull();
+  });
+
+  it('gives the look back when nothing could be made, but not after a partial photo', async () => {
+    await makeTryOnLook(fakeSpace(() => new SpaceError('Busy.', true)).run);
+    expect(calls.map((c) => c.action)).toEqual(['charge', 'refund']);
+    expect(calls[1].look).toBe(calls[0].look);
+
+    readyState();
+    calls = [];
+    await makeTryOnLook(fakeSpace((category) => (category === 'bottoms' ? new SpaceError('Busy.', true) : null)).run);
+    expect(calls.map((c) => c.action)).toEqual(['charge']);
+  });
+
+  it('a different outfit on the same photo is a new look', async () => {
+    const space = fakeSpace();
+    await makeTryOnLook(space.run);
+    useApp.getState().setColor('bottom', '69');
+    await makeTryOnLook(space.run);
+    expect(calls.map((c) => c.action)).toEqual(['charge', 'charge']);
+    expect(calls[1].look).not.toBe(calls[0].look);
+  });
+
+  it('sends nothing and gives the look back when the photo changes while the look is being charged', async () => {
+    answer = () => {
+      useApp.getState().setPhoto('front', { ...PHOTO, dataUrl: 'data:image/jpeg;base64,bmV3' }); // replaced mid-check
+      return Response.json({ ok: true, charged: true, account: PAID });
+    };
+    const space = fakeSpace();
+    await makeTryOnLook(space.run);
+    expect(space.passes).toHaveLength(0);
+    expect(calls.map((c) => c.action)).toEqual(['charge', 'refund']);
+  });
+
+  it("still tries on when it can't tell whether try-ons are paid and the server is unreachable", async () => {
+    useAccount.setState({ view: null });
+    answer = () => {
+      throw new TypeError('fetch failed');
+    };
+    const space = fakeSpace();
+    await makeTryOnLook(space.run);
+    expect(space.passes).toHaveLength(2);
+    expect(useAccount.getState().dialog).toBeNull();
   });
 });

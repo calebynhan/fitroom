@@ -360,7 +360,9 @@
     } else {
       parts.push(h('p', { class: 'error', text: r.message }));
     }
-    if (r.remaining != null) parts.push(h('p', { class: 'small muted', style: 'margin-top:8px', text: r.remaining + ' free try-on photo' + (r.remaining === 1 ? '' : 's') + ' left this month.' }));
+    // remainingText: the server's wording (a FitRoom account's try-ons, or the month's free photos); null = say nothing
+    var left = r.remainingText !== undefined ? r.remainingText : r.remaining != null ? r.remaining + ' free try-on photo' + (r.remaining === 1 ? '' : 's') + ' left this month.' : null;
+    if (left) parts.push(h('p', { class: 'small muted', style: 'margin-top:8px', text: left }));
     return parts;
   }
 
