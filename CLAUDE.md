@@ -63,6 +63,13 @@ the last step for every item is the same check on the live URL, on desktop and a
       timeout|unreachable|cancelled|photo|error, reason, view, garments, reused, seconds } (custom events need Vercel
       Pro; on Hobby only page views count); Web Analytics must be enabled in the Vercel project), About / how-it-works
       (ui/AboutSection).
+- [x] Installable web app (PWA): web/public/manifest.webmanifest (standalone, white) + icons rendered from favicon.svg by
+      `npm run icons` (scripts/app-icons.mjs: apple-touch-icon.png 180 px opaque, icons/icon-192.png and icon-512.png; the
+      512 doubles as the maskable icon, the F sits inside the safe zone); scripts/app-icons.test.ts checks them. The F is a
+      path (Cormorant Garamond 500), so the favicon no longer falls back to Georgia. No service worker: nothing works
+      offline (try-on needs the Space) and a cached shell would serve an old build after a deploy; Chromium installs
+      without one (no installability errors, 2026-11-11). iOS gives a home-screen app its own storage, so measurements and
+      saved outfits from Safari don't carry over. Phone check: Add to Home Screen, then a try-on and Download inside it.
 - [ ] Capacity: about 4 free passes per visitor per day on a Space we don't control. Done: passes reused, side photo on
       request, the allowance shown (Phase 6). Next: our own duplicate of the Space (VITE_TRYON_SPACE), a week of outcome
       counts, then maybe "Sign in with Hugging Face" (5 GPU-min instead of 2).
@@ -525,6 +532,7 @@ every value they offer is accepted. (5) Colourways sharing a name show UNIQLO's 
     vercel --prod                  # deploy from the REPO ROOT, never from web/
     vercel logs <deployment-url>   # function errors
     npm run catalog                # rebuild web/public/catalog.json from UNIQLO (~20 s; --dry-run, --per-shape N)
+    npm run icons                  # re-render the home-screen icons from web/public/favicon.svg (needs Playwright)
     cd web && npm run dev          # then /eval.html: try-on eval (dev only) on your photos, scored by src/eval/metrics.ts
 
 Quality: docs/quality-audit.md (2026-11-10) has the test results, open findings by priority and the phased plan with
