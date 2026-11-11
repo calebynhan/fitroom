@@ -3,9 +3,38 @@
 // theirs. Free: Hugging Face's ZeroGPU runs it, within a per-visitor daily allowance; the Space handles one try-on at
 // a time for everyone, with a queue of up to 30.
 
-/** The Space's own URL (connecting by URL skips a huggingface.co metadata lookup). */
-export const SPACE_URL = 'https://fashn-ai-fashn-vton-1-5.hf.space/';
-export const SPACE_PAGE = 'https://huggingface.co/spaces/fashn-ai/fashn-vton-1.5';
+export interface SpaceRef {
+  /** "owner/name" on Hugging Face. */
+  id: string;
+  /** The Space's own URL (connecting by URL skips a huggingface.co metadata lookup). */
+  url: string;
+  /** Its page on huggingface.co (linked from the privacy notes). */
+  page: string;
+}
+
+export const FASHN_SPACE = 'fashn-ai/fashn-vton-1.5';
+
+/** "owner/name" -> its URLs. Hugging Face serves a Space at <owner>-<name>.hf.space, lowercase, other characters as "-". */
+export function spaceRef(id: string): SpaceRef | null {
+  const m = id.trim().match(/^(?:https:\/\/huggingface\.co\/spaces\/)?([\w.-]+)\/([\w.-]+?)\/?$/);
+  if (!m) return null;
+  const host = `${m[1]}-${m[2]}`.toLowerCase().replace(/[^a-z0-9-]/g, '-');
+  return { id: `${m[1]}/${m[2]}`, url: `https://${host}.hf.space/`, page: `https://huggingface.co/spaces/${m[1]}/${m[2]}` };
+}
+
+/**
+ * The Spaces to try, in order: VITE_TRYON_SPACE (our own duplicate: our own queue, no dependency on FASHN keeping its
+ * demo up) when set, then FASHN's official one as the fallback when ours can't be reached.
+ */
+export function spaceList(configured: string | undefined): SpaceRef[] {
+  const own = configured ? spaceRef(configured) : null;
+  const fashn = spaceRef(FASHN_SPACE)!;
+  return own && own.id.toLowerCase() !== FASHN_SPACE ? [own, fashn] : [fashn];
+}
+
+export const SPACES = spaceList(import.meta.env.VITE_TRYON_SPACE);
+export const SPACE_URL = SPACES[0].url;
+export const SPACE_PAGE = SPACES[0].page;
 
 /** About how long one try-on takes on the Space when nobody is ahead in the queue (measured 26 s at 30 steps). */
 export const PASS_MS = 26_000;
@@ -55,7 +84,9 @@ export const cancelledError = (): SpaceError => new SpaceError('Cancelled.', tru
  */
 export const NO_PROGRESS_MS = 120_000;
 export const PASS_LIMIT_MS = 10 * 60_000;
-const CONNECT_MS = 30_000;
+/** Per Space: a duplicate that doesn't answer in time hands over to FASHN's. */
+const CONNECT_EACH_MS = 20_000;
+const CONNECT_MS = CONNECT_EACH_MS * SPACES.length + 5_000;
 const DOWNLOAD_MS = 30_000;
 
 /** `promise`, unless `ms` pass first (rejects with `onTimeout()`) or `signal` aborts (rejects as cancelled). */
@@ -110,11 +141,27 @@ export function garmentUrl(url: string): string {
 
 type GradioClient = Awaited<ReturnType<typeof import('@gradio/client').Client.connect>>;
 let client: Promise<GradioClient> | null = null;
+/** The Space the open connection goes to (the privacy notes link the configured one; both are public demos). */
+export let connectedSpace: SpaceRef = SPACES[0];
 
+/** Connects to the first Space that answers (ours, then FASHN's). */
 function connect(): Promise<GradioClient> {
   if (!client) {
     client = import('@gradio/client')
-      .then(({ Client }) => Client.connect(SPACE_URL, { events: ['data', 'status'] }))
+      .then(async ({ Client }) => {
+        let lastError: unknown = null;
+        for (const space of SPACES) {
+          try {
+            const app = await within(Client.connect(space.url, { events: ['data', 'status'] }), CONNECT_EACH_MS, undefined, () => new Error(`${space.id}: connection timed out`));
+            connectedSpace = space;
+            return app;
+          } catch (err: unknown) {
+            console.warn(`[tryon] ${space.id} unreachable`, err);
+            lastError = err;
+          }
+        }
+        throw lastError;
+      })
       .catch((err: unknown) => {
         client = null; // try a fresh connection next time
         throw err;

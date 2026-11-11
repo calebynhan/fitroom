@@ -94,7 +94,8 @@ Jeans E479000-000 (22-34 inch) came in through the men's listing; removed from c
       fit/sizing.ts       size pick (chart, preference or reference garment), ease/length, comparison size + deltas
       fit/fitCard.ts      the fit card: two sizes on this body in numbers (cm or in)
       look/engine.ts      which engine makes the photos (VITE_PHOTO_ENGINE): useShotInput / makeShots / retryShot
-      tryon/space.ts      free engine: @gradio/client (lazy chunk) -> FASHN VTON v1.5 Space; errors in shopper words
+      tryon/space.ts      free engine: @gradio/client (lazy chunk) -> FASHN VTON v1.5 Space (ours, then FASHN's); errors in
+                          shopper words
       tryon/garment.ts    garment photo: UNIQLO's garment-only shot (goods_*) when it exists, else the catalogue photo;
                           flat-lay vs model judged from the top-centre backdrop
       tryon/composite.ts  sharper results: the shopper's photo above the new garment's top edge, the model below
@@ -112,7 +113,8 @@ Jeans E479000-000 (22-34 inch) came in through the men's listing; removed from c
     scripts/   Node/TS data scripts: catalog ingest, size-chart parsing -> web/public/catalog.json
     pipeline/  LEGACY (unused by the app): Python + bpy 3D mannequin and garments. See Legacy below.
 
-Env (Vercel + .env.local): VITE_PHOTO_ENGINE (build time: unset = free try-on Space, `openai` = the paid generator
+Env (Vercel + .env.local): VITE_TRYON_SPACE (build time: `owner/name` of our own duplicate of the FASHN Space; unset =
+FASHN's), VITE_PHOTO_ENGINE (build time: unset = free try-on Space, `openai` = the paid generator
 below), OPENAI_API_KEY (only for the openai engine), OPENAI_IMAGE_MODEL (default gpt-image-1.5),
 OPENAI_IMAGE_QUALITY (default medium), PHOTOREAL_DAILY_CAP (photos per warm instance per day, default 200),
 PHOTOREAL_DISABLED=1 (kill switch).
@@ -132,8 +134,12 @@ unauthenticated 2 GPU-minutes, free account 5, PRO 40; it resets 24 h after the 
 passes a day, then "You have exceeded your ZeroGPU runs limit". The Space belongs to FASHN (no SLA; they can pause or
 remove it). Free accounts in good standing (verified email, > 30 days old) can host 2 ZeroGPU Spaces, so a duplicate
 under our own account is the free way to control availability and get our own queue (visitors still use their quota).
+Own Space: on the FASHN Space page, menu (three dots) > Duplicate this Space, keep ZeroGPU and Public (the browser calls
+it without a token), then set VITE_TRYON_SPACE=<you>/<name> in Vercel (Production + Preview) and redeploy. The app tries
+ours first and falls back to FASHN's when ours doesn't connect within 20 s (sleeping, building, paused); a quota or busy
+error is not a reason to switch (the quota is the visitor's, on every Space).
 A quota error keeps any finished pass as a partial photo with a note and stops the remaining photos.
-Deadlines (tryon/space.ts): connect 30 s; a job is given up when there is no progress (no new queue position or stage)
+Deadlines (tryon/space.ts): connect 20 s per Space; a job is given up when there is no progress (no new queue position or stage)
 for 120 s or after 10 min in all, then `job.cancel()` and a retryable "taking too long"; result download 30 s; garment
 photo 15 s. A Cancel link on the developing frame aborts the run and frees the app. Changing or removing a photo drops
 every cached input holding the old one (tryon/shoot.ts, and the OpenAI `sessions`) and stops a run still using it;
