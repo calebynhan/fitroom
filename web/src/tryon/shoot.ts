@@ -3,7 +3,7 @@
 // One pass at a time (the Space runs one job at a time anyway). A quota error stops the rest: retrying would only
 // fail again until Hugging Face's allowance refills. Every run can be cancelled, and photos the shopper removed or
 // replaced are never sent again: their cached inputs are dropped and a run still using them is stopped.
-// Free GPU time is scarce (about 4 passes a day), so every finished pass is kept in memory: the same photo in the same
+// Free GPU time is scarce (about 3 passes a day), so every finished pass is kept in memory: the same photo in the same
 // top is reused when only the bottoms change, and a retry after a partial photo starts from the part that worked.
 // Paid try-ons (account/gate.ts): a look that needs GPU passes is charged first and given back if it makes no photo.
 import type { View } from '@api/look';

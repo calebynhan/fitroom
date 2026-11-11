@@ -70,7 +70,7 @@ the last step for every item is the same check on the live URL, on desktop and a
       offline (try-on needs the Space) and a cached shell would serve an old build after a deploy; Chromium installs
       without one (no installability errors, 2026-11-11). iOS gives a home-screen app its own storage, so measurements and
       saved outfits from Safari don't carry over. Phone check: Add to Home Screen, then a try-on and Download inside it.
-- [ ] Capacity: about 4 free passes per visitor per day on a Space we don't control. Done: passes reused, side photo on
+- [ ] Capacity: about 3 free passes per visitor per day on a Space we don't control. Done: passes reused, side photo on
       request, the allowance shown (Phase 6). Next: our own duplicate of the Space (VITE_TRYON_SPACE), a week of outcome
       counts, then maybe "Sign in with Hugging Face" (5 GPU-min instead of 2).
 
@@ -208,7 +208,7 @@ garment as photographed, not in their size, so size lives in the fit card (no si
 the look key: changing a size keeps the photo.
 Limits: the Space runs one job at a time for everyone (queue max 30). ZeroGPU daily quota (docs, 2026-11-10):
 unauthenticated 2 GPU-minutes, free account 5, PRO 40; it resets 24 h after the first use. Anonymous visitors get a few
-passes a day, then "You have exceeded your ZeroGPU runs limit". tryon/allowance.ts estimates it (4 passes a day from the
+passes a day, then "You have exceeded your ZeroGPU runs limit". tryon/allowance.ts estimates it (3 passes a day from the
 first pass, 0 after a quota error, back 24 h after the first pass; localStorage `fitroom.gpu.v1`) and says what a try-on
 costs before it starts; it is shared by everyone on the network, so only ever "about". The Space belongs to FASHN (no SLA; they can pause or
 remove it). Free accounts in good standing (verified email, > 30 days old) can host 2 ZeroGPU Spaces, so a duplicate
@@ -246,7 +246,14 @@ everything below the collar): legs under a new top, shoes, floor and the wall be
 blending was tried and mixed old and new garments (dark pants over dark jeans barely differ); a solid per-row region
 can't leave holes in the garment. Not fixable in the model, handled in the UI: no size (the "Your size" panel under the photos shows
 UNIQLO's photo for colour, the size and the fit card); blurry hands get redrawn and bags/straps removed, and dark pants
-over dark jeans barely show (photo tips). A blur detector (Laplacian variance) couldn't tell a motion-blurred selfie
+over dark jeans barely show (photo tips). Settings tested 2026-11-11 on the Space (owner's front photo; changed area,
+leak = change outside the garment's area, above-garment difference, colour dE): 30 vs 50 steps looked the same (sweater
+dE 1.6 vs 3.8) and 50 takes 1.6x the GPU (15.4 vs 9.7 s); segmentation_free false was no better (leak 0% either way,
+same identity scores, same look); a model-shot product photo cropped to the garment and sent as flat-lay was no better
+(tee dE 7.4 vs 4.1 as a model shot); and the model-shot photos of the Crew Neck T (cargo pants) and Slim Chino (jacket,
+shirt) were NOT copied with category tops / bottoms. So: 30 steps, segmentation_free true, model shots as `model`.
+Beige chinos come out ~15 L lighter than UNIQLO's photo (both settings). A free account's 5 GPU-minutes covered 8
+passes (~37 s each), so an anonymous visitor's 2 minutes is ~3 passes. A blur detector (Laplacian variance) couldn't tell a motion-blurred selfie
 (472) from a sharp photo (530), so there is none.
 **Generated (openai, paid)**: four views from /api/photoreal (below), size comparison shots, settings, 3 looks per visitor.
 
