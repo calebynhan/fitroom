@@ -79,11 +79,12 @@ export function looksLeft(usage: Usage): number {
 
 /**
  * Decides whether this visitor may start a photo now. `newLook` is true for the front shot, which must leave room
- * for all four photos of the look today, so nobody pays for a front whose angles can't be made.
+ * for all four photos of the look today, so nobody pays for a front whose angles can't be made. `visitorLimit`: apply
+ * the per-visitor cookie limit (off when paid try-ons are on: the person's looks are counted in the ledger instead).
  */
-export function check(usage: Usage, newLook: boolean): Verdict {
+export function check(usage: Usage, newLook: boolean, visitorLimit = true): Verdict {
   if (process.env.PHOTOREAL_DISABLED === '1') return { ok: false, status: 503, error: 'Photos are paused right now.', retryable: false };
-  if (newLook && usage.looks >= LOOK_LIMIT) {
+  if (visitorLimit && newLook && usage.looks >= LOOK_LIMIT) {
     return { ok: false, status: 429, error: `You have made all ${LOOK_LIMIT} looks. Thanks for trying FitRoom!`, retryable: false };
   }
   const d = today();

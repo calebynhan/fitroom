@@ -1,6 +1,8 @@
 // Shoots a look: the front first, then three-quarter, side and back at once, each given the finished front shot so
 // all four show the same person, outfit, shoes and light. Each view is its own request and can be retried alone.
 import { VIEWS, type LookFailure, type LookSuccess, type View } from '@api/look';
+import { useAccount } from '../account/store';
+import { trackAccount } from '../analytics';
 import type { Slot } from '../catalog/types';
 import { downscaleDataUrl } from '../photos/prepare';
 import { doneCount, useLooks, type ViewState } from '../state/looks';
@@ -57,7 +59,28 @@ function outcome(answer: Answer): ViewState {
   };
 }
 
+/** Paid try-ons: the server's view of the account, and the sign-in or buy dialog when it refused the look. */
+function billing(answer: Answer): void {
+  const account = useAccount.getState();
+  if (answer.account) account.setView(answer.account);
+  const code = 'code' in answer ? answer.code : undefined;
+  if (code === 'signin' || code === 'payment') {
+    account.openDialog({ kind: code === 'signin' ? 'signin' : 'buy' });
+    trackAccount('paywall', code === 'signin' ? 'signin' : 'buy');
+  }
+}
+
+/** Paid try-ons and nobody signed in: ask first, rather than send three photos to be refused. */
+function needsSignIn(): boolean {
+  const { view, openDialog } = useAccount.getState();
+  if (!view?.billing || view.user) return false;
+  openDialog({ kind: 'signin' });
+  trackAccount('paywall', 'signin');
+  return true;
+}
+
 function report(key: string, view: View, answer: Answer): answer is LookSuccess {
+  billing(answer);
   const looks = useLooks.getState();
   looks.setRemaining(typeof answer.remaining === 'number' ? answer.remaining : null);
   const state = outcome(answer);
@@ -108,6 +131,7 @@ export function makeLook(): Promise<void> {
   const input = lookInput(useApp.getState());
   if (!input.ready) return Promise.resolve();
   const { key, base, caption } = input;
+  if (needsSignIn()) return Promise.resolve();
   return exclusive(key, async () => {
     const previous = useLooks.getState().looks[key];
     const previousSession = sessions.get(key);

@@ -10,6 +10,18 @@
     },
     "api/photoreal.ts": {
       "maxDuration": 120
+    },
+    "api/account.ts": {
+      "maxDuration": 15
+    },
+    "api/credits.ts": {
+      "maxDuration": 15
+    },
+    "api/checkout.ts": {
+      "maxDuration": 25
+    },
+    "api/stripe.ts": {
+      "maxDuration": 15
     }
   },
   "rewrites": [

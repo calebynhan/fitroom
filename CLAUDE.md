@@ -17,7 +17,8 @@ broken.
 - **Their photos are theirs.** Photos stay in browser memory (never localStorage) and are never stored or logged by
   FitRoom. Try-on engine: they go from the browser straight to the public FASHN Space, which keeps uploads on its
   server for a while (Gradio's file cache, outside our control); the UI says so. OpenAI engine: they pass through
-  /api/photoreal to OpenAI. Only photos of yourself (the UI says so).
+  /api/photoreal to OpenAI. Only photos of yourself (the UI says so). Paid try-ons (when on) keep a Google account id,
+  email and look counts in the ledger; never photos or outfits.
 - **Every feature works on the live URL, on desktop and mobile**, with real error messages instead of silent failures.
 - **Black-and-white, Banana Republic-style design.** Use the FitRoom design system:
   paper #FFFFFF, bone #F4F1EC, stone #E4DFD6, hairline #D6D1C8, ink #111111, graphite #3A3835, muted #6F6A63,
@@ -62,6 +63,11 @@ the last step for every item is the same check on the live URL, on desktop and a
 - [ ] Capacity: about 4 free passes per visitor per day on a Space we don't control. Done: passes reused, side photo on
       request, the allowance shown (Phase 6). Next: our own duplicate of the Space (VITE_TRYON_SPACE), a week of outcome
       counts, then maybe "Sign in with Hugging Face" (5 GPU-min instead of 2).
+
+**Paid try-ons** (2026-11-11; off until configured, see Paid try-ons below)
+- [x] 5 free looks per person (Google account), then a pack (default 20 for $4.99) on Stripe Checkout; the owner's account
+      and BILLING_EXEMPT_EMAILS never pay. Built and checked in a browser on a local build (in-memory ledger, Stripe and
+      Google faked); not yet configured on Vercel, so not checked on the live URL.
 
 **Paid generator only** (VITE_PHOTO_ENGINE=openai): four shots per look (front, three-quarter, side, back) with settings
 (Studio / City / Night) and a free size-comparison front shot; /api/photoreal rate-limited (3 looks per visitor cookie, 48
@@ -119,11 +125,18 @@ Jeans E479000-000 (22-34 inch) came in through the men's listing; removed from c
                           shootCompare = the front again with one item in its comparison size
       state/looks.ts      photos per look key (revisiting an outfit costs nothing), each look's views (`order`),
                           busy flag, looks left
-      analytics.ts        Vercel Web Analytics (production builds only) + try-on outcome events; never photos or outfits
+      account/            paid try-ons: store.ts (AccountView, dialog, sign in/out), gate.ts (charge a look before a try-on,
+                          give it back if it made no photo), google.ts (Google Sign-In, lazy), checkout.ts (Stripe in a
+                          new tab, return tab, BroadcastChannel), api.ts
+      analytics.ts        Vercel Web Analytics (production builds only) + try-on outcome and account step events; never
+                          photos, outfits or emails
       ui/                 Header (Make my shots, How it works), Lookbook (4 frames + Lightbox + Compare sizes), FitTable,
                           Photo/Measure/Fit/Outfit/Scene/About sections, SavedOutfits,
-                          TryOnBudget (allowance note, "Try your side photo too")
-    api/       Vercel functions: /api/product, /api/photoreal (shared contract: api/_lib/look.ts)
+                          TryOnBudget (allowance note, credit note, "Try your side photo too"), AccountSection (rail),
+                          AccountDialog (sign in / buy / waiting / thanks), GoogleButton
+    api/       Vercel functions: /api/product, /api/photoreal (shared contract: api/_lib/look.ts), /api/account,
+               /api/credits, /api/checkout, /api/stripe (paid try-ons: api/_lib/billing.ts, account.ts, ledger.ts,
+               session.ts, googleToken.ts, stripe.ts; browser-facing types in accountTypes.ts)
     scripts/   Node/TS data scripts: catalog ingest, size-chart parsing -> web/public/catalog.json
     pipeline/  LEGACY (unused by the app): Python + bpy 3D mannequin and garments. See Legacy below.
 
@@ -131,7 +144,11 @@ Env (Vercel + .env.local): VITE_TRYON_SPACE (build time: `owner/name` of our own
 FASHN's), VITE_PHOTO_ENGINE (build time: unset = free try-on Space, `openai` = the paid generator
 below), OPENAI_API_KEY (only for the openai engine), OPENAI_IMAGE_MODEL (default gpt-image-1.5),
 OPENAI_IMAGE_QUALITY (default medium), PHOTOREAL_DAILY_CAP (photos per warm instance per day, default 200),
-PHOTOREAL_DISABLED=1 (kill switch).
+PHOTOREAL_DISABLED=1 (kill switch). Paid try-ons (server, runtime; .env.example): GOOGLE_CLIENT_ID, SESSION_SECRET (32+
+chars), KV_REST_API_URL + KV_REST_API_TOKEN (or UPSTASH_REDIS_REST_URL/_TOKEN), STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET,
+FREE_LOOKS (5), PACK_LOOKS (20), PACK_PRICE_CENTS (499), PACK_CURRENCY (usd), STRIPE_PRICE_ID (optional),
+BILLING_EXEMPT_EMAILS (comma-separated), APP_URL (Stripe return links; default the request's host), BILLING_DISABLED=1
+(kill switch). vite dev reads these from ../.env.local.
 
 ## Photo engines
 **Try-on (default, free)**: FASHN VTON v1.5 (Apache-2.0) on https://huggingface.co/spaces/fashn-ai/fashn-vton-1.5,
@@ -182,6 +199,43 @@ UNIQLO's photo for colour, the size and the fit card); blurry hands get redrawn 
 over dark jeans barely show (photo tips). A blur detector (Laplacian variance) couldn't tell a motion-blurred selfie
 (472) from a sharp photo (530), so there is none.
 **Generated (openai, paid)**: four views from /api/photoreal (below), size comparison shots, settings, 3 looks per visitor.
+
+## Paid try-ons
+Every person gets FREE_LOOKS (5) free looks, then buys a pack (PACK_LOOKS for PACK_PRICE_CENTS) on Stripe Checkout.
+**A look** = a new outfit on your photo, or the same outfit with one piece changed: one charge per look id. Free: the same
+look again (Try On Again, Retry, a reshoot), the side photo of a look, and any try-on whose passes are all already made
+(passesNeeded = 0). A look that makes no photo (failed, cancelled, out of GPU time) is given back; a partial photo keeps
+the charge and its retry is free. **A person** = a Google account (Sign in with Google; the session is a signed HttpOnly
+cookie, `fr_session`, Path=/api, 30 days). **Never pays**: the owner's account (built in as a SHA-256 of the email in
+api/_lib/billing.ts, so the address isn't in the repo) and BILLING_EXEMPT_EMAILS; they see "Unlimited", no buy button.
+**Off unless configured**: GOOGLE_CLIENT_ID + SESSION_SECRET + a ledger (Upstash on Vercel; in memory off Vercel, i.e. vite
+dev and tests). Off = the app as before: no sign-in, no counts, /api/credits always ok. Without STRIPE_SECRET_KEY the free
+looks still count and the paywall says buying isn't open yet.
+**Enforcement**: the free try-on runs in the browser against a public Space, so the gate (web/src/account/gate.ts) is an
+honest shopper's gate, not a lock (devtools or the Space's own page get around it). /api/photoreal enforces it on the
+server (a new look needs a session and a look; charged before the OpenAI call, given back if it fails; the visitor cookie
+limit is off while billing is on). Paying does not buy GPU time: try-ons still run on the visitor's Hugging Face allowance
+(a few a day), and the buy dialog says so. Real capacity for paying shoppers needs our own GPU (a paid Space or FASHN's
+API) before the price is worth it.
+**Ledger** (api/_lib/ledger.ts, Upstash REST + one Lua script per change; tested against a real redis-server when one is
+installed): per Google `sub`, hash `fr:{sub}:user` { free (used), credits (paid left), bought, email }, hash
+`fr:{sub}:looks` { look id -> "free|paid:<ms>" } (90 days), `fr:{sub}:paid:<checkout session id>` (one credit per
+payment, 400 days). Refunds only within 15 min of the charge. Browser look ids = base64url SHA-256 of the front photo +
+garment images (43 chars); /api/photoreal's are `p:<lookDigest>`, which /api/credits can't name.
+**Buying**: Checkout opens in a new tab (photos live only in this tab); Stripe returns that tab to
+`/?checkout=done&session_id=...`, which confirms the session (POST /api/checkout confirm) and tells the first tab over
+BroadcastChannel `fitroom-account`; the first tab also polls GET /api/account every 4 s while its dialog waits, and on
+focus. The webhook (/api/stripe) credits the same session if nobody comes back; a session counts once either way.
+Pop-ups blocked: Checkout opens in the same tab (the leave warning fires).
+Set up (owner): (1) Google Cloud console > APIs & Services > Credentials > OAuth client ID (Web); Authorized JavaScript
+origins: https://fitroom-woad.vercel.app, http://localhost:5173, http://localhost (preview URLs need adding to sign in
+there) -> GOOGLE_CLIENT_ID. (2) Vercel > Storage / Marketplace > Upstash for Redis, connect to the project (sets
+KV_REST_API_*). (3) SESSION_SECRET = `openssl rand -base64 32`. (4) Stripe: STRIPE_SECRET_KEY (test key first); Developers
+> Webhooks > https://fitroom-woad.vercel.app/api/stripe, events checkout.session.completed +
+checkout.session.async_payment_succeeded -> STRIPE_WEBHOOK_SECRET. (5) Set them for Production (+ Preview), redeploy,
+then check sign-in, a free look, the paywall and a test-card purchase (4242 4242 4242 4242) on the live URL, desktop
+and phone. UNIQLO's content is used for a non-commercial demo (Conventions): charging makes it commercial, so settle that
+first (the About section drops "non-commercial demo" while billing is on).
 
 ## Contracts
 **Catalog item** (web/public/catalog.json `{ source, generatedAt, items }` and the /api/product response):
@@ -238,6 +292,18 @@ detail?, retryable, remaining? }`.
   exactly as its product photo with size and fit on this body; plain white sneakers; per-view direction; setting; no
   logos or text. Never call the person a "model" or the shot a "product page": it pulls the face toward a generic one.
 
+**GET /api/account** -> AccountView (api/_lib/accountTypes.ts): `{ billing, googleClientId, freeLooks, pack: { looks,
+price: "$4.99" } | null, user: { email, exempt, freeUsed, credits, left: number | null (unlimited) } | null }`.
+**POST /api/account** `{ action: "signin", credential }` (Google ID token: RS256 against Google's JWKS, aud =
+GOOGLE_CLIENT_ID, verified email) -> AccountView + `fr_session` cookie; `{ action: "signout" }` clears it.
+**POST /api/credits** `{ action: "charge" | "refund", look }` -> `{ ok, charged, account }`; 401 `code: signin`, 402
+`code: payment` (with `account`), 400 bad_input, 429, 503 unavailable. Billing off: always `{ ok: true }`.
+**POST /api/checkout** `{ action: "start" }` -> `{ url }` (Stripe Checkout, mode payment, client_reference_id = sub,
+metadata { looks, email }, priced on the server); `{ action: "confirm", sessionId }` -> `{ added, account }` (403 another
+account's, 409 not paid). **POST /api/stripe**: Stripe webhook (signature checked, 5 min tolerance).
+/api/photoreal with billing on: 401/402 with `code` and `account`; successes carry `account`; `remaining` is the old
+cookie count, ignored by the client.
+
 **Share link / saved outfits** (web/src/outfit/): `/?top=<ID>.<colour code>[.<size>]&bottom=...&scene=studio|city|night`,
 e.g. `?top=E453754-000.67.S&bottom=E475598-000.09`; the size only when hand-picked (the recipient gets their own). Never
 photos or measurements. On load (after the catalog) items outside catalog.json are fetched via /api/product, unknown
@@ -292,6 +358,7 @@ every value they offer is accepted. (5) Colourways sharing a name show UNIQLO's 
 | Try-on photo cropped (feet cut off) | frames were fixed at 2:3, results are the shopper's 9:16 | finished frames take the photo's own shape (.frame-done) |
 | UNIQLO API: HTTP/2 INTERNAL_ERROR / timeouts from a cloud session | UNIQLO blocks those IPs (it answers Vercel and home connections) | run `npm run catalog` locally |
 | Every deploy uploads 57 MB of unused 3D assets | web/public is copied into dist | .vercelignore excludes web/public/{hdri,models,garments} |
+| Test files in api/ deployed as functions (Hobby allows 12 per deployment) | Vercel makes every file in api/ a function | .vercelignore excludes api/**/*.test.ts |
 
 ## Commands
     cd web && npm run dev          # frontend + /api (vite serves api/*.ts; reads OPENAI_API_KEY from ../.env.local)

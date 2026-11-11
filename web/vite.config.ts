@@ -18,7 +18,9 @@ function devApi(): Plugin {
     name: 'fitroom-dev-api',
     configureServer(server) {
       const env = loadEnv('development', REPO_ROOT, '');
-      if (env.OPENAI_API_KEY && !process.env.OPENAI_API_KEY) process.env.OPENAI_API_KEY = env.OPENAI_API_KEY;
+      // Server-side settings from ../.env.local for the functions (the shell's own environment wins).
+      const SERVER_ENV = /^(OPENAI_API_KEY|GOOGLE_CLIENT_ID|SESSION_SECRET|STRIPE_\w+|FREE_LOOKS|PACK_\w+|BILLING_\w+|KV_REST_API_\w+|UPSTASH_REDIS_REST_\w+|APP_URL)$/;
+      for (const [k, v] of Object.entries(env)) if (SERVER_ENV.test(k) && v && !process.env[k]) process.env[k] = v;
 
       server.middlewares.use(async (req, res, next) => {
         const match = req.url?.match(/^\/api\/([a-z]+)(?:\?|$)/);

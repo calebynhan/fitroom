@@ -1,3 +1,4 @@
+import { leftText, useAccount } from '../account/store';
 import { doneCount, useLooks } from '../state/looks';
 import { makeShots, TRY_ON, useShotInput } from '../look/engine';
 import { lookProgress, useNow } from './progress';
@@ -30,7 +31,9 @@ function ShootButton() {
   const remaining = useLooks((s) => s.remaining);
   const busyDone = useLooks((s) => (s.busy ? doneCount(s.looks[s.busy]) : 0));
   const busyTotal = useLooks((s) => (s.busy ? (s.looks[s.busy]?.order.length ?? 0) : 0));
-  const outOfLooks = remaining !== null && remaining <= 0;
+  const paid = useAccount((s) => s.view?.billing === true);
+  // The visitor cookie limit (paid generator) only applies while paid try-ons are off.
+  const outOfLooks = !paid && remaining !== null && remaining <= 0;
 
   const again = doneCount(look) > 0;
   let label = TRY_ON ? (again ? 'Try On Again' : 'Try It On') : again ? 'Shoot Again' : 'Make My Shots';
@@ -77,8 +80,22 @@ function ProgressLine() {
   );
 }
 
+/** Try-ons left (paid try-ons on), or "Sign in"; either one opens the rail's account section. */
+function AccountChip() {
+  const view = useAccount((s) => s.view);
+  if (!view?.billing) return null;
+  const user = view.user;
+  if (user?.exempt) return null;
+  return (
+    <a className="link-btn account-chip" href="#account">
+      {user ? leftText(user, view.freeLooks, true) : 'Sign in'}
+    </a>
+  );
+}
+
 export function Header() {
   const remaining = useLooks((s) => s.remaining);
+  const paid = useAccount((s) => s.view?.billing === true);
   return (
     <header className="topbar">
       <div className="wordmark" translate="no">
@@ -88,7 +105,8 @@ export function Header() {
         <a className="link-btn about-link" href="#about">
           How it works
         </a>
-        {!TRY_ON && remaining !== null && (
+        <AccountChip />
+        {!TRY_ON && !paid && remaining !== null && (
           <span className="eyebrow muted looks-left">
             {remaining} {remaining === 1 ? 'look' : 'looks'} left
           </span>
