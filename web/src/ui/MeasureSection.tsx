@@ -7,7 +7,8 @@ import {
   fromDisplay,
   fromFeetInches,
   inRange,
-  LIMITS,
+  displayRange,
+  heightRangeFeet,
   REFERENCE,
   toDisplay,
   toFeetInches,
@@ -95,13 +96,12 @@ function NumberBox({ id, name, describedBy, value, placeholder, label, suffix, i
 }
 
 function rangeText(key: MeasureKey, units: Units): string {
-  const [min, max] = LIMITS[key];
   if (key === 'heightCm' && units === 'imperial') {
-    const lo = toFeetInches(min);
-    const hi = toFeetInches(max);
+    const [lo, hi] = heightRangeFeet();
     return `${lo.ft}'${lo.in}" to ${hi.ft}'${hi.in}"`;
   }
-  return `${toDisplay(key, min, units)}–${toDisplay(key, max, units)} ${unitLabel(key, units)}`;
+  const [lo, hi] = displayRange(key, units);
+  return `${lo}–${hi} ${unitLabel(key, units)}`;
 }
 
 function useMeasure(key: MeasureKey) {
@@ -245,6 +245,8 @@ export function MeasureSection() {
   const setProfile = useApp((s) => s.setProfile);
   const est = inRange('heightCm', profile.heightCm) && inRange('weightKg', profile.weightKg) ? estimate(profile.heightCm, profile.weightKg) : null;
   const estimated = est && (['chestCm', 'waistCm', 'hipsCm', 'inseamCm'] as const).some((k) => profile[k] === null);
+  // chest decides tops and waist decides pants: the two worth a tape measure
+  const deciding = (['chestCm', 'waistCm'] as const).filter((k) => profile[k] === null).map((k) => (k === 'chestCm' ? 'chest' : 'waist'));
 
   return (
     <section className="rail-section" id="measure" aria-labelledby="measure-title">
@@ -270,9 +272,11 @@ export function MeasureSection() {
         ))}
       </div>
       <p className="note">
-        {estimated
-          ? 'Blank measurements are estimated from your height and weight (≈). Tape-measure them for a truer fit.'
-          : 'Chest, waist, hips and inseam are optional: leave them blank and they are estimated from your height and weight.'}
+        {!estimated
+          ? 'Chest, waist, hips and inseam are optional: leave them blank and they are estimated from your height and weight.'
+          : deciding.length
+            ? `Blank measurements are estimated from your height and weight (≈), often a size off. Measuring your ${deciding.join(' and ')} (2 minutes with a tape) settles most sizes.`
+            : 'Blank measurements are estimated from your height and weight (≈). Tape-measure them for a truer fit.'}
       </p>
     </section>
   );
@@ -289,6 +293,10 @@ function referenceFeedback(slot: 'top' | 'bottom', garmentCm: number | undefined
   if (room < 0) {
     return `${what} ${measure} ${formatLength(-room, units)} less around the ${where} than you do. Check ${slot === 'top' ? 'it was' : 'they were'} laid flat and measured straight across.`;
   }
+  // more than double the most oversized fit: almost always measured all the way round instead of flat
+  if (room > 50) {
+    return `${what} would give you ${formatLength(room, units)} of room at the ${where}, far more than any fit. Lay ${slot === 'top' ? 'it' : 'them'} flat and measure straight across the front only, not all the way around.`;
+  }
   return `${what} ${give} you ${formatLength(room, units)} of room at the ${where}: a ${easeOfRoom(slot, room)} fit. Sizes are matched to it.`;
 }
 
@@ -299,6 +307,8 @@ export function FitSection() {
   const prefs = fitPrefs(profile);
   const body = completeBody(profile);
   const hasRef = REFERENCE.some((k) => profile[k] !== null);
+  // open when there are measurements, then the shopper's to close: clearing the last field must not snap it shut
+  const [refOpen, setRefOpen] = useState(hasRef);
   const topFeedback = referenceFeedback('top', prefs.top.chestCm, body?.chestCm, profile.units);
   const bottomFeedback = referenceFeedback('bottom', prefs.bottom.hipsCm, body?.hipsCm, profile.units);
 
@@ -327,7 +337,7 @@ export function FitSection() {
         {prefRow('top', 'Tops')}
         {prefRow('bottom', 'Bottoms')}
       </div>
-      <details className="ref-garment" open={hasRef}>
+      <details className="ref-garment" open={refOpen} onToggle={(e) => setRefOpen(e.currentTarget.open)}>
         <summary>
           Measure clothes that fit you well <span className="field-opt">optional</span>
         </summary>

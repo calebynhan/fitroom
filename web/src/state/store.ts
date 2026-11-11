@@ -27,6 +27,8 @@ interface AppState {
   setColor: (slot: Slot, colorCode: string) => void;
   setSize: (slot: Slot, size: string | undefined) => void;
   setScene: (scene: SceneId) => void;
+  /** Wears a saved or shared outfit (slots it leaves out stay as they are). Returns the slots it could apply. */
+  applyOutfit: (outfit: Partial<Record<Slot, Selection>>, scene?: SceneId) => Slot[];
   setProfile: (patch: Partial<Profile>) => void;
   setPhoto: (slot: PhotoSlot, photo: PreparedPhoto | null) => void;
 }
@@ -50,15 +52,21 @@ function isSelection(v: unknown): v is Selection {
   return !!s && typeof s.itemId === 'string' && typeof s.colorCode === 'string' && (s.size === undefined || typeof s.size === 'string');
 }
 
-/** A saved selection still valid against the catalog, else the default item for the slot. */
+/** `selection` checked against the catalog: null if the item is gone or in the other slot; an unknown colour becomes
+ * the item's first, an unknown size is dropped (the shopper's own size is picked instead). */
+export function validSelection(items: CatalogItem[], selection: unknown, slot: Slot): Selection | null {
+  if (!isSelection(selection)) return null;
+  const item = items.find((i) => i.id === selection.itemId && i.slot === slot);
+  if (!item || item.colors.length === 0) return null;
+  const colorCode = item.colors.some((c) => c.code === selection.colorCode) ? selection.colorCode : item.colors[0].code;
+  const sizeOk = selection.size !== undefined && Array.isArray(item.sizes) && item.sizes.includes(selection.size);
+  return { itemId: item.id, colorCode, ...(sizeOk ? { size: selection.size } : {}) };
+}
+
+/** A saved selection still valid against the catalog (same colour), else the default item for the slot. */
 function resolveSelection(items: CatalogItem[], saved: unknown, id: string, slot: Slot): Selection | null {
-  if (isSelection(saved)) {
-    const item = items.find((i) => i.id === saved.itemId && i.slot === slot);
-    if (item?.colors.some((c) => c.code === saved.colorCode)) {
-      const sizeOk = saved.size !== undefined && Array.isArray(item.sizes) && item.sizes.includes(saved.size);
-      return { itemId: saved.itemId, colorCode: saved.colorCode, ...(sizeOk ? { size: saved.size } : {}) };
-    }
-  }
+  const valid = validSelection(items, saved, slot);
+  if (valid && isSelection(saved) && valid.colorCode === saved.colorCode) return valid;
   const item = items.find((i) => i.id === id) ?? items.find((i) => i.slot === slot);
   if (!item) return null;
   const preferred = item.colors.find((c) => c.code === DEFAULT_COLORS[item.id]);
@@ -67,7 +75,7 @@ function resolveSelection(items: CatalogItem[], saved: unknown, id: string, slot
 
 const saved = loadSaved();
 
-export const useApp = create<AppState>()((set) => ({
+export const useApp = create<AppState>()((set, get) => ({
   catalog: [],
   outfit: { top: null, bottom: null },
   scene: SCENE_IDS.includes(saved.scene as SceneId) ? (saved.scene as SceneId) : DEFAULT_SCENE,
@@ -97,6 +105,20 @@ export const useApp = create<AppState>()((set) => ({
       return current ? { outfit: { ...s.outfit, [slot]: { ...current, size } } } : {};
     }),
   setScene: (scene) => set({ scene }),
+  applyOutfit: (outfit, scene) => {
+    const { catalog } = get();
+    const next = { ...get().outfit };
+    const applied: Slot[] = [];
+    for (const slot of ['top', 'bottom'] as const) {
+      const valid = outfit[slot] ? validSelection(catalog, outfit[slot], slot) : null;
+      if (valid) {
+        next[slot] = valid;
+        applied.push(slot);
+      }
+    }
+    set({ outfit: next, ...(scene && SCENE_IDS.includes(scene) ? { scene } : {}) });
+    return applied;
+  },
   setProfile: (patch) => set((s) => ({ profile: { ...s.profile, ...patch } })),
   setPhoto: (slot, photo) => set((s) => ({ photos: { ...s.photos, [slot]: photo }, photoVersion: s.photoVersion + 1 })),
 }));

@@ -44,7 +44,7 @@ broken.
 
 **Experience**
 - [ ] Mix tops and bottoms; settings (Studio / City / Night).
-- [ ] Save outfits; share an outfit by link (state encoded in the URL; never the photos).
+- [x] Save outfits; share an outfit by link (state encoded in the URL; never the photos).
 - [ ] Mobile layout: photos on top, controls below (bottom sheet later).
 
 **Production**
@@ -52,7 +52,10 @@ broken.
       200 per instance per day, both in memory per warm instance, so best effort; next: shared counters (Vercel KV /
       Upstash) and a hard monthly budget on the OpenAI project; verify on the live URL).
 - [ ] Error handling on every API call; loading states.
-- [ ] OG image + metadata, Vercel Analytics, a short About / how-it-works section.
+- [x] OG image + metadata (web/index.html, web/public/og.png 1200x630, favicon.svg), Vercel Analytics (web/src/analytics.ts:
+      page views without cookies, URLs stripped of query/hash; a `tryon` event per photo { outcome ok|partial|quota|busy|
+      timeout|unreachable|cancelled|photo|error, reason, view, garments, seconds } (custom events need Vercel Pro; on Hobby
+      only page views count); Web Analytics must be enabled in the Vercel project), About / how-it-works (ui/AboutSection).
 
 ## Default body (Caleb)
 5'10" (178 cm), 143 lb (65 kg), chest 92 cm, waist 75 cm (29"), hips 90 cm, inseam 84 cm. Slim, slight V-taper.
@@ -91,23 +94,27 @@ Jeans E479000-000 (22-34 inch) came in through the men's listing; removed from c
       fit/sizing.ts       size pick (chart, preference or reference garment), ease/length, comparison size + deltas
       fit/fitCard.ts      the fit card: two sizes on this body in numbers (cm or in)
       look/engine.ts      which engine makes the photos (VITE_PHOTO_ENGINE): useShotInput / makeShots / retryShot
-      tryon/space.ts      free engine: @gradio/client (lazy chunk) -> FASHN VTON v1.5 Space; errors in shopper words
+      tryon/space.ts      free engine: @gradio/client (lazy chunk) -> FASHN VTON v1.5 Space (ours, then FASHN's); errors in
+                          shopper words
       tryon/garment.ts    garment photo: UNIQLO's garment-only shot (goods_*) when it exists, else the catalogue photo;
                           flat-lay vs model judged from the top-centre backdrop
       tryon/composite.ts  sharper results: the shopper's photo above the new garment's top edge, the model below
       tryon/shoot.ts      per photo: top, then bottoms on that result; partial photo kept; quota stops the rest
+      outfit/             share links (share.ts), saved outfits (saved.ts), wearing either (load.ts)
       look/request.ts     app state -> the request every view shares + a key (same key = same photos)
       look/shoot.ts       front first, then three-quarter / side / back in parallel with the front shot attached;
                           shootCompare = the front again with one item in its comparison size
       state/looks.ts      photos per look key (revisiting an outfit costs nothing), each look's views (`order`),
                           busy flag, looks left
-      ui/                 Header (Make my shots), Lookbook (4 frames + Lightbox + Compare sizes), FitTable,
-                          Photo/Measure/Fit/Outfit/Scene sections
+      analytics.ts        Vercel Web Analytics (production builds only) + try-on outcome events; never photos or outfits
+      ui/                 Header (Make my shots, How it works), Lookbook (4 frames + Lightbox + Compare sizes), FitTable,
+                          Photo/Measure/Fit/Outfit/Scene/About sections, SavedOutfits
     api/       Vercel functions: /api/product, /api/photoreal (shared contract: api/_lib/look.ts)
     scripts/   Node/TS data scripts: catalog ingest, size-chart parsing -> web/public/catalog.json
     pipeline/  LEGACY (unused by the app): Python + bpy 3D mannequin and garments. See Legacy below.
 
-Env (Vercel + .env.local): VITE_PHOTO_ENGINE (build time: unset = free try-on Space, `openai` = the paid generator
+Env (Vercel + .env.local): VITE_TRYON_SPACE (build time: `owner/name` of our own duplicate of the FASHN Space; unset =
+FASHN's), VITE_PHOTO_ENGINE (build time: unset = free try-on Space, `openai` = the paid generator
 below), OPENAI_API_KEY (only for the openai engine), OPENAI_IMAGE_MODEL (default gpt-image-1.5),
 OPENAI_IMAGE_QUALITY (default medium), PHOTOREAL_DAILY_CAP (photos per warm instance per day, default 200),
 PHOTOREAL_DISABLED=1 (kill switch).
@@ -127,8 +134,12 @@ unauthenticated 2 GPU-minutes, free account 5, PRO 40; it resets 24 h after the 
 passes a day, then "You have exceeded your ZeroGPU runs limit". The Space belongs to FASHN (no SLA; they can pause or
 remove it). Free accounts in good standing (verified email, > 30 days old) can host 2 ZeroGPU Spaces, so a duplicate
 under our own account is the free way to control availability and get our own queue (visitors still use their quota).
+Own Space: on the FASHN Space page, menu (three dots) > Duplicate this Space, keep ZeroGPU and Public (the browser calls
+it without a token), then set VITE_TRYON_SPACE=<you>/<name> in Vercel (Production + Preview) and redeploy. The app tries
+ours first and falls back to FASHN's when ours doesn't connect within 20 s (sleeping, building, paused); a quota or busy
+error is not a reason to switch (the quota is the visitor's, on every Space).
 A quota error keeps any finished pass as a partial photo with a note and stops the remaining photos.
-Deadlines (tryon/space.ts): connect 30 s; a job is given up when there is no progress (no new queue position or stage)
+Deadlines (tryon/space.ts): connect 20 s per Space; a job is given up when there is no progress (no new queue position or stage)
 for 120 s or after 10 min in all, then `job.cancel()` and a retryable "taking too long"; result download 30 s; garment
 photo 15 s. A Cancel link on the developing frame aborts the run and frees the app. Changing or removing a photo drops
 every cached input holding the old one (tryon/shoot.ts, and the OpenAI `sessions`) and stops a run still using it;
@@ -207,6 +218,13 @@ detail?, retryable, remaining? }`.
   exactly as its product photo with size and fit on this body; plain white sneakers; per-view direction; setting; no
   logos or text. Never call the person a "model" or the shot a "product page": it pulls the face toward a generic one.
 
+**Share link / saved outfits** (web/src/outfit/): `/?top=<ID>.<colour code>[.<size>]&bottom=...&scene=studio|city|night`,
+e.g. `?top=E453754-000.67.S&bottom=E475598-000.09`; the size only when hand-picked (the recipient gets their own). Never
+photos or measurements. On load (after the catalog) items outside catalog.json are fetched via /api/product, unknown
+colours fall back to the item's first, unknown sizes are dropped, and the params are stripped from the URL. Saved
+outfits: localStorage `fitroom.saved.v1`, newest first, max 20, `{ id, name, outfit, scene, savedAt }`. Share uses the
+native share sheet on touch devices, else the clipboard.
+
 **Size recommendation** (web/src/fit/sizing.ts): the chart size is the smallest size whose body ranges cover the user's. Tops go by
 chest, plus waist only when the user typed one (an ANSUR estimate, SD 4.4 cm, must not push a size up); bottoms go
 by waist (estimated if blank), plus hips only when typed. If no size covers the body, the largest is shown as "Runs
@@ -222,6 +240,15 @@ preference: the size whose garment chest (+0.5 × length diff) or hips (+0.3 × 
 when no size covers the body. Comparison size (`sizePair`): a hand-picked size vs the pick; the pick vs the chart size
 when they differ, else the next size up (or down at the top). Profile keys (localStorage `fitroom.profile.v1`):
 fitTop, fitBottom, refTopChestFlatCm, refTopLengthCm, refBottomHipsFlatCm, refBottomInseamCm.
+Honesty rules (Phase 2, 2026-11-10): (1) Borderline: when the deciding measurement (tops chest, pants waist) is an
+estimate and the pick changes within +-1 SD of it (3.2 / 4.4 cm, the ANSUR residuals), the advice says "Between S and M:
+your chest is estimated. Likely an S; measure your chest to be sure" (more than three sizes: "Anywhere from 28" waist to
+32" waist"), compares with the other likely size, and links to the field (`borderline` on SizeAdvice; 78% of tops and
+84% of pants for height + weight only). Never for typed measurements or a measured garment. (2) Stretch: a garment
+smaller than a body inside the size's own range is "stretches 2 cm / snug by design", "N cm tight" only when the body is
+over the range. (3) A measured garment more than 10 cm beyond every size of the item is ignored for the pick (measured
+all the way round instead of flat), and the Fit section says so for > 50 cm of room. (4) Range hints round inward so
+every value they offer is accepted. (5) Colourways sharing a name show UNIQLO's code: "Blue (67)".
 
 ## Pitfalls (learned so far)
 | Symptom | Cause | Fix |

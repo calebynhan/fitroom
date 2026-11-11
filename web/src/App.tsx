@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
 import { TRY_ON } from './look/engine';
 import { parseCatalog } from './catalog/types';
+import { loadOutfitFromUrl } from './outfit/load';
 import { hasUnsavedPhotos, useLooks } from './state/looks';
 import { useApp } from './state/store';
+import { AboutSection } from './ui/AboutSection';
 import { Header } from './ui/Header';
 import { Lookbook } from './ui/Lookbook';
 import { FitSection, MeasureSection } from './ui/MeasureSection';
@@ -26,7 +28,8 @@ function useCatalogLoader(): string | null {
       .catch((err: unknown) => {
         console.error('[catalog] failed to load', err);
         setError('Could not load the bestsellers. Paste a UNIQLO link instead.');
-      });
+      })
+      .finally(() => void loadOutfitFromUrl()); // a shared link's items are fetched even without the catalog
   }, [setCatalog]);
   return error;
 }
@@ -55,7 +58,8 @@ export function App() {
       </a>
       <Header />
       <main className="stage">
-        <section className="lookbook-pane" aria-label="Your photos">
+        {/* focusable: it scrolls on its own, so keyboard users must be able to reach it (axe scrollable-region-focusable) */}
+        <section className="lookbook-pane" aria-label="Lookbook" tabIndex={0}>
           <Lookbook />
         </section>
         <aside className="rail" aria-label="Controls">
@@ -64,6 +68,7 @@ export function App() {
           <FitSection />
           <OutfitSection loadError={catalogError} />
           {!TRY_ON && <SceneSection />}
+          <AboutSection />
         </aside>
       </main>
     </div>

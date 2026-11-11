@@ -2,7 +2,7 @@
 // the way generated pixels can, so the card keeps the size comparison honest even when a photo blurs it.
 import { CM_PER_IN, type SizingBody, type SlotPrefs, type Units } from '../body/profile';
 import type { CatalogItem, SizeSpec } from '../catalog/types';
-import { easeFor, formatSize } from './sizing';
+import { easeFor, formatSize, overCm } from './sizing';
 
 export interface FitCell {
   main: string;
@@ -50,9 +50,18 @@ function rangeText([min, max]: [number, number], units: Units): string {
   return `${a.split(' ')[0]}–${b}`;
 }
 
+/**
+ * Room as the shopper should read it. A garment smaller than the body is either a stretch fabric cut snug on purpose
+ * (the body is inside the size's own range: AIRism tees, stretch pants) or genuinely too small (the body is over it).
+ */
 function roomCell(item: CatalogItem, size: string, room: number, body: SizingBody, units: Units): FitCell {
   const ease = easeFor(item, size, body);
-  if (room < -0.5) return { main: `${formatLength(-room, units)} tight`, sub: 'close' };
+  if (room < -0.5) {
+    const spec = item.sizeChart?.[size];
+    const over = spec ? overCm(item, spec, body) : null;
+    if (over !== null && over <= 0) return { main: `stretches ${formatLength(-room, units)}`, sub: 'snug by design' };
+    return { main: `${formatLength(-room, units)} tight`, sub: 'close' };
+  }
   return { main: formatLength(Math.max(0, room), units), sub: ease };
 }
 

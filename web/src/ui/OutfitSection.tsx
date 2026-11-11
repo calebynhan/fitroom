@@ -1,11 +1,13 @@
 import { useState } from 'react';
 import { fitPrefs, sizingBody } from '../body/profile';
-import { colorImage, findColor, formatMoney, formatPrice, type CatalogItem, type Selection, type Slot } from '../catalog/types';
+import { colorImage, colorLabel, findColor, formatMoney, formatPrice, type CatalogItem, type Selection, type Slot } from '../catalog/types';
 import { fitCard } from '../fit/fitCard';
 import { chartSizes, easeFor, fitSummary, formatSize, lengthFor, shortSize, sizeAdvice, sizePair } from '../fit/sizing';
 import { useApp } from '../state/store';
 import { FitTable } from './FitTable';
+import { MeasureLink } from './measureLink';
 import { PasteLink } from './PasteLink';
+import { SavedOutfits } from './SavedOutfits';
 import { onRadioKeys, rovingTab } from './radioKeys';
 
 const CUT_LABEL: Record<CatalogItem['fit'], string> = { slim: 'Slim cut', regular: 'Regular cut', relaxed: 'Relaxed cut' };
@@ -65,6 +67,12 @@ function SizePicker({ item, selection }: { item: CatalogItem; selection: Selecti
             </span>
           </>
         )}
+        {advice?.borderline && (
+          <>
+            {' '}
+            <MeasureLink borderline={advice.borderline} />
+          </>
+        )}
       </p>
       {card && <FitTable card={card} caption={`${item.name}: how ${card.sizes.join(' and ')} fit you`} />}
     </div>
@@ -80,7 +88,7 @@ function ProductCard({ item, selection }: { item: CatalogItem; selection: Select
       <div className="product-body">
         <div className="product-meta">
           <span>{item.slot === 'top' ? 'Top' : 'Bottoms'}</span>
-          <span>{color.name}</span>
+          <span>{colorLabel(item, color.code)}</span>
         </div>
         <div className="product-name" translate="no">
           {item.name}
@@ -97,9 +105,9 @@ function ProductCard({ item, selection }: { item: CatalogItem; selection: Select
                 type="button"
                 role="radio"
                 aria-checked={c.code === color.code}
-                aria-label={c.name}
+                aria-label={colorLabel(item, c.code)}
                 tabIndex={rovingTab(c.code === color.code, i, true)}
-                title={c.name}
+                title={colorLabel(item, c.code)}
                 className={`swatch ${c.code === color.code ? 'active' : ''}`}
                 onClick={() => setColor(item.slot, c.code)}
               >
@@ -107,7 +115,7 @@ function ProductCard({ item, selection }: { item: CatalogItem; selection: Select
               </button>
             ))}
           </div>
-          <a href={item.url} target="_blank" rel="noreferrer">
+          <a className="uniqlo-link" href={item.url} target="_blank" rel="noreferrer">
             View on UNIQLO
           </a>
         </div>
@@ -160,6 +168,7 @@ export function OutfitSection({ loadError }: { loadError: string | null }) {
       {loadError && <p className="msg error">{loadError}</p>}
       <SlotGroup slot="top" />
       <SlotGroup slot="bottom" />
+      <SavedOutfits />
     </section>
   );
 }

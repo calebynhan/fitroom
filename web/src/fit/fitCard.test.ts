@@ -48,6 +48,14 @@ describe('fit card', () => {
     expect(pants.notes[1]).toBe('Your waist and inseam are estimated from height and weight; measure for exact numbers.');
   });
 
+  it('calls a stretch tee cut under the body "stretches", not tight, when the body is inside its range', () => {
+    // AIRism T-Shirt S: made for a 88-96 cm chest, garment chest 91 cm
+    const card = fitCard(item('E482514-000'), ['S'], { ...CALEB, chestCm: 93 }, 'metric')!;
+    expect(card.rows[0].cells[0]).toEqual({ main: 'stretches 2 cm', sub: 'snug by design' });
+    const over = fitCard(item('E482514-000'), ['S'], { ...CALEB, chestCm: 101 }, 'metric')!; // 5 cm over its range
+    expect(over.rows[0].cells[0]).toEqual({ main: '10 cm tight', sub: 'close' });
+  });
+
   it('compares with a garment of their own when they measured one', () => {
     const card = fitCard(item('E453754-000'), ['S', 'M'], CALEB, 'metric', { pref: 'regular', chestCm: 106, lengthCm: 69 })!;
     const versus = card.rows.find((r) => r.label === 'vs your top')!;

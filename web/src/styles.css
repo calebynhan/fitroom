@@ -57,6 +57,7 @@ input[type='text']:focus, textarea:focus { outline: 1px solid var(--ink); outlin
 
 .stage { display: flex; min-height: 0; }
 .lookbook-pane { flex: 1; min-width: 0; overflow-y: auto; background: var(--paper); }
+.lookbook-pane:focus-visible { outline: 1px solid var(--ink); outline-offset: -2px; }
 .rail { width: 380px; flex: none; background: var(--bone); border-left: 1px solid var(--hairline); overflow-y: auto; }
 
 /* Lookbook */
@@ -201,6 +202,7 @@ input[type='text']:focus, textarea:focus { outline: 1px solid var(--ink); outlin
 .size-note { margin: 0; font: 400 12px/1.45 var(--sans); color: var(--graphite); }
 .size-note.warn { color: var(--sale); }
 .size-fit { color: var(--muted); }
+.measure-link { font-size: 12px; }
 
 .alternates { border: 1px solid var(--hairline); border-top: 0; background: rgba(255, 255, 255, 0.5); }
 .alternates summary { padding: 8px 16px; font: 400 12px var(--sans); cursor: pointer; }
@@ -248,7 +250,8 @@ input[type='text']:focus, textarea:focus { outline: 1px solid var(--ink); outlin
 .pref-label { width: 64px; font: 500 12px var(--sans); }
 .pref-note { flex-basis: 100%; padding-left: 80px; margin-top: -4px; font: 400 11px var(--sans); color: var(--muted); }
 .ref-garment { display: flex; flex-direction: column; gap: 8px; }
-.ref-garment summary { cursor: pointer; font: 500 12px var(--sans); }
+.ref-garment summary { cursor: pointer; font: 500 12px var(--sans); padding: 6px 0; }
+.uniqlo-link { display: inline-flex; align-items: center; min-height: 24px; }
 .ref-garment[open] summary { margin-bottom: 8px; }
 .ref-garment > .note { margin-bottom: 8px; }
 .ref-group { display: flex; flex-direction: column; gap: 8px; }
@@ -276,6 +279,9 @@ input[type='text']:focus, textarea:focus { outline: 1px solid var(--ink); outlin
 /* Touch screens: 16px inputs, or iOS Safari zooms the page on focus. */
 @media (max-width: 900px), (pointer: coarse) {
   .num-box input, .paste-input, .fallback textarea { font-size: 16px; }
+  /* WCAG 2.2 target size (24 px) on touch screens */
+  .swatch { width: 28px; height: 28px; }
+  .swatches { gap: 6px; }
 }
 
 /* Reduced motion: no fades, no animated bars. */
@@ -310,3 +316,22 @@ input[type='text']:focus, textarea:focus { outline: 1px solid var(--ink); outlin
   .lightbox-inner img { max-height: calc(100dvh - 120px); }
   .lightbox-actions { flex-wrap: wrap; }
 }
+
+/* Saved outfits and share links (OutfitSection). */
+.saved { display: flex; flex-direction: column; gap: 8px; padding-top: 16px; border-top: 1px solid var(--hairline); }
+.saved-buttons { display: flex; gap: 8px; flex-wrap: wrap; }
+.saved-buttons .btn { flex: 1; }
+.saved .size-note:empty { display: none; }
+.saved-list summary { cursor: pointer; padding: 8px 0; }
+.saved-list ul { list-style: none; margin: 0; padding: 0; }
+.saved-row { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; padding: 8px 0; border-top: 1px solid var(--stone); font-size: 13px; }
+.saved-name { min-width: 0; overflow-wrap: anywhere; }
+.saved-actions { display: flex; gap: 16px; flex: none; }
+.saved-actions .link-btn { min-height: 24px; }
+.saved .warn { color: var(--sale); }
+
+/* About (last rail section). */
+.about-steps { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 8px; font-size: 13px; line-height: 1.5; }
+.about-steps strong, .about strong { font-weight: 600; }
+.about-link { color: var(--ink); }
+@media (max-width: 520px) { .about-link { display: none; } }

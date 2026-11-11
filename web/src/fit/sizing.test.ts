@@ -3,7 +3,7 @@ import type { BodySpec } from '@api/look';
 import catalog from '../../public/catalog.json';
 import { parseCatalog, type CatalogItem } from '../catalog/types';
 import type { SizingBody, SlotPrefs } from '../body/profile';
-import { chartSizes, easeFor, fitSummary, formatSize, lengthFor, pickSize, recommendSize, shortSize, sizeAdvice, sizeDelta, sizePair } from './sizing';
+import { chartSizes, easeFor, fitSummary, formatSize, lengthFor, pickSize, recommendSize, shortSize, sizeAdvice, sizeDelta, sizeList, sizePair } from './sizing';
 
 const items = parseCatalog(catalog);
 const item = (id: string): CatalogItem => {
@@ -143,6 +143,13 @@ describe('fit preferences', () => {
     expect(sizeAdvice(item('E475598-000'), CALEB, pref('regular', { hipsCm: 100 }))?.text).toBe("You're an S, the closest to the pants you measured.");
   });
 
+  it('ignores a measured garment far outside every size (measured all the way round, not flat)', () => {
+    // "35 in flat" = 178 cm around: the old pick was a 3XL "closest to the top you measured"
+    const absurd = pickSize(item('E422992-000'), CALEB, pref('regular', { chestCm: 177.8 }));
+    expect(absurd).toMatchObject({ size: 'S', reason: 'chart' });
+    expect(pickSize(item('E422992-000'), CALEB, pref('regular', { chestCm: 106 }))?.reason).toBe('reference');
+  });
+
   it('ignores preferences when no size is made for this body', () => {
     const big = { ...CALEB, waistCm: 109.5, hipsCm: 113 };
     expect(pickSize(item('E482868-000'), big, pref('relaxed'))).toMatchObject({ size: '40inch', fits: false, reason: 'chart' });
@@ -163,5 +170,33 @@ describe('size comparison', () => {
     expect(sizeDelta(item('E453754-000'), 'S', 'M')).toEqual({ chestCm: 6, lengthCm: 3 });
     expect(sizeDelta(item('E475598-000'), 'M', 'S')).toEqual({ hipsCm: -6, inseamCm: -2 });
     expect(sizeDelta(item('E475598-000'), 'S', 'nope')).toBeUndefined();
+  });
+});
+
+describe('borderline sizes from estimates', () => {
+  const estimated = (b: BodySpec): SizingBody => ({ ...b, measured: { chestCm: false, waistCm: false, hipsCm: false, inseamCm: false } });
+
+  it('says when an estimated chest sits near a size boundary, and compares with the other likely size', () => {
+    // Milano: S fits a chest up to 96, M from 96. An estimated 95 could well be 98.
+    const advice = sizeAdvice(item('E453754-000'), estimated({ ...CALEB, chestCm: 95 }))!;
+    expect(advice.borderline).toEqual({ measure: 'chestCm', label: 'chest', sizes: ['S', 'M'] });
+    expect(advice.text).toBe('Between S and M: your chest is estimated. Likely an S; measure your chest to be sure.');
+    expect(advice.compare).toBe('M');
+  });
+
+  it('stays quiet when the estimate is safely inside one size, when typed in, or when a measured garment decides', () => {
+    expect(sizeAdvice(item('E453754-000'), estimated({ ...CALEB, chestCm: 92 }))!.borderline).toBeUndefined(); // 88-96, +-3.2 stays in S
+    expect(sizeAdvice(item('E453754-000'), { ...CALEB, chestCm: 95, measured: { chestCm: true } })!.borderline).toBeUndefined();
+    expect(sizeAdvice(item('E453754-000'), estimated({ ...CALEB, chestCm: 95 }), { pref: 'regular', chestCm: 106 })!.borderline).toBeUndefined();
+  });
+
+  it('lists inch sizes once with "waist"', () => {
+    expect(sizeList(['29inch', '30inch', '31inch'])).toBe('29", 30" and 31" waist');
+    expect(sizeList(['S', 'M'])).toBe('S and M');
+    expect(sizeList(['28inch', '29inch', '30inch', '31inch', '32inch'])).toBe('28"–32" waist');
+    const chinos = sizeAdvice(item('E450251-000'), estimated(CALEB))!; // 2.5 cm steps: a 4.4 cm SD spans several sizes
+    expect(chinos.borderline?.measure).toBe('waistCm');
+    // an estimated 75 cm waist, +-4.4 cm, spans five inch sizes
+    expect(chinos.text).toBe('Anywhere from 28" waist to 32" waist: your waist is estimated. Likely a 30" waist; measure your waist to be sure.');
   });
 });

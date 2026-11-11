@@ -2,7 +2,7 @@
 // two states with the same key would produce the same photographs.
 import type { LookPhotos, LookPiece, LookRequest, SizeCompare } from '@api/look';
 import { completeBody, fitPrefs, sizingBody } from '../body/profile';
-import { findColor, productImage, type CatalogItem, type Selection, type Slot } from '../catalog/types';
+import { colorLabel, findColor, productImage, type CatalogItem, type Selection, type Slot } from '../catalog/types';
 import { easeFor, formatSize, lengthFor, preferredSize, sizeAdvice, sizeDelta, sizePair } from '../fit/sizing';
 import type { useApp } from '../state/store';
 import { SCENES } from './scenes';
@@ -97,7 +97,7 @@ export function lookInput(state: AppSnapshot): LookInput {
   const base: LookBase = { scene: state.scene, body, items, photos };
   const describe = (slot: Slot) => {
     const w = pieces.find((p) => p.item.slot === slot);
-    return w ? `${w.item.name} in ${findColor(w.item, w.selection.colorCode).name}` : null;
+    return w ? `${w.item.name} in ${colorLabel(w.item, w.selection.colorCode)}` : null;
   };
   const sizes = pieces.filter((p) => p.size).map((p) => `${p.item.slot === 'top' ? 'Top' : 'Bottoms'} ${formatSize(p.size!)}`);
   const caption: LookCaption = {

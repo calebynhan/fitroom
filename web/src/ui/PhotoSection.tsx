@@ -137,9 +137,9 @@ export function PhotoSection() {
           <p className="note fine">
             Only photos of yourself. They go from this tab straight to the free{' '}
             <a href={SPACE_PAGE} target="_blank" rel="noreferrer">
-              FASHN try-on demo on Hugging Face
+              FASHN VTON try-on on Hugging Face
             </a>{' '}
-            to make your shots. That public demo keeps uploads on its server for a while, outside FitRoom's control; FitRoom itself
+            to make your shots. That public Space keeps uploads on its server for a while, outside FitRoom's control; FitRoom itself
             never stores them.
           </p>
         </>

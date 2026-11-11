@@ -15,7 +15,7 @@ export function chartSizes(item: CatalogItem): string[] {
  * body measurement to compare. Tops go by chest, plus waist only when the shopper typed one in (an estimated waist,
  * SD 4.4 cm, should not push a size up); bottoms go by waist, plus hips only when typed in.
  */
-function overCm(item: CatalogItem, spec: SizeSpec, body: SizingBody): number | null {
+export function overCm(item: CatalogItem, spec: SizeSpec, body: SizingBody): number | null {
   const typed = (k: 'waistCm' | 'hipsCm') => body.measured?.[k] !== false;
   const pairs: [number | undefined, number][] =
     item.slot === 'top'
@@ -159,6 +159,23 @@ function referenceScore(item: CatalogItem, spec: SizeSpec, prefs: SlotPrefs): nu
   return Math.abs(g.hipsCm - prefs.hipsCm) + (prefs.inseamCm && inseam ? 0.3 * Math.abs(inseam - prefs.inseamCm) : 0);
 }
 
+/** Beyond every size of the item by more than this (cm, garment circumference), a measured garment is a mismeasure. */
+const REFERENCE_SLACK_CM = 10;
+
+/**
+ * A reference garment within reach of this item's sizes. A top "35 in flat" (178 cm around) matched a 3XL for a
+ * 92 cm chest in testing: measured all the way round instead of laid flat. Out of reach, it's ignored for the pick.
+ */
+export function referencePlausible(item: CatalogItem, prefs: SlotPrefs): boolean {
+  const ref = item.slot === 'top' ? prefs.chestCm : prefs.hipsCm;
+  if (!ref) return false;
+  const values = chartSizes(item)
+    .map((s) => (item.slot === 'top' ? item.sizeChart![s].garment?.chestCm : item.sizeChart![s].garment?.hipsCm))
+    .filter((v): v is number => typeof v === 'number');
+  if (values.length === 0) return false;
+  return ref >= Math.min(...values) - REFERENCE_SLACK_CM && ref <= Math.max(...values) + REFERENCE_SLACK_CM;
+}
+
 /** True when the shopper gave a reference garment this item can be compared with. */
 export function hasReference(item: CatalogItem, prefs: SlotPrefs | undefined): boolean {
   return Boolean(prefs && (item.slot === 'top' ? prefs.chestCm : prefs.hipsCm));
@@ -174,7 +191,7 @@ export function pickSize(item: CatalogItem, body: SizingBody, prefs?: SlotPrefs)
   const sizes = chartSizes(item);
   const i = sizes.indexOf(chart);
 
-  if (hasReference(item, prefs)) {
+  if (hasReference(item, prefs) && referencePlausible(item, prefs)) {
     let best: { size: string; score: number; dist: number } | null = null;
     for (const [j, size] of sizes.entries()) {
       const score = referenceScore(item, item.sizeChart![size], prefs);
@@ -212,13 +229,61 @@ export function preferredSize(item: CatalogItem, body: SizingBody, prefs?: SlotP
   return pickSize(item, body, prefs)?.size ?? null;
 }
 
+/** The estimated measurement a size rests on, and the sizes it could be within one standard deviation. */
+export interface Borderline {
+  measure: 'chestCm' | 'waistCm';
+  /** "chest" / "waist", for the sentence. */
+  label: string;
+  /** Sizes the pick takes within +-1 SD of the estimate, in UNIQLO's order (includes the pick). */
+  sizes: string[];
+}
+
 export interface SizeAdvice extends SizePick {
   /** The size worth comparing with the pick: the chart size if they differ, else the next size up (or down). */
   compare: string | null;
   text: string;
+  /** Set when the pick rests on an estimate close to a size boundary: measuring would settle it. */
+  borderline?: Borderline;
+}
+
+/**
+ * Residual SD of the ANSUR II estimates (body/profile.ts): a typical estimate is off by this much. The size a top
+ * gets turns on the chest, pants on the waist; across 3,400 body x item cases a 1-SD error changed the size for 41%
+ * (tops) and 54% (pants), so a size resting on an estimate near a boundary is a guess and is labelled as one.
+ */
+const ESTIMATE_SD: Record<'chestCm' | 'waistCm', number> = { chestCm: 3.2, waistCm: 4.4 };
+
+/** Sizes within one SD of the deciding estimate, when that spread covers more than one size; else undefined. */
+export function borderlineOf(item: CatalogItem, body: SizingBody, prefs: SlotPrefs | undefined, pick: SizePick): Borderline | undefined {
+  if (!pick.fits || pick.reason === 'reference') return undefined; // a measured garment decides, not the estimate
+  const measure = item.slot === 'top' ? 'chestCm' : 'waistCm';
+  if (body.measured?.[measure] !== false) return undefined; // typed in (or unknown): nothing to flag
+  const sizes = chartSizes(item);
+  const seen = new Set<string>([pick.size]);
+  for (const d of [-ESTIMATE_SD[measure], ESTIMATE_SD[measure]]) {
+    const other = pickSize(item, { ...body, [measure]: body[measure] + d }, prefs);
+    if (other?.fits) seen.add(other.size);
+  }
+  if (seen.size < 2) return undefined;
+  // every size from the smallest to the largest reached (inch sizes skip: 29" at -1 SD, 32" at +1 SD covers 30" too)
+  const idx = [...seen].map((s) => sizes.indexOf(s));
+  const range = sizes.slice(Math.min(...idx), Math.max(...idx) + 1);
+  return { measure, label: measure === 'chestCm' ? 'chest' : 'waist', sizes: range };
 }
 
 const sizeLabel = (s: string) => (/inch$/i.test(s) ? `${formatSize(s)} waist` : formatSize(s));
+
+/** "S and M", "29\", 30\" and 31\" waist", and for more than three a range: "28\"–32\" waist" */
+export function sizeList(sizes: string[]): string {
+  const names = sizes.map(formatSize);
+  const joined =
+    names.length > 3
+      ? `${names[0]}–${names[names.length - 1]}`
+      : names.length > 1
+        ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`
+        : (names[0] ?? '');
+  return sizes.some((s) => /inch$/i.test(s)) ? `${joined} waist` : joined;
+}
 
 function adviceText(item: CatalogItem, pick: SizePick, compare: string | null, body: SizingBody): string {
   const { size, chart } = pick;
@@ -253,6 +318,16 @@ export function sizeAdvice(item: CatalogItem, body: SizingBody, prefs?: SlotPref
   }
   const sizes = chartSizes(item);
   const i = sizes.indexOf(pick.size);
+  const borderline = borderlineOf(item, body, prefs, pick);
+  if (borderline) {
+    // compare with the other likely size, and say it's a guess until they measure
+    const other = borderline.sizes.find((s) => s !== pick.size) ?? null;
+    const span = borderline.sizes;
+    const between =
+      span.length > 3 ? `Anywhere from ${sizeList([span[0]])} to ${sizeList([span[span.length - 1]])}` : `Between ${sizeList(span)}`;
+    const text = `${between}: your ${borderline.label} is estimated. Likely ${article(pick.size)} ${sizeLabel(pick.size)}; measure your ${borderline.label} to be sure.`;
+    return { ...pick, compare: other, text, borderline };
+  }
   const compare = pick.size !== pick.chart ? pick.chart : (sizes[i + 1] ?? sizes[i - 1] ?? null);
   return { ...pick, compare, text: adviceText(item, pick, compare, body) };
 }
