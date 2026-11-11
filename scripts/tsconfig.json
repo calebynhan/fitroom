@@ -2,7 +2,10 @@
   "//": "Typecheck only (never emits): the catalog script and the API functions. Vercel never reads this file.",
   "compilerOptions": {
     "target": "ES2022",
-    "lib": ["ES2022", "DOM"],
+    "lib": [
+      "ES2022",
+      "DOM"
+    ],
     "module": "ESNext",
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
@@ -12,7 +15,33 @@
     "noUnusedParameters": true,
     "skipLibCheck": true,
     "isolatedModules": true,
-    "types": ["node"]
+    "types": [
+      "node"
+    ],
+    "baseUrl": "..",
+    "paths": {
+      "@api/*": [
+        "api/_lib/*"
+      ]
+    }
   },
-  "include": ["./**/*.ts", "../api/product*.ts", "../api/_lib/windowLimit*.ts", "../api/_lib/uniqlo*.ts", "../api/_lib/sizeChart*.ts", "../api/_lib/chipColor.ts", "../api/_lib/http.ts", "../api/photoreal*.ts", "../api/_lib/look*.ts", "../api/_lib/images.ts", "../api/_lib/photoreal*.ts", "../api/_lib/rateLimit.ts", "../api/_lib/upstreamError*.ts"]
+  "include": [
+    "./**/*.ts",
+    "../api/product*.ts",
+    "../api/_lib/windowLimit*.ts",
+    "../api/_lib/uniqlo*.ts",
+    "../api/_lib/sizeChart*.ts",
+    "../api/_lib/chipColor.ts",
+    "../api/_lib/http.ts",
+    "../api/photoreal*.ts",
+    "../api/_lib/look*.ts",
+    "../api/_lib/images.ts",
+    "../api/_lib/photoreal*.ts",
+    "../api/_lib/rateLimit.ts",
+    "../api/_lib/upstreamError*.ts",
+    "../api/mcp*.ts",
+    "../api/_lib/mcp/*.ts",
+    "../api/_lib/productLookup*.ts",
+    "../api/_lib/quota*.ts"
+  ]
 }
