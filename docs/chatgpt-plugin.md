@@ -21,6 +21,12 @@ privacy and terms pages (/privacy, /terms); privacy-safe usage counts with an ow
 (anonymous "did it fit?" tallies, shown with the size advice from 5 reports per size); tools listed only when they can
 work; the listing kit (docs/plugin-kit/) and launch kit (docs/launch-kit.md).
 
+First run inside ChatGPT (2026-11-11, docs/plugin-kit/test-run-2026-11-11.md): FitRoom answered correctly whenever it
+was called, but ChatGPT picked it on its own for only 2 of 10 routing probes (the ones with height and weight). Fixed
+on the branch: a `size_chart` tool for questions about the item itself (no height or weight), the recommended size as
+the card's headline, a card that no longer waits on fonts (the "timed out" first load), pasted links passed unchanged,
+and a plain "not covered, don't guess" for jackets and the like. Needs a second run after merging.
+
 Left for the owner, in order (details in docs/plugin-kit/README.md, section 1):
 1. Upstash Redis on the Vercel project, and `MCP_STATS_TOKEN`.
 2. Decide on UNIQLO and affiliate links (the terms currently say FitRoom earns nothing from purchases).

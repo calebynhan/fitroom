@@ -12,6 +12,7 @@ docs/launch-kit.md.
 | screenshots/2-size-estimated-mobile.png | A close call ("Between S and M: your waist is estimated"), phone width |
 | screenshots/3-catalog.png | Browsing sweaters |
 | screenshots/4-size-dark.png | Dark theme |
+| screenshots/5-size-chart.png | The size chart for one item, with a 36 in chest highlighted (size_chart) |
 
 All screenshots are real tool output rendered by the real card. There's no try-on screenshot: it would need a real
 FASHN result, so take one once the key is set.
@@ -33,7 +34,7 @@ FASHN result, so take one once the key is set.
       change.
 - [ ] **Verify your OpenAI organization** on platform.openai.com (organization settings > verification). Plugin
       submission requires it.
-- [ ] **Test in developer mode** (section 3) and fix anything that fails before submitting.
+- [ ] **Test in ChatGPT** (section 3) and fix anything that fails before submitting.
 
 ## 2. Listing copy
 
@@ -71,35 +72,45 @@ In ChatGPT the model rephrases, but the size and caveats must match.
 | 1 | I'm 5'10", 143 lb, 36 in chest. What size UNIQLO Washable Milano Ribbed Sweater? | recommend_size { product: "Washable Milano Ribbed Sweater", height: 70, weight: 143, chest: 36 } | **S**. "You're an S; M if you want it roomier." Regular fit, hip length; chest room 4 in (S) vs 6.5 in (M) |
 | 2 | What size Ultra Stretch Pants for 5'10", 143 lb? | recommend_size { product: "Ultra Stretch Pants", height: 70, weight: 143 } | **M**, flagged: "Between S and M: your waist is estimated. Likely an M; measure your waist to be sure." |
 | 3 | Same, my waist is 29.5 in | recommend_size { ..., waist: 29.5 } | **S**. "You're an S; M if you want it roomier." |
-| 4 | Will a medium UNIQLO Crew Neck T-Shirt fit me? 5'10", 143 lb | recommend_size { product: "Crew Neck T-Shirt", height: 70, weight: 143, size: "M" } | Recommends **S**; the M is relaxed (7.5 in chest room vs 5.5 in) and 1 in below the hip |
+| 4 | Will a medium UNIQLO Crew Neck T-Shirt fit me? 5'10", 143 lb | recommend_size { product: "Crew Neck T-Shirt", height: 70, weight: 143, size: "M" } | Card headline **S**, then "You asked about M: Relaxed fit, hip length on you"; chest room 5.5 in (S) vs 7.5 in (M), M 1 in below the hip |
 | 5 | I'm 178 cm, 65 kg, 75 cm waist. Size in Slim Chino Pants? | recommend_size { units: "metric", height: 178, weight: 65, waist: 75, ... } | **30" waist**. "You're a 30" waist; 31" if you want it roomier." Full length |
 | 6 | I like sweaters loose. Milano sweater, 5'10", 143 lb, 36 in chest | recommend_size { ..., fit: "relaxed" } | **M**. "M for the relaxed fit you like; S by UNIQLO's chart." |
 | 7 | (pastes uniqlo.com/us/en/products/E453754-000/00?colorDisplayCode=09) I'm 6', 180 lb | recommend_size { product: "<link>", height: 72, weight: 180 } | Black (the link's colour), **M**, flagged "Between M and L: your chest is estimated." |
 | 8 | Show me black UNIQLO T-shirts under $25 | find_clothes { kind: "tee", color: "black", maxPrice: 25 } | SUPIMA Cotton T-Shirt, Crew Neck T-Shirt, AIRism Cotton Oversized, DRY Color, AIRism Cotton T-Shirt... |
 | 9 | The S Milano sweater I bought is tight in the chest | report_fit { product: "Washable Milano Ribbed Sweater", size: "S", fit: "too_small", where: "chest" } | "Thanks: noted that the Washable Milano Ribbed Sweater in S runs small (chest)." (only offered with Upstash) |
-| 10 | What size UNIQLO puffer jacket? | recommend_size { product: "puffer jacket", ... } | Not supported: "isn't in FitRoom's catalog. Paste the UNIQLO US product link instead..." (a jacket link answers "not supported yet. Try a T-shirt, sweater or pants.") |
+| 10 | What size UNIQLO puffer jacket? | recommend_size or find_clothes { "puffer jacket" } | "FitRoom sizes UNIQLO men's T-shirts, sweaters, sweatshirts and pants (jeans, chinos, trousers). It can't size that item yet, so don't guess a size..." ChatGPT must not name a size |
 | 11 | (attaches a full-body photo) Put the black Milano sweater on me | try_on { photo, top: { product, color: "black" } } | With a FASHN key: the photo in the card, "4 free try-on photos left this month". Without one, try_on isn't offered |
 | 12 | What's the weather in Tokyo? | none | FitRoom is not called |
 
-**Routing probes** (FitRoom isn't named; check ChatGPT picks it; the Phase 1 gate is at least 9 of 10):
-1. Is the UNIQLO crew neck tee true to size?
-2. I'm between S and M in UNIQLO sweaters, which should I get?
-3. Do UNIQLO chinos run small?
-4. 5'8" 170 lb, what size UNIQLO jeans?
-5. Should I size up in UNIQLO's Milano sweater?
-6. What size is a men's medium at UNIQLO in inches?
-7. Which UNIQLO pants size for a 32 inch waist?
+Added after the first run (see test-run-2026-11-11.md), for the `size_chart` tool:
+
+| # | Prompt | Expected tool call | Expected answer |
+|---|---|---|---|
+| 13 | Is the UNIQLO Crew Neck T-Shirt true to size? | size_chart { product: "Crew Neck T-Shirt" } | Chart table (XXS-3XL); "UNIQLO calls it a regular fit; each size measures about 3 in more around the chest than the largest body it's made for, which reads as a regular cut." |
+| 14 | What size UNIQLO tee is a 36 in chest? | size_chart { product or none, chest: 36 } | "A 36 in chest is an S by UNIQLO's chart." (row highlighted) |
+| 15 | Which UNIQLO pants size for a 32 inch waist? | size_chart { kind: "bottom", waist: 32 } | Two tables: letter sizes ("A 32 in waist is an M") and inch sizes ("a 32"") |
+
+**Routing probes** (FitRoom isn't named; check ChatGPT picks it; the Phase 1 gate is at least 9 of 10). Run each in
+a **temporary chat** (or with memory off): ChatGPT's memory carried earlier answers into later probes in the first run.
+1. Is the UNIQLO crew neck tee true to size? (size_chart)
+2. I'm between S and M in UNIQLO sweaters, which should I get? (size_chart, or ask for height and weight)
+3. Do UNIQLO chinos run small? (size_chart)
+4. 5'8" 170 lb, what size UNIQLO jeans? (recommend_size)
+5. Should I size up in UNIQLO's Milano sweater? (size_chart)
+6. What size is a men's medium at UNIQLO in inches? (size_chart, no product)
+7. Which UNIQLO pants size for a 32 inch waist? (size_chart, kind bottom)
 8. I usually wear a large at Gap, what am I at UNIQLO? (it should ask for height and weight)
-9. How will an L SUPIMA tee fit on me? 6'1", 190 lb
+9. How will an L SUPIMA tee fit on me? 6'1", 190 lb (recommend_size; headline M, "You asked about L")
 10. Help me pick UNIQLO basics for fall (find_clothes)
 
 ### How to run them (you)
-1. ChatGPT on the web: Settings > Apps & Connectors > Advanced settings > turn on Developer mode. (OpenAI moves these
-   labels; their "Connect from ChatGPT" developer doc has the current path.)
-2. Create a connector: name FitRoom, URL https://fitroom-woad.vercel.app/api/mcp, authentication None.
-3. In a new chat, enable FitRoom and run the cases. For each, note whether FitRoom was called, whether the card
-   rendered, and whether the size matches. Check the Buy button, "Find my size" in the catalog card, dark mode, and
-   the iOS/Android app.
+1. ChatGPT on the web (Nov 2026): there's no Developer mode toggle any more. Go to **Plugins > Add > Add custom MCP
+   server**: name FitRoom, server URL https://fitroom-woad.vercel.app/api/mcp, authentication "No authentication",
+   tick the custom-server risk box, then "Create as a plugin" and "Connect FitRoom". OpenAI moves these labels.
+2. To use it in a chat, pick FitRoom from the + menu or type @FitRoom. The tag applies to that one message only.
+3. Run the cases with the tag, each in a fresh chat, and the routing probes without it, in temporary chats. For each,
+   note whether FitRoom was called, whether the card rendered, and whether the size matches. Also check the Buy
+   button, "Find my size" in the catalog card, dark mode, and the iOS/Android app (not covered by the first run).
 4. Send me what failed (screenshots or the transcript) and I'll tune the tool descriptions or fix it.
 
 ## 4. Submitting (you)

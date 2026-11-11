@@ -46,7 +46,7 @@ describe('/api/mcp over HTTP', () => {
     const client = await httpClient(); // no FASHN_API_KEY, no Upstash in the test environment
     expect(client.getServerVersion()?.name).toBe('fitroom');
     const { tools } = await client.listTools();
-    expect(tools.map((t) => t.name)).toEqual(['recommend_size', 'find_clothes']);
+    expect(tools.map((t) => t.name)).toEqual(['recommend_size', 'size_chart', 'find_clothes']);
     expect(client.getInstructions()).not.toMatch(/photo|report_fit/);
     for (const tool of tools) {
       expect(tool._meta?.ui).toMatchObject({ resourceUri: WIDGET_URI });
@@ -59,12 +59,12 @@ describe('/api/mcp over HTTP', () => {
   it('with a FASHN key and a shared store it lists all four; try_on takes the photo as a file param, report_fit has no card', async () => {
     const client = await memoryClient(fakeFashn().deps, {});
     const { tools } = await client.listTools();
-    expect(tools.map((t) => t.name)).toEqual(['recommend_size', 'find_clothes', 'try_on', 'report_fit']);
+    expect(tools.map((t) => t.name)).toEqual(['recommend_size', 'size_chart', 'find_clothes', 'try_on', 'report_fit']);
     expect(client.getInstructions()).toMatch(/photo of the shopper.*report_fit/);
-    expect(tools[2]._meta?.['openai/fileParams']).toEqual(['photo']);
-    expect(tools[2].annotations?.readOnlyHint).toBe(false);
-    expect(tools[3]._meta?.ui).toBeUndefined(); // a thank-you needs no card
+    expect(tools[3]._meta?.['openai/fileParams']).toEqual(['photo']);
     expect(tools[3].annotations?.readOnlyHint).toBe(false);
+    expect(tools[4]._meta?.ui).toBeUndefined(); // a thank-you needs no card
+    expect(tools[4].annotations?.readOnlyHint).toBe(false);
   });
 
   it('serves the widget as an MCP Apps resource with a CSP for UNIQLO photos', async () => {
@@ -117,9 +117,13 @@ describe('/api/mcp over HTTP', () => {
     const byName = await call(client, 'recommend_size', { product: 'milano ribbed sweater', color: 'black', ...CALEB, size: 'm' });
     expect(sc(byName).product.id).toBe('E453754-000');
     expect(sc(byName).product.color.name.toLowerCase()).toContain('black');
-    expect(sc(byName).size).toBe('M');
-    expect(sc(byName).card.sizes).toEqual(['M', 'S']);
+    // the size to buy leads (the ChatGPT test showed "YOUR SIZE: M" over "You're an S"); the asked size is labelled
+    expect(sc(byName).size).toBe('S');
+    expect(sc(byName).asked).toBe('M');
+    expect(sc(byName).askedSummary).toMatch(/fit/);
+    expect(sc(byName).card.sizes).toEqual(['S', 'M']);
     expect(sc(byName).text).toContain('You asked about M');
+    expect(text(byName)).toContain('In the M they asked about:');
 
     const link = await call(client, 'recommend_size', { product: 'https://www.uniqlo.com/us/en/products/E453754-000/00?colorDisplayCode=09', ...CALEB });
     expect(sc(link).product.color.code).toBe('09'); // the colour the shopper was looking at
@@ -141,7 +145,7 @@ describe('/api/mcp over HTTP', () => {
 
   it('says what is wrong in shopper words: unknown product, ambiguous name, impossible height', async () => {
     const client = await httpClient();
-    const unknown = await call(client, 'recommend_size', { product: 'wool overcoat', ...CALEB });
+    const unknown = await call(client, 'recommend_size', { product: 'linen trousers xyz', ...CALEB });
     expect(unknown.isError).toBe(true);
     expect(text(unknown)).toMatch(/isn't in FitRoom's catalog|Which one/);
 
@@ -384,5 +388,61 @@ describe('usage counters', () => {
     expect(body.days).toHaveLength(14);
     if (prev === undefined) delete process.env.MCP_STATS_TOKEN;
     else process.env.MCP_STATS_TOKEN = prev;
+  });
+});
+
+describe('size_chart: questions about the item, no height or weight needed', () => {
+  it("answers an item's chart, how it runs and where a chest falls", async () => {
+    const client = await httpClient();
+    const r = await call(client, 'size_chart', { product: 'Washable Milano Ribbed Sweater', chest: 36 });
+    expect(r.isError).toBeFalsy();
+    const chart = sc(r).charts[0];
+    expect(chart.columns[0]).toBe('Chest (body)');
+    expect(chart.rows.map((x: any) => x.label)).toContain('M');
+    expect(chart.match).toMatchObject({ size: 'S', fits: true });
+    expect(chart.cut.ease).toMatch(/close|regular|relaxed|oversized/);
+    expect(text(r)).toContain('UNIQLO calls it a');
+    expect(text(r)).toContain('How it runs:');
+    expect(text(r)).toContain("A 36 in chest is an S by UNIQLO's chart.");
+    expect(text(r)).toContain('use recommend_size with their height and weight');
+  });
+
+  it('answers "what does a men\'s medium measure" without a product, and a 32 in waist across letter and inch sizes', async () => {
+    const client = await httpClient();
+    const tops = await call(client, 'size_chart', { size: 'M' });
+    expect(sc(tops).general).toBe(true);
+    expect(text(tops)).toMatch(/- M: Chest \(body\) [\d.]+–[\d.]+ in/);
+    const pants = await call(client, 'size_chart', { kind: 'bottom', waist: 32 });
+    const titles = sc(pants).charts.map((c: any) => c.title);
+    expect(titles).toEqual(["UNIQLO men's pants (S–XXL)", "UNIQLO men's jeans and chinos (inch sizes)"]);
+    expect(text(pants)).toMatch(/A 32 in waist is an? \S+ by UNIQLO's chart\./);
+    expect(sc(pants).charts[0].rows.map((r: any) => r.label)).toEqual(['XS', 'S', 'M', 'L', 'XL', 'XXL', '3XL']);
+  });
+
+  it('keeps the colour of a pasted link and refuses what it does not cover', async () => {
+    const client = await httpClient();
+    const r = await call(client, 'size_chart', { product: 'https://www.uniqlo.com/us/en/products/E453754-000/00?colorDisplayCode=09' });
+    expect(sc(r).product.color.code).toBe('09');
+    const coat = await call(client, 'size_chart', { product: 'puffer jacket' });
+    expect(coat.isError).toBe(true);
+    expect(text(coat)).toContain("can't size that item yet, so don't guess a size");
+  });
+});
+
+describe('items FitRoom does not cover', () => {
+  it('says so plainly, so the model does not fill in a guess (ChatGPT test, case 10)', async () => {
+    const client = await httpClient();
+    for (const product of ['puffer jacket', 'Ultra Light Down Jacket', 'oxford shirt', 'hoodie', 'swim shorts']) {
+      const r = await call(client, 'recommend_size', { product, ...CALEB });
+      expect(r.isError, product).toBe(true);
+      expect(text(r), product).toContain("don't guess a size");
+    }
+    const womens = await call(client, 'recommend_size', { product: "women's wide jeans", ...CALEB });
+    expect(text(womens)).toContain("women's and kids' sizing isn't covered yet");
+    const browse = await call(client, 'find_clothes', { query: 'puffer jacket' });
+    expect(sc(browse)).toMatchObject({ status: 'not_covered', items: [] });
+    // T-shirts and sweatshirts are not "shirts"
+    expect((await call(client, 'find_clothes', { query: 'crew neck t-shirt' })).isError).toBeFalsy();
+    expect(sc(await call(client, 'find_clothes', { query: 'crew neck t-shirt' })).items.length).toBeGreaterThan(0);
   });
 });

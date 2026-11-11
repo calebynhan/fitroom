@@ -18,17 +18,18 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { colorLabel } from '../fit/catalogItem';
 import { chartSizes, formatSize, shortSize } from '../fit/sizing';
-import { colorFromLink, productCard, resolveColor, resolveProduct, searchCatalog, type Kind, type ProductCard } from './catalog';
+import { fromDisplay, LIMITS, type Units } from '../fit/profile';
+import { catalogItems, colorFromLink, COVERAGE, notCoveredMessage, productCard, resolveColor, resolveProduct, searchCatalog, type Kind, type ProductCard } from './catalog';
 import { addReport, MIN_REPORTS, readReports, reportLine, VERDICTS, WHERE, type SizeReports, type Verdict, type Where } from './fitReports';
 import { recordCall } from './metrics';
 import { limitsFromEnv, reserve, userKey } from './quota';
-import { adviseSize, cardLines, matchSize, parseBody, type BodyInput } from './sizing';
+import { adviseSize, cardLines, chartLines, generalChartItem, matchSize, parseBody, sizeChartFor, type BodyInput } from './sizing';
 import { storeFromEnv, type Store } from './store';
 import { defaultDeps, fetchShopperPhoto, tryOnOutfit, tryOnStatus, type Garment, type TryOnDeps } from './tryOn';
 
 export const SERVER_NAME = 'fitroom';
 export const SERVER_VERSION = '1.0.0';
-export const WIDGET_URI = 'ui://fitroom/fitting-room-v1.html';
+export const WIDGET_URI = 'ui://fitroom/fitting-room-v2.html'; // v2: size-chart view, recommended size as headline
 export const WIDGET_MIME = 'text/html;profile=mcp-app';
 const TRY_ON_BUDGET_MS = 48_000; // inside vercel.json maxDuration 60 for api/mcp.ts
 const PHOTO_META_KEY = 'fitroom/photo';
@@ -37,9 +38,12 @@ const PHOTO_META_KEY = 'fitroom/photo';
 export function instructionsFor(tools: Tool[]): string {
   const has = (name: string) => tools.some((t) => t.name === name);
   return [
-    "FitRoom answers \"what size should I get?\" for UNIQLO men's T-shirts, sweaters, sweatshirts, jeans, chinos and",
-    "other pants: it reads UNIQLO's own size chart against the shopper's height and weight (plus any measurements they",
-    'know) and shows how the size will fit in numbers, along with what earlier buyers of that size reported.',
+    "FitRoom answers UNIQLO sizing questions for men's T-shirts, sweaters, sweatshirts, jeans, chinos and other pants",
+    "from UNIQLO's own size charts: what size to buy for the shopper's height and weight (plus any measurements they",
+    'know) with how it will fit in numbers (recommend_size), and how an item is sized: true to size, runs small or big,',
+    "what a size measures, which size for a chest or waist (size_chart, no height or weight needed). Use these instead",
+    "of web search for UNIQLO sizing, and never guess a size FitRoom didn't give. If FitRoom says it doesn't cover an",
+    "item (jackets, coats, shorts, button-up shirts, women's or kids'), say so rather than guessing.",
     has('try_on') ? 'It can also put the clothes on a photo of the shopper themselves.' : null,
     'Repeat sizes and fit notes exactly as returned; when a size is marked as estimated or "between", say so.',
     has('report_fit') ? 'When the user says how a UNIQLO item they bought fits, record it with report_fit.' : null,
@@ -107,13 +111,14 @@ export const TOOLS: Tool[] = [
       "shopper, from UNIQLO's own size chart and their height and weight (chest, waist, hips, inseam make it exact; " +
       'blanks are estimated), with a fit card comparing it with one other size in numbers (chest or hip room, where ' +
       'the hem lands, shoulders, sleeve, inseam) and what earlier buyers of that size reported. Use whenever someone ' +
-      'asks what size to get at UNIQLO, S or M, whether a size will fit, whether something runs small or is true to ' +
-      "size, or how it will fit them; works for any UNIQLO US product link in those categories. Ask for height and " +
-      "weight first if you don't know them. Repeat the size and its caveats exactly.",
+      'asks what size to get at UNIQLO, S or M, whether a size will fit them, or how it will fit them; works for any ' +
+      "UNIQLO US product link in those categories. If you don't know their height and weight, ask for them (questions " +
+      'about the item itself go to size_chart). If the user pasted a UNIQLO link, pass that link as product, unchanged: ' +
+      'it carries the colour. Repeat the size and its caveats exactly; the size to buy is `size`, not the size asked about.',
     inputSchema: {
       type: 'object',
       properties: {
-        product: { type: 'string', description: 'UNIQLO US product link, product ID (E453754-000), or the item name.' },
+        product: { type: 'string', description: 'The UNIQLO US product link exactly as pasted (keeps the colour), else the product ID (E453754-000) or the item name.' },
         color: { type: 'string', description: 'Colour name or UNIQLO colour code. Optional.' },
         units: { type: 'string', enum: ['imperial', 'metric'], description: 'imperial = inches and pounds (default), metric = cm and kg.' },
         height: { type: 'number', description: "Height: total inches (5'10\" = 70) or cm." },
@@ -144,12 +149,41 @@ export const TOOLS: Tool[] = [
     _meta: toolMeta("Checking UNIQLO's size chart", 'Size ready'),
   },
   {
+    name: 'size_chart',
+    title: 'UNIQLO size chart',
+    description:
+      "How a UNIQLO men's T-shirt, sweater, sweatshirt or pants (jeans, chinos) is sized, from UNIQLO's own size chart: " +
+      'the body measurements each size is made for, what the garment measures (chest, length, sleeve, waist, hips, ' +
+      'inseam), how the cut runs (close, regular, relaxed) and what buyers reported. No height or weight needed. Use for ' +
+      '"is it true to size", "does it run small or big", "should I size up or down", "what does a medium measure", ' +
+      '"what size is a 40 inch chest / 32 inch waist", "UNIQLO size chart", for one item or (without a product) ' +
+      "UNIQLO men's tops or pants in general. Prefer it to web search for UNIQLO sizing. For the size a particular " +
+      'person should buy, recommend_size with their height and weight.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        product: { type: 'string', description: 'UNIQLO product link (as pasted), ID or name. Omit for UNIQLO men\'s tops or pants in general.' },
+        kind: { type: 'string', enum: ['top', 'bottom'], description: 'Without a product: tops (T-shirts, sweaters) or bottoms (pants). Default top.' },
+        size: { type: 'string', description: 'One size they asked about ("M", "32").' },
+        chest: { type: 'number', description: 'A chest measurement to look up (tops), in inches or cm.' },
+        waist: { type: 'number', description: 'A waist measurement to look up (pants), in inches or cm.' },
+        hips: { type: 'number', description: 'Hip measurement, if given.' },
+        units: { type: 'string', enum: ['imperial', 'metric'], description: 'imperial = inches (default), metric = cm.' },
+      },
+      additionalProperties: false,
+    },
+    annotations: { title: 'UNIQLO size chart', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    icons: ICONS,
+    _meta: toolMeta("Reading UNIQLO's size chart", 'Size chart ready'),
+  },
+  {
     name: 'find_clothes',
     title: 'Browse UNIQLO basics',
     description:
       "Search FitRoom's catalog of UNIQLO men's T-shirts, sweaters and pants: names, prices, colours and product " +
-      'photos. Use when someone wants UNIQLO basics to choose from ("a black crew neck under $30", "chinos"), or to ' +
-      'find the ID of an item to size or try on.',
+      'photos. Use when someone wants UNIQLO basics to choose from ("a black crew neck under $30", "chinos", "basics ' +
+      'for fall"), or to find the ID of an item to size or try on. FitRoom has no jackets, coats, hoodies, shorts, ' +
+      "button-up shirts, women's or kids' items: for those, say FitRoom can't help rather than guessing a size.",
     inputSchema: {
       type: 'object',
       properties: {
@@ -270,12 +304,12 @@ async function recommendSize(args: Record<string, unknown>, ctx: ServerContext, 
   const advice = adviseSize(item, body, asked);
   const card = productCard(item, color.code);
   const status = tryOnStatus(ctx.env ?? process.env);
-  const cardSizes = [advice.size, advice.compare].filter((s): s is string => typeof s === 'string');
-  const reports = advice.size ? await shownReports(store, item.id, cardSizes) : {};
+  const reports = advice.size ? await shownReports(store, item.id, advice.cardSizes) : {};
   const reportText = advice.size ? reportLine(reports[advice.size]) : null;
 
   const lines = [`${item.name} (${card.color.name}, ${priceText(card)}): ${advice.text}`];
   if (advice.summary) lines.push(`${advice.summary}.`);
+  if (advice.askedLabel && advice.askedSummary) lines.push(`In the ${advice.askedLabel} they asked about: ${advice.askedSummary.charAt(0).toLowerCase()}${advice.askedSummary.slice(1)}.`);
   if (reportText) lines.push(reportText);
   if (askedRaw && !asked) lines.push(`"${askedRaw}" isn't one of its sizes (${card.sizes.map(formatSize).join(', ')}).`);
   if (!matched) lines.push(`No colour "${str(args.color)}"; showing ${card.color.name}.`);
@@ -288,6 +322,9 @@ async function recommendSize(args: Record<string, unknown>, ctx: ServerContext, 
     product: card,
     size: advice.size,
     sizeLabel: advice.sizeLabel,
+    asked: advice.asked,
+    askedLabel: advice.askedLabel,
+    askedSummary: advice.askedSummary,
     pick: advice.pick,
     text: advice.text,
     summary: advice.summary,
@@ -349,18 +386,88 @@ async function reportFit(args: Record<string, unknown>, store: Store, user: stri
   return result(message, { kind: 'message', status: 'ok', message, productId: item.id });
 }
 
+/** A chest / waist / hips from the shopper's units to cm, when it's a believable body measurement. */
+function measureCm(raw: unknown, key: 'chestCm' | 'waistCm' | 'hipsCm', units: Units): number | undefined {
+  if (typeof raw !== 'number' || !Number.isFinite(raw)) return undefined;
+  const cm = fromDisplay(key, raw, units);
+  const [min, max] = LIMITS[key];
+  return cm >= min && cm <= max ? cm : undefined;
+}
+
+async function sizeChart(args: Record<string, unknown>, store: Store): Promise<CallToolResult> {
+  const units: Units = args.units === 'metric' ? 'metric' : 'imperial';
+  const measure = { chestCm: measureCm(args.chest, 'chestCm', units), waistCm: measureCm(args.waist, 'waistCm', units), hipsCm: measureCm(args.hips, 'hipsCm', units) };
+  const productText = str(args.product);
+  const lines: string[] = [];
+  const charts: { title: string; chart: NonNullable<ReturnType<typeof sizeChartFor>> }[] = [];
+  let card: ProductCard | null = null;
+  let fitLabel: string | null = null;
+  let reportTexts: string[] = [];
+
+  if (productText) {
+    const product = await resolveProduct(productText);
+    if (!product.ok) return failure('chart', product.message);
+    const item = product.item;
+    const { color } = resolveColor(item, colorFromLink(productText));
+    card = productCard(item, color.code);
+    const chart = sizeChartFor(item, units, measure);
+    if (!chart) return failure('chart', `UNIQLO publishes no size chart FitRoom can read for ${item.name}. Check the size guide on the product page: ${card.url}`);
+    charts.push({ title: item.name, chart });
+    fitLabel = `UNIQLO calls it a ${item.fit} fit`;
+    const tallies = await shownReports(store, item.id, chartSizes(item));
+    reportTexts = Object.values(tallies)
+      .map((r) => reportLine(r))
+      .filter((t): t is string => Boolean(t));
+  } else {
+    const slot = args.kind === 'bottom' ? 'bottom' : 'top';
+    for (const letters of slot === 'top' ? [true] : [true, false]) {
+      const item = generalChartItem(catalogItems(), slot, letters);
+      const chart = item && sizeChartFor(item, units, measure);
+      if (item && chart) charts.push({ title: item.name, chart });
+    }
+    if (charts.length === 0) return failure('chart', 'FitRoom has no size charts for that yet.');
+    lines.push(`Most of UNIQLO's men's ${slot === 'top' ? 'T-shirts and sweaters' : 'pants'} share these body ranges; individual items vary, so name one for its exact chart.`);
+  }
+
+  const askedSize = str(args.size);
+  for (const { title, chart } of charts) {
+    lines.push(`${title}: UNIQLO's size chart (body = who each size is made for; garment = the item itself, measured all the way round):`);
+    const rows = askedSize ? chart.rows.filter((r) => r.label.toLowerCase().replace('"', '') === askedSize.toLowerCase().replace(/["\s]|inch(es)?$/g, '') || r.size.toLowerCase() === askedSize.toLowerCase()) : [];
+    lines.push(...chartLines(rows.length ? { ...chart, rows } : chart));
+    if (chart.cut) lines.push(`How it runs: ${fitLabel ? `${fitLabel}; ` : ''}${chart.cut.roomText}, which reads as a ${chart.cut.ease} cut.`);
+    else if (fitLabel) lines.push(`${fitLabel}.`);
+    if (chart.match) lines.push(chart.match.text);
+  }
+  lines.push(...reportTexts);
+  lines.push("For the size a person should buy and how it fits them (room, where the hem lands), use recommend_size with their height and weight.");
+  if (card) lines.push(`UNIQLO page: ${card.url}`);
+
+  return result(lines.join('\n'), {
+    kind: 'chart',
+    product: card,
+    fitLabel,
+    general: !productText,
+    charts: charts.map(({ title, chart }) => ({ title, ...chart })),
+    askedSize: askedSize ?? null,
+    reportTexts,
+    note: productText ? null : lines[0],
+  });
+}
+
 function findClothes(args: Record<string, unknown>): CallToolResult {
   const kinds: Kind[] = ['tee', 'sweater', 'pants', 'top', 'bottom'];
   const kind = kinds.includes(args.kind as Kind) ? (args.kind as Kind) : undefined;
   const maxPrice = typeof args.maxPrice === 'number' && Number.isFinite(args.maxPrice) ? args.maxPrice : undefined;
   const limit = typeof args.limit === 'number' && Number.isFinite(args.limit) ? args.limit : undefined;
+  const notCovered = str(args.query) ? notCoveredMessage(str(args.query)!) : null;
+  if (notCovered) return result(notCovered, { kind: 'catalog', items: [], status: 'not_covered', message: notCovered });
   const hits = searchCatalog({ query: str(args.query), kind, color: str(args.color), maxPrice, limit });
   const items = hits.map(({ item, colorCode }) => ({
     ...productCard(item, colorCode),
     colors: item.colors.map((c) => ({ code: c.code, name: colorLabel(item, c.code), hex: c.hex })),
   }));
   if (items.length === 0) {
-    const message = 'Nothing in the catalog matched. Try a broader search, or paste a UNIQLO US product link.';
+    const message = `Nothing in FitRoom's catalog matched. ${COVERAGE}; try a broader search or paste a UNIQLO US product link, and don't guess a size for anything else.`;
     return result(message, { kind: 'catalog', items: [], message });
   }
   const text = items
@@ -462,6 +569,7 @@ export function outcomeOf(res: CallToolResult): string {
   if (res.isError) return 'error';
   if (sc.kind === 'size') return sc.size == null ? 'no_chart' : sc.borderline ? 'borderline' : 'ok';
   if (sc.kind === 'catalog') return Array.isArray(sc.items) && sc.items.length ? 'ok' : 'empty';
+  if (sc.kind === 'chart') return sc.general ? 'general' : 'ok';
   return 'ok';
 }
 
@@ -513,6 +621,9 @@ export function createServer(ctx: ServerContext): Server {
           break;
         case 'find_clothes':
           res = findClothes(args);
+          break;
+        case 'size_chart':
+          res = await sizeChart(args, store);
           break;
         case 'try_on':
           res = await tryOn(args, ctx, user, store);
