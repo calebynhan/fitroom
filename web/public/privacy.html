@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacy · FitRoom</title>
+<meta name="description" content="What FitRoom does with your photos, measurements and usage, on the website and in ChatGPT.">
+<link rel="canonical" href="https://fitroom-woad.vercel.app/privacy">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600&family=Inter:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/legal.css">
+</head>
+<body>
+<main>
+<header><a href="/">FitRoom</a></header>
+
+<h1>Privacy</h1>
+<p class="muted">Effective 11 November 2026. This page covers the FitRoom website (fitroom-woad.vercel.app) and FitRoom in ChatGPT (the plugin).</p>
+
+<div class="box">
+  <p><strong>The short version.</strong> FitRoom doesn't store your photos or your measurements. It has no accounts. What it keeps is anonymous: counts of how the plugin is used, and tallies of how sizes fit ("3 of 5 buyers say the S fits"). Your photos go only to the try-on service that dresses them, and only when you ask for a try-on.</p>
+</div>
+
+<h2>On the website</h2>
+<ul>
+  <li><strong>Measurements, fit preferences and saved outfits</strong> stay in your browser (local storage) and never reach FitRoom's servers.</li>
+  <li><strong>Photos</strong> stay in the browser tab's memory and are never stored by FitRoom. When you ask for a try-on, your photo goes from your browser straight to the free FASHN VTON try-on model on Hugging Face (operated by FASHN), which keeps uploads in its cache for a while. That cache is outside FitRoom's control. Closing the tab removes the photo from FitRoom's page.</li>
+  <li><strong>Pasted product links</strong> go to FitRoom's server, which loads that product from UNIQLO.</li>
+  <li><strong>Page analytics</strong> use Vercel Web Analytics: page views without cookies, with addresses stripped of anything after "?" or "#". Each try-on photo sends one event: the outcome (for example "ok" or "busy"), which photo (front or side), how many garments, how many earlier results were reused, and how long it took. Never photos or outfits.</li>
+  <li>An optional paid photo generator (off unless the site says otherwise) sends your photos through FitRoom's server to OpenAI to make the pictures. FitRoom doesn't store them. A signed cookie counts how many looks you've made, and your IP address is used briefly in memory to limit requests.</li>
+</ul>
+
+<h2>In ChatGPT</h2>
+<p>When ChatGPT uses FitRoom, it sends FitRoom what the tool needs: the product, the measurements you shared, your fit preference and, for a try-on, a link to the photo you attached. It also sends anonymous IDs for you and for the conversation, which OpenAI creates and FitRoom can't trace back to you. OpenAI keeps your conversation under <a href="https://openai.com/policies/privacy-policy/" rel="noreferrer">its own privacy policy</a>.</p>
+<table>
+  <thead><tr><th>What</th><th>What FitRoom does with it</th><th>Kept</th></tr></thead>
+  <tbody>
+    <tr><td>Height, weight, other measurements</td><td>Used to work out the size, then dropped</td><td>Not kept</td></tr>
+    <tr><td>Your photo (try-on only)</td><td>Downloaded into memory and sent to the FASHN API, which dresses it and deletes its working copy when the request finishes. The result goes back to the card in ChatGPT, not to the AI model.</td><td>Not kept by FitRoom. FASHN makes the result available to FitRoom for up to 60 minutes.</td></tr>
+    <tr><td>Your anonymous ChatGPT ID</td><td>Turned into a one-way code (hashed) to count your free try-on photos for the month, to keep one fit report per item per person, and to count distinct users per day</td><td>Try-on count: until the month ends. Fit-report check: 180 days. Daily user count: 90 days, stored in a form that can count people but not list them.</td></tr>
+    <tr><td>Fit reports you give ("the M was tight in the chest")</td><td>Added to anonymous tallies per item, size and verdict, shown to other shoppers next to the size advice</td><td>Up to 2 years</td></tr>
+    <tr><td>Usage</td><td>Which tool ran, how it ended, how long it took, and which product it was about</td><td>90 days</td></tr>
+  </tbody>
+</table>
+<p>Only photos of yourself may be used, and never photos of children.</p>
+
+<h2>Who else handles data</h2>
+<ul>
+  <li><strong>Vercel</strong> hosts FitRoom. Its logs hold request records, errors and the usage events above, never photos or measurements.</li>
+  <li><strong>Upstash</strong> (when enabled) stores the anonymous counters and tallies.</li>
+  <li><strong>FASHN</strong> runs the try-on: the API for ChatGPT, and the free Hugging Face model for the website. See <a href="https://fashn.ai/legal/privacy-policy" rel="noreferrer">FASHN's privacy policy</a>.</li>
+  <li><strong>OpenAI</strong> runs ChatGPT and the optional paid photo generator.</li>
+  <li><strong>UNIQLO</strong> provides product data, and every item links to uniqlo.com. Anything you buy, you buy from UNIQLO under its own policies.</li>
+</ul>
+
+<h2>Your choices</h2>
+<ul>
+  <li>Size advice works without a photo. Try-on is always something you ask for.</li>
+  <li>To clear the website's data, clear this site's storage in your browser.</li>
+  <li>FitRoom holds nothing that names you. That means it can't find or delete one person's anonymous counts or fit reports.</li>
+</ul>
+
+<h2>Children</h2>
+<p>FitRoom is not meant for anyone under 13. Never use a photo of a child.</p>
+
+<h2>Changes and contact</h2>
+<p>If this page changes, the date at the top changes too. Questions or requests: <a href="https://github.com/calebynhan/fitroom/issues" rel="noreferrer">open an issue on FitRoom's GitHub</a>.</p>
+
+<footer class="muted"><a href="/">FitRoom</a> · <a href="/terms">Terms</a></footer>
+</main>
+</body>
+</html>

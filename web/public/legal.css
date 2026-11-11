@@ -1,0 +1,17 @@
+/* FitRoom legal pages: the FitRoom design system (paper, ink, Cormorant Garamond + Inter) */
+:root { --paper: #ffffff; --bone: #f4f1ec; --hairline: #d6d1c8; --ink: #111111; --graphite: #3a3835; --muted: #6f6a63; }
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--paper); color: var(--graphite); font: 16px/1.6 Inter, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; }
+main { max-width: 720px; margin: 0 auto; padding: 48px 24px 80px; }
+header a { font-family: 'Cormorant Garamond', Georgia, serif; font-size: 24px; font-weight: 600; color: var(--ink); text-decoration: none; }
+h1 { font-family: 'Cormorant Garamond', Georgia, serif; font-weight: 600; color: var(--ink); font-size: 40px; line-height: 1.1; margin: 48px 0 8px; }
+h2 { font-family: 'Cormorant Garamond', Georgia, serif; font-weight: 600; color: var(--ink); font-size: 24px; margin: 48px 0 8px; }
+p, li { margin: 0 0 16px; }
+ul { padding-left: 24px; }
+a { color: var(--ink); }
+.muted { color: var(--muted); font-size: 14px; }
+.box { background: var(--bone); padding: 16px 24px; border-radius: 2px; margin: 24px 0; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; margin: 16px 0 24px; }
+th, td { text-align: left; vertical-align: top; padding: 8px 8px 8px 0; border-bottom: 1px solid var(--hairline); }
+th { color: var(--ink); font-weight: 600; }
+footer { margin-top: 80px; border-top: 1px solid var(--hairline); padding-top: 16px; }

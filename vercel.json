@@ -21,5 +21,6 @@
       "source": "/uniqlo/:path*",
       "destination": "https://image.uniqlo.com/:path*"
     }
-  ]
+  ],
+  "cleanUrls": true
 }

@@ -1,8 +1,15 @@
 import { TRY_ON } from '../look/engine';
 import { SPACE_PAGE } from '../tryon/space';
 
+/** The Plugin Directory listing, once there is one (VITE_CHATGPT_PLUGIN_URL, https only). */
+export function chatgptPluginUrl(raw: string | undefined = import.meta.env.VITE_CHATGPT_PLUGIN_URL): string | null {
+  const url = raw?.trim();
+  return url && /^https:\/\/\S+$/.test(url) ? url : null;
+}
+
 /** How it works, what happens to your data, and whose work this stands on. */
 export function AboutSection() {
+  const chatgpt = chatgptPluginUrl();
   return (
     <section className="rail-section about" id="about" aria-labelledby="about-title">
       <h2 className="eyebrow" id="about-title">
@@ -29,6 +36,14 @@ export function AboutSection() {
           card shows how your size sits: room at the chest or hips, where the hem lands, against one size either side.
         </li>
       </ol>
+      {chatgpt && (
+        <p className="note">
+          <strong>In ChatGPT too.</strong> Ask ChatGPT what size to get, and FitRoom answers with the size and the fit card.{' '}
+          <a href={chatgpt} target="_blank" rel="noreferrer">
+            Use FitRoom in ChatGPT
+          </a>
+        </p>
+      )}
       <p className="note">
         <strong>Your data.</strong> Photos stay in this tab and FitRoom never stores them. Measurements and saved outfits stay in
         this browser. Share links carry the outfit only. Page counts are anonymous, without cookies.
@@ -48,7 +63,8 @@ export function AboutSection() {
         <a href="https://www.uniqlo.com/us/en/" target="_blank" rel="noreferrer">
           uniqlo.com
         </a>
-        .
+        .{' '}
+        <a href="/privacy.html">Privacy</a> · <a href="/terms.html">Terms</a>
       </p>
     </section>
   );
