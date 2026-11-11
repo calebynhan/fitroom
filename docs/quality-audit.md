@@ -1,7 +1,7 @@
 # FitRoom quality audit, 2026-11-10
 
-Status: Phases 0, 1, 2, 5, 6 and 7 done (live-URL checks pending); Phase 4 code side done; Phase 3 waiting on GPU quota
-(experiments ready, run when it resets ~17:00 UTC 2026-11-11). Findings 1-7, 9-18 fixed; 8 and 19 open.
+Status: Phases 0, 1, 2, 3, 5, 6 and 7 done (live-URL checks pending); Phase 4 code side done. Findings 1-7, 9-18 fixed;
+8 downgraded to P2 (not reproduced on 2 of 8 products), 19 open.
 
 What was tested, what is wrong, and a plan to improve it that can be measured. Covers the free try-on engine (the
 default), sizing and the fit card, the catalog and the UI, on branch `claude/focused-turing-yuhkiq` (PR #2).
@@ -28,7 +28,7 @@ default), sizing and the fit card, the catalog and the UI, on branch `claude/foc
 | Robustness | **Weak.** A stalled Space locks the app; retry can destroy a partial photo; removed photos can be re-sent. |
 | Size recommendation | **Logically sound, overconfident.** Monotonic, ordered, no NaN in 3,400 cases; but with estimated measurements the answer flips for 41-54% of bodies within 1 SD. |
 | Accessibility / mobile | **Mostly fine.** No overflow, keyboard reachable; small swatches, two axe issues. |
-| Capacity | **Fragile.** Anonymous visitors get ~2 GPU-minutes a day (2-4 passes); one shared queue on a Space we don't control. |
+| Capacity | **Fragile.** Anonymous visitors get ~2 GPU-minutes a day (~3 passes, measured); one shared queue on a Space we don't control. |
 
 ## Findings by priority
 
@@ -120,14 +120,28 @@ height + weight only (78% of tops, 84% of pants), so one prompt in Measurements 
 most sizes (chest, waist), and each borderline item links to its field. Found while testing: a top measured all the
 way round (35 in "flat") picked a 3XL; now a garment more than 10 cm beyond every size is ignored and flagged.
 
-### Phase 3: try-on quality (P1 8, eval-driven) - blocked on GPU quota
-Not started: every check from this environment on 2026-11-10 and 11 got "You have exceeded your ZeroGPU runs limit".
-Run it from a connection with quota (or a PRO token) with the eval page.
-Run the eval set before and after each change; keep a change only if it improves the metrics without new flags.
-Candidates, in order of expected value: garment crop + `flat-lay` for worn product photos; `num_timesteps` 30 vs 50;
-seed sweeps; sharpening the side photo; a second engine (the eval page makes swapping Spaces a one-line change).
-**Gate:** median colour dE <= 8 on the set, 0 "garment barely changed" flags on contrasting outfits, above-garment
-<= 3 on every sharp photo.
+### Phase 3: try-on quality (P1 8, eval-driven) - done 2026-11-11 (no change wins)
+Run on the real Space once the GPU allowance reset (21:00 UTC), one pass per setting on the owner's front photo, scored
+with the eval metrics plus a leak measure (change outside the garment's own area: below 72% of the height for tops,
+above 50% for bottoms):
+
+| Run | Changed | Leak | Above garment | Colour dE | Lightness d |
+|---|---|---|---|---|---|
+| Sweater, 30 steps (current) | 10.2% | 0% | 1.6 | 1.6 | -1.6 |
+| Sweater, 50 steps | 10.2% | 0% | 1.6 | 3.8 | -3.8 |
+| Crew Neck T (model shot), current | 2.1% | 0% | 1.5 | 4.1 | -2.6 |
+| Crew Neck T, segmentation on | 2.9% | 0% | 1.3 | 20.4* | 19.3 |
+| Crew Neck T, cropped to the tee, flat-lay | 1.7% | 0% | 1.5 | 7.4 | -6.6 |
+| Slim Chino (model shot), current | 8.3% | 0% | 1.8 | 14.6 | 14.6 |
+| Slim Chino, segmentation on | 7.8% | 0% | 1.7 | 16.9 | 16.8 |
+
+*the tee changes only 2-3% of pixels (brown over dark grey), so its colour sample is small; by eye the two are the same.
+Results: 50 steps looked identical and costs 1.6x the GPU (15.4 vs 9.7 s); segmentation and cropping were no better;
+neither model-shot photo's styling was copied (no cargo pants, no jacket), so **finding 8 is downgraded to P2** for these
+products (the other 6 untested). Kept: 30 steps, segmentation_free true, model shots sent as `model`. Open: beige chinos
+come out ~15 L lighter than UNIQLO's photo with either setting; seeds not compared (the allowance ran out: a free
+account's 5 GPU-minutes = 8 passes, ~37 s each, so anonymous visitors get ~3 passes, now what tryon/allowance.ts assumes).
+Not done: an end-to-end try-on in the app on a real result (no allowance left).
 
 ### Phase 4: capacity and reliability
 - Duplicate the FASHN Space to our own Hugging Face account (free: 2 ZeroGPU Spaces): our own queue, no dependency on
@@ -154,7 +168,7 @@ picked size and setting applied, params stripped), a link to an unknown item (cl
 open when cleared, size panel hidden under an out-of-date look, About link. Still to do: the same on the live URL.
 
 ### Phase 6: more try-ons from the same allowance - done 2026-11-11
-The free allowance (~4 passes a day) bought about one outfit a day: 2 passes per photo, 4 with the side photo. Now:
+The free allowance (~3 passes a day, measured 2026-11-11 in Phase 3) bought about one outfit a day: 2 passes per photo, 4 with the side photo. Now:
 finished passes are reused (new pants on the same top = 1 pass; Try On Again = 0; a retry after a partial photo redoes
 only the missing garment); the side photo is tried only on request; the cost of the next try-on and roughly what is left
 today are shown before it runs. **Gate:** measured with the real code and a stand-in Space in Chromium (desktop, iPhone

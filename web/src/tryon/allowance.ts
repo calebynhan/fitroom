@@ -1,13 +1,14 @@
 // An estimate of the shopper's free GPU allowance, so FitRoom can warn before "used up" instead of only after.
 // Hugging Face doesn't tell a browser how much is left: anonymous visitors get about 2 GPU-minutes a day per connection,
-// a try-on pass takes ~26 s, so about 4 passes; the day restarts 24 h after the first use. Other people on the same
-// network and other ZeroGPU Spaces draw on the same allowance, so this is only ever "about". Stored in localStorage
-// (counts and times, nothing about the person).
+// a try-on pass costs ~37 s of it (measured 2026-11-11: a free account's 5 GPU-minutes covered 8 passes), so about 3
+// passes; the day restarts 24 h after the first use. Other people on the same network and other ZeroGPU Spaces draw
+// on the same allowance, so this is only ever "about". Stored in localStorage (counts and times, nothing about the
+// person).
 import { create } from 'zustand';
 import { safeStorage } from '../body/profile';
 
 const KEY = 'fitroom.gpu.v1';
-export const PASSES_PER_DAY = 4;
+export const PASSES_PER_DAY = 3;
 export const WINDOW_MS = 24 * 60 * 60 * 1000;
 
 export interface Allowance {

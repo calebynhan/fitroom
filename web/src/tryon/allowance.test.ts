@@ -24,11 +24,13 @@ describe('allowance estimate', () => {
   it('says what a try-on costs and warns before it runs out', () => {
     expect(allowanceText(FRESH, 0, T0)?.text).toMatch(/no GPU time/);
     expect(allowanceText(FRESH, 2, T0)).toEqual({ text: `Uses 2 passes of about ${PASSES_PER_DAY} free a day.`, warn: false });
-    const three = afterPass(afterPass(afterPass(FRESH, T0), T0), T0);
-    expect(allowanceText(three, 1, T0)).toEqual({ text: 'Uses 1 pass; about 1 pass left today.', warn: false });
-    expect(allowanceText(three, 2, T0)).toEqual({ text: 'This needs 2 passes and about 1 pass is left today, so it may stop partway.', warn: true });
-    const four = afterPass(three, T0);
-    expect(allowanceText(four, 2, T0)?.text).toBe(`You've probably used today's free GPU time (about ${PASSES_PER_DAY} passes), so this may not work.`);
+    const one = afterPass(FRESH, T0);
+    expect(allowanceText(one, 1, T0)).toEqual({ text: `Uses 1 pass; about ${PASSES_PER_DAY - 1} passes left today.`, warn: false });
+    const two = afterPass(one, T0);
+    expect(allowanceText(two, 1, T0)).toEqual({ text: 'Uses 1 pass; about 1 pass left today.', warn: false });
+    expect(allowanceText(two, 2, T0)).toEqual({ text: 'This needs 2 passes and about 1 pass is left today, so it may stop partway.', warn: true });
+    const three = afterPass(two, T0);
+    expect(allowanceText(three, 2, T0)?.text).toBe(`You've probably used today's free GPU time (about ${PASSES_PER_DAY} passes), so this may not work.`);
     expect(allowanceText(afterQuota(three, T0), 2, T0)).toMatchObject({ warn: true, text: expect.stringMatching(/used up; it should be back around/) });
     expect(allowanceText(afterQuota(FRESH, T0), 2, T0)?.text).toMatch(/back within a day/);
   });
