@@ -52,7 +52,10 @@ broken.
       200 per instance per day, both in memory per warm instance, so best effort; next: shared counters (Vercel KV /
       Upstash) and a hard monthly budget on the OpenAI project; verify on the live URL).
 - [ ] Error handling on every API call; loading states.
-- [ ] OG image + metadata, Vercel Analytics, a short About / how-it-works section.
+- [x] OG image + metadata (web/index.html, web/public/og.png 1200x630, favicon.svg), Vercel Analytics (web/src/analytics.ts:
+      page views without cookies, URLs stripped of query/hash; a `tryon` event per photo { outcome ok|partial|quota|busy|
+      timeout|unreachable|cancelled|photo|error, reason, view, garments, seconds } (custom events need Vercel Pro; on Hobby
+      only page views count); Web Analytics must be enabled in the Vercel project), About / how-it-works (ui/AboutSection).
 
 ## Default body (Caleb)
 5'10" (178 cm), 143 lb (65 kg), chest 92 cm, waist 75 cm (29"), hips 90 cm, inseam 84 cm. Slim, slight V-taper.
@@ -102,8 +105,9 @@ Jeans E479000-000 (22-34 inch) came in through the men's listing; removed from c
                           shootCompare = the front again with one item in its comparison size
       state/looks.ts      photos per look key (revisiting an outfit costs nothing), each look's views (`order`),
                           busy flag, looks left
-      ui/                 Header (Make my shots), Lookbook (4 frames + Lightbox + Compare sizes), FitTable,
-                          Photo/Measure/Fit/Outfit/Scene sections
+      analytics.ts        Vercel Web Analytics (production builds only) + try-on outcome events; never photos or outfits
+      ui/                 Header (Make my shots, How it works), Lookbook (4 frames + Lightbox + Compare sizes), FitTable,
+                          Photo/Measure/Fit/Outfit/Scene/About sections, SavedOutfits
     api/       Vercel functions: /api/product, /api/photoreal (shared contract: api/_lib/look.ts)
     scripts/   Node/TS data scripts: catalog ingest, size-chart parsing -> web/public/catalog.json
     pipeline/  LEGACY (unused by the app): Python + bpy 3D mannequin and garments. See Legacy below.

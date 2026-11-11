@@ -85,6 +85,9 @@ export function Header() {
         FitRoom
       </div>
       <div className="topbar-actions">
+        <a className="link-btn about-link" href="#about">
+          How it works
+        </a>
         {!TRY_ON && remaining !== null && (
           <span className="eyebrow muted looks-left">
             {remaining} {remaining === 1 ? 'look' : 'looks'} left

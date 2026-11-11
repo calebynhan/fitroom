@@ -4,6 +4,7 @@ import { parseCatalog } from './catalog/types';
 import { loadOutfitFromUrl } from './outfit/load';
 import { hasUnsavedPhotos, useLooks } from './state/looks';
 import { useApp } from './state/store';
+import { AboutSection } from './ui/AboutSection';
 import { Header } from './ui/Header';
 import { Lookbook } from './ui/Lookbook';
 import { FitSection, MeasureSection } from './ui/MeasureSection';
@@ -66,6 +67,7 @@ export function App() {
           <FitSection />
           <OutfitSection loadError={catalogError} />
           {!TRY_ON && <SceneSection />}
+          <AboutSection />
         </aside>
       </main>
     </div>
