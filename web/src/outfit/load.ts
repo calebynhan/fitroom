@@ -22,12 +22,12 @@ export async function loadOutfit(o: SharedOutfit, source: 'link' | 'saved'): Pro
   const app = useApp.getState();
   const slots = (['top', 'bottom'] as const).filter((s) => o.outfit[s]);
   const unknown = slots.map((s) => o.outfit[s]!.itemId).filter((id) => !app.catalog.some((i) => i.id === id));
-  const failures: string[] = [];
+  const failures: { error: string; code?: string }[] = [];
   await Promise.all(
     [...new Set(unknown)].map(async (id) => {
       const result = await fetchProduct(productPageUrl(id));
       if ('id' in result) useApp.getState().addItem(result);
-      else failures.push(result.error);
+      else failures.push(result);
     }),
   );
   const applied = useApp.getState().applyOutfit(o.outfit, o.scene);
@@ -40,10 +40,16 @@ export async function loadOutfit(o: SharedOutfit, source: 'link' | 'saved'): Pro
     const what = source === 'link' ? 'Outfit from a shared link' : 'Wearing your saved outfit';
     setOutfitNotice({ kind: 'ok', text: `${what}: ${names.join(' + ')}.` });
   } else {
-    const why = failures[0] ? ` (${failures[0].replace(/\.$/, '')})` : '';
     const lost = missed.map((s) => `the ${SLOT_WORD[s]}`).join(' and ');
     const kept = applied.length ? ` Loaded ${names.join(' + ')}.` : '';
-    setOutfitNotice({ kind: 'error', text: `Couldn't load ${lost} from this ${source === 'link' ? 'link' : 'outfit'}${why}; UNIQLO may have stopped selling it.${kept}` });
+    const failure = failures[0];
+    // not_found / unsupported: the item itself is gone; anything else (UNIQLO or our server unreachable) may pass
+    const why = !failure
+      ? ''
+      : failure.code === 'not_found' || failure.code === 'unsupported'
+        ? `: ${failure.error.replace(/\.$/, '')}.`
+        : `: ${failure.error.replace(/\.$/, '')}. Try again later.`;
+    setOutfitNotice({ kind: 'error', text: `Couldn't load ${lost} from this ${source === 'link' ? 'link' : 'outfit'}${why}${kept}` });
   }
   return applied;
 }

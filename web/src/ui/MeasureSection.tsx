@@ -307,6 +307,8 @@ export function FitSection() {
   const prefs = fitPrefs(profile);
   const body = completeBody(profile);
   const hasRef = REFERENCE.some((k) => profile[k] !== null);
+  // open when there are measurements, then the shopper's to close: clearing the last field must not snap it shut
+  const [refOpen, setRefOpen] = useState(hasRef);
   const topFeedback = referenceFeedback('top', prefs.top.chestCm, body?.chestCm, profile.units);
   const bottomFeedback = referenceFeedback('bottom', prefs.bottom.hipsCm, body?.hipsCm, profile.units);
 
@@ -335,7 +337,7 @@ export function FitSection() {
         {prefRow('top', 'Tops')}
         {prefRow('bottom', 'Bottoms')}
       </div>
-      <details className="ref-garment" open={hasRef}>
+      <details className="ref-garment" open={refOpen} onToggle={(e) => setRefOpen(e.currentTarget.open)}>
         <summary>
           Measure clothes that fit you well <span className="field-opt">optional</span>
         </summary>

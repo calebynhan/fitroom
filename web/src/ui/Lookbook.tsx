@@ -338,7 +338,7 @@ function Shots({ look, stale }: { look: Look; stale: boolean }) {
         <div className="foot-notes">
           {TRY_ON ? (
             <p className="note">
-              Your own photo, re-dressed by the free FASHN try-on model on{' '}
+              Your own photo, re-dressed by the free FASHN VTON try-on model on{' '}
               <a href={SPACE_PAGE} target="_blank" rel="noreferrer">
                 Hugging Face
               </a>
@@ -359,7 +359,7 @@ function Shots({ look, stale }: { look: Look; stale: boolean }) {
         </div>
       </div>
       {!stale && !TRY_ON && <ComparePanel look={look} />}
-      {TRY_ON && <TryOnSizes />}
+      {TRY_ON && !stale && <TryOnSizes />}
       {open && openDone && <Lightbox look={look} view={open} onClose={() => setOpen(null)} onNavigate={setOpen} />}
     </div>
   );

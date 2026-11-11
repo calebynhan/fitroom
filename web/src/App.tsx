@@ -58,7 +58,8 @@ export function App() {
       </a>
       <Header />
       <main className="stage">
-        <section className="lookbook-pane" aria-label="Your photos">
+        {/* focusable: it scrolls on its own, so keyboard users must be able to reach it (axe scrollable-region-focusable) */}
+        <section className="lookbook-pane" aria-label="Lookbook" tabIndex={0}>
           <Lookbook />
         </section>
         <aside className="rail" aria-label="Controls">

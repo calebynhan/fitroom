@@ -57,6 +57,7 @@ input[type='text']:focus, textarea:focus { outline: 1px solid var(--ink); outlin
 
 .stage { display: flex; min-height: 0; }
 .lookbook-pane { flex: 1; min-width: 0; overflow-y: auto; background: var(--paper); }
+.lookbook-pane:focus-visible { outline: 1px solid var(--ink); outline-offset: -2px; }
 .rail { width: 380px; flex: none; background: var(--bone); border-left: 1px solid var(--hairline); overflow-y: auto; }
 
 /* Lookbook */
@@ -249,7 +250,8 @@ input[type='text']:focus, textarea:focus { outline: 1px solid var(--ink); outlin
 .pref-label { width: 64px; font: 500 12px var(--sans); }
 .pref-note { flex-basis: 100%; padding-left: 80px; margin-top: -4px; font: 400 11px var(--sans); color: var(--muted); }
 .ref-garment { display: flex; flex-direction: column; gap: 8px; }
-.ref-garment summary { cursor: pointer; font: 500 12px var(--sans); }
+.ref-garment summary { cursor: pointer; font: 500 12px var(--sans); padding: 6px 0; }
+.uniqlo-link { display: inline-flex; align-items: center; min-height: 24px; }
 .ref-garment[open] summary { margin-bottom: 8px; }
 .ref-garment > .note { margin-bottom: 8px; }
 .ref-group { display: flex; flex-direction: column; gap: 8px; }
@@ -277,6 +279,9 @@ input[type='text']:focus, textarea:focus { outline: 1px solid var(--ink); outlin
 /* Touch screens: 16px inputs, or iOS Safari zooms the page on focus. */
 @media (max-width: 900px), (pointer: coarse) {
   .num-box input, .paste-input, .fallback textarea { font-size: 16px; }
+  /* WCAG 2.2 target size (24 px) on touch screens */
+  .swatch { width: 28px; height: 28px; }
+  .swatches { gap: 6px; }
 }
 
 /* Reduced motion: no fades, no animated bars. */

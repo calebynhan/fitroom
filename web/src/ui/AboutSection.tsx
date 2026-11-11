@@ -10,8 +10,8 @@ export function AboutSection() {
       </h2>
       <ol className="about-steps">
         <li>
-          <strong>Your size.</strong> UNIQLO's size charts against your height, weight and any measurements you add. FitRoom
-          picks the size to buy and says when it's a close call.
+          <strong>Your size.</strong> FitRoom checks UNIQLO's size charts against your height, weight and any measurements you
+          add, picks the size to buy, and says when it's a close call.
         </li>
         {TRY_ON ? (
           <li>

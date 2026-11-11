@@ -115,7 +115,7 @@ function ProductCard({ item, selection }: { item: CatalogItem; selection: Select
               </button>
             ))}
           </div>
-          <a href={item.url} target="_blank" rel="noreferrer">
+          <a className="uniqlo-link" href={item.url} target="_blank" rel="noreferrer">
             View on UNIQLO
           </a>
         </div>
