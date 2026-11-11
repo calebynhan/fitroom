@@ -3,7 +3,8 @@
 // data URI with `return_base64` (FASHN keeps no copy of either beyond the request: docs.fashn.ai, Data Retention),
 // and the result goes back to the widget only. FitRoom stores and logs neither photo.
 // Each garment is one pass: the top on the shopper's photo, then the bottoms on that result (as the web app does).
-import { productImage } from '../../../web/src/catalog/types';
+import { productImage } from '../fit/catalogItem';
+import { garmentOnlyUrl } from '../fit/garmentPhoto';
 import type { CatalogItem } from '../uniqlo';
 
 type Env = Record<string, string | undefined>;
@@ -122,16 +123,6 @@ export async function fetchShopperPhoto(ref: unknown, deps: TryOnDeps): Promise<
     network: "That photo couldn't be downloaded. Attach it to the chat again.",
   };
   return { ok: false, kind: 'photo', message: messages[res.reason] };
-}
-
-/**
- * UNIQLO's garment-only shot for a catalogue photo URL (same rule as web/src/tryon/garment.ts garmentOnlyUrl, which
- * can't be imported here: its module types need the browser build; a test keeps the two in step):
- * .../UQ/ST3/us/imagesgoods/453754/item/usgoods_67_453754_3x4.jpg -> .../UQ/ST3/WesternCommon/imagesgoods/453754/item/goods_67_453754_3x4.jpg
- */
-export function garmentOnlyUrl(url: string): string | null {
-  const m = url.match(/^(.*\/UQ\/ST3\/)us(\/imagesgoods\/\d+\/item\/)usgoods_([A-Za-z0-9]+_\d+_3x4\.jpg)$/);
-  return m ? `${m[1]}WesternCommon${m[2]}goods_${m[3]}` : null;
 }
 
 /**

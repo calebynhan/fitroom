@@ -15,9 +15,9 @@ import {
   type Profile,
   type SizingBody,
   type Units,
-} from '../../../web/src/body/profile';
-import { fitCard, type FitCard } from '../../../web/src/fit/fitCard';
-import { chartSizes, easeFor, fitSummary, formatSize, lengthFor, shortSize, sizeAdvice, sizePair } from '../../../web/src/fit/sizing';
+} from '../fit/profile';
+import { fitCard, type FitCard } from '../fit/fitCard';
+import { chartSizes, easeFor, fitSummary, formatSize, lengthFor, shortSize, sizeAdvice, sizePair } from '../fit/sizing';
 import type { CatalogItem } from '../uniqlo';
 
 export interface BodyInput {

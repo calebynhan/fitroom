@@ -2,7 +2,7 @@
 // ships it with the function), plus any UNIQLO US product by link or ID through the same lookup as /api/product.
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { colorLabel, findColor, parseCatalog, productImage } from '../../../web/src/catalog/types';
+import { colorLabel, findColor, parseCatalog, productImage } from '../fit/catalogItem';
 import { getProduct } from '../productLookup';
 import { parseProductId, type CatalogColor, type CatalogItem } from '../uniqlo';
 

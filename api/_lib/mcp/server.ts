@@ -14,8 +14,8 @@ import {
   type CallToolResult,
   type Tool,
 } from '@modelcontextprotocol/sdk/types.js';
-import { colorLabel } from '../../../web/src/catalog/types';
-import { formatSize } from '../../../web/src/fit/sizing';
+import { colorLabel } from '../fit/catalogItem';
+import { formatSize } from '../fit/sizing';
 import { productCard, resolveColor, resolveProduct, searchCatalog, type Kind, type ProductCard } from './catalog';
 import { limitsFromEnv, reserve, storeFromEnv, userKey, type QuotaStore } from './quota';
 import { adviseSize, cardLines, matchSize, parseBody, type BodyInput } from './sizing';

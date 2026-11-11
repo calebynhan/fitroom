@@ -42,6 +42,7 @@
     "../api/mcp*.ts",
     "../api/_lib/mcp/*.ts",
     "../api/_lib/productLookup*.ts",
-    "../api/_lib/quota*.ts"
+    "../api/_lib/quota*.ts",
+    "../api/_lib/fit/*.ts"
   ]
 }
