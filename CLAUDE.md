@@ -17,8 +17,11 @@ broken.
 - **Their photos are theirs.** Photos stay in browser memory (never localStorage) and are never stored or logged by
   FitRoom. Try-on engine: they go from the browser straight to the public FASHN Space, which keeps uploads on its
   server for a while (Gradio's file cache, outside our control); the UI says so. OpenAI engine: they pass through
-  /api/photoreal to OpenAI. Only photos of yourself (the UI says so). Paid try-ons (when on) keep a Google account id,
-  email and look counts in the ledger; never photos or outfits.
+  /api/photoreal to OpenAI. ChatGPT plugin: the shopper attaches the photo in ChatGPT (OpenAI holds it under its
+  terms); /api/mcp downloads it into memory, sends it to the FASHN API as base64 with `return_base64` (FASHN keeps no
+  image copy past the request), and returns the result to the widget only (`_meta`, never to the model); nothing is
+  stored or logged. Only photos of yourself (the UI and the tool description say so). Paid try-ons (when on) keep a
+  Google account id, email and look counts in the ledger; never photos or outfits.
 - **Every feature works on the live URL, on desktop and mobile**, with real error messages instead of silent failures.
 - **Black-and-white, Banana Republic-style design.** Use the FitRoom design system:
   paper #FFFFFF, bone #F4F1EC, stone #E4DFD6, hairline #D6D1C8, ink #111111, graphite #3A3835, muted #6F6A63,
@@ -69,11 +72,10 @@ the last step for every item is the same check on the live URL, on desktop and a
       and BILLING_EXEMPT_EMAILS never pay. Built and checked in a browser on a local build (in-memory ledger, Stripe and
       Google faked); not yet configured on Vercel, so not checked on the live URL.
 
-**ChatGPT plugin** (2026-11-11; see ChatGPT plugin below)
-- [x] FitRoom as a ChatGPT plugin (MCP server at /mcp): find clothes, try them on the shopper's attached photo in a
-      FitRoom panel, the size to buy; the same account and try-ons as the website (OAuth sign-in with Google). Built and
-      checked locally (MCP + OAuth tests, the built panel in a browser harness playing ChatGPT's bridge, Space blocked);
-      not yet deployed or connected in ChatGPT.
+**FitRoom accounts in the ChatGPT plugin** (2026-11-11; see Accounts in the ChatGPT plugin below)
+- [x] With paid try-ons on, ChatGPT links the shopper's FitRoom account (OAuth, Google sign-in) and the plugin's try_on
+      spends the same try-ons as the website (5 free, then bought ones; the owner never pays). Built and tested locally
+      (OAuth end to end, try_on against a fake FASHN API); not yet deployed or connected in ChatGPT.
 
 **Paid generator only** (VITE_PHOTO_ENGINE=openai): four shots per look (front, three-quarter, side, back) with settings
 (Studio / City / Night) and a free size-comparison front shot; /api/photoreal rate-limited (3 looks per visitor cookie, 48
@@ -112,16 +114,21 @@ Jeans E479000-000 (22-34 inch) came in through the men's listing; removed from c
 ## Architecture
     web/       Vite + React + TS + zustand. No 3D.
       photos/prepare.ts   decode (EXIF-aware), downscale (front 1536 px, side 1024 px, face 768 px), JPEG data URL;
-                          memory only; photoWarning flags landscape body photos (person too small)
+                          memory only; photoWarning flags body photos that make poor try-ons: landscape (person
+                          small), under 1000 px tall (soft: the model outputs 864), mean luma < 60 (dark)
       body/profile.ts     measurements, ANSUR estimates, units, fit preferences + reference garment, localStorage
       fit/sizing.ts       size pick (chart, preference or reference garment), ease/length, comparison size + deltas
       fit/fitCard.ts      the fit card: two sizes on this body in numbers (cm or in)
+                          (these three and catalog/types.ts are re-export stubs: the code lives in api/_lib/fit/, shared
+                          with the ChatGPT plugin; Vercel compiles api/ as CommonJS and web/ as ESM, so a function
+                          can't load web/src. Edit api/_lib/fit/*.ts)
       look/engine.ts      which engine makes the photos (VITE_PHOTO_ENGINE): useShotInput / makeShots / retryShot
       tryon/space.ts      free engine: @gradio/client (lazy chunk) -> FASHN VTON v1.5 Space (ours, then FASHN's); errors in
                           shopper words
       tryon/garment.ts    garment photo: UNIQLO's garment-only shot (goods_*) when it exists, else the catalogue photo;
                           flat-lay vs model judged from the top-centre backdrop
-      tryon/composite.ts  sharper results: the shopper's photo above the new garment's top edge, the model below
+      tryon/composite.ts  sharper results: the model's output only where the clothes changed (solid per-row region,
+                          feathered, lightly sharpened), the shopper's own photo everywhere else
       tryon/shoot.ts      the front: top, then bottoms on that result (side photo on request); finished passes reused;
                           partial photo kept; quota stops the rest
       tryon/allowance.ts  estimate of the free GPU allowance (passes today, used up, when it's back), localStorage
@@ -137,16 +144,22 @@ Jeans E479000-000 (22-34 inch) came in through the men's listing; removed from c
       analytics.ts        Vercel Web Analytics (production builds only) + try-on outcome and account step events; never
                           photos, outfits or emails
       ui/                 Header (Make my shots, How it works), Lookbook (4 frames + Lightbox + Compare sizes), FitTable,
+                          BeforeAfter (lightbox: drag between the shopper's photo and the try-on; done.before),
+                          LooksStrip ("Your try-ons": every outfit tried on these photos; one tap goes back, free),
                           Photo/Measure/Fit/Outfit/Scene/About sections, SavedOutfits,
                           TryOnBudget (allowance note, credit note, "Try your side photo too"), AccountSection (rail),
                           AccountDialog (sign in / buy / waiting / thanks), GoogleButton
-      widget/             the ChatGPT panel (own bundle, vite.widget.config.ts -> dist/widget/fitroom-tryon.js): bridge.ts
-                          (MCP Apps App + window.openai extras), run.ts (photo -> charge_look -> Space passes -> sharpen;
-                          refund if nothing made), Panel.tsx, styles.ts (system fonts and host colours)
-    api/       Vercel functions: /api/product, /api/photoreal (shared contract: api/_lib/look.ts), /api/account,
-               /api/credits, /api/checkout, /api/stripe (paid try-ons: api/_lib/billing.ts, account.ts, ledger.ts,
-               session.ts, googleToken.ts, stripe.ts; browser-facing types in accountTypes.ts), /api/mcp (ChatGPT
-               plugin: api/_lib/mcpServer.ts), /api/oauth (OAuth for the plugin: api/_lib/oauth.ts)
+    api/       Vercel functions: /api/product, /api/photoreal (shared contract: api/_lib/look.ts), /api/mcp (ChatGPT plugin),
+               /api/account, /api/credits, /api/checkout, /api/stripe (paid try-ons), /api/oauth (FitRoom accounts in
+               the plugin)
+      _lib/fit/           profile, sizing, fitCard, catalogItem, garmentPhoto: pure code shared by web (via @api) and api
+      _lib/productLookup.ts  UNIQLO product by ID (cache, dedupe), used by /api/product and the plugin
+      _lib/mcp/           the plugin: server.ts (tools, widget resource), catalog.ts, sizing.ts (body input -> advice),
+                          tryOn.ts (FASHN API), quota.ts (free photos per ChatGPT user; the daily cap), accounts.ts
+                          (paid try-ons on: the linked FitRoom account's try-ons), widget.html (the card)
+      _lib/               paid try-ons: billing.ts (config, owner exemption), account.ts (charge / give back), ledger.ts
+                          (Upstash + Lua), session.ts, googleToken.ts, stripe.ts, accountTypes.ts (browser-facing types);
+                          oauth.ts (FitRoom as the plugin's OAuth server)
     web/public/try-ons.html, privacy.html   informational page the plugin links to; privacy policy (plugin submission)
     scripts/   Node/TS data scripts: catalog ingest, size-chart parsing -> web/public/catalog.json
     pipeline/  LEGACY (unused by the app): Python + bpy 3D mannequin and garments. See Legacy below.
@@ -155,12 +168,18 @@ Env (Vercel + .env.local): VITE_TRYON_SPACE (build time: `owner/name` of our own
 FASHN's), VITE_PHOTO_ENGINE (build time: unset = free try-on Space, `openai` = the paid generator
 below), OPENAI_API_KEY (only for the openai engine), OPENAI_IMAGE_MODEL (default gpt-image-1.5),
 OPENAI_IMAGE_QUALITY (default medium), PHOTOREAL_DAILY_CAP (photos per warm instance per day, default 200),
-PHOTOREAL_DISABLED=1 (kill switch). Paid try-ons (server, runtime; .env.example): GOOGLE_CLIENT_ID, SESSION_SECRET (32+
-chars), KV_REST_API_URL + KV_REST_API_TOKEN (or UPSTASH_REDIS_REST_URL/_TOKEN), STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET,
-FREE_LOOKS (5), PACK_LOOKS (20), PACK_PRICE_CENTS (499), PACK_CURRENCY (usd), STRIPE_PRICE_ID (optional),
-BILLING_EXEMPT_EMAILS (comma-separated), APP_URL (Stripe return links; default the request's host), BILLING_DISABLED=1
-(kill switch). vite dev reads these from ../.env.local. ChatGPT plugin: APP_URL (set it in production: the OAuth issuer
-and MCP resource must be one exact origin), OAUTH_CLIENT_HOSTS (CIMD client hosts, default chatgpt.com,openai.com).
+PHOTOREAL_DISABLED=1 (kill switch).
+ChatGPT plugin (/api/mcp): FASHN_API_KEY (try-on photos; unset = try_on says it's not switched on), TRYON_FREE_PER_MONTH
+(default 5 per ChatGPT user; only while paid try-ons are off), TRYON_DAILY_CAP (default 100 photos a day for everyone),
+TRYON_DISABLED=1 (kill switch), UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN or KV_REST_API_URL + KV_REST_API_TOKEN
+(shared counters; unset = in memory per warm instance, best effort), AFFILIATE_URL_TEMPLATE (wraps product links, `{url}`
+= the encoded UNIQLO URL).
+Paid try-ons (server, runtime; .env.example): GOOGLE_CLIENT_ID, SESSION_SECRET (32+ chars), KV_REST_API_URL +
+KV_REST_API_TOKEN (or UPSTASH_REDIS_REST_URL/_TOKEN; the same store as the plugin's counters), STRIPE_SECRET_KEY,
+STRIPE_WEBHOOK_SECRET, FREE_LOOKS (5), PACK_LOOKS (20), PACK_PRICE_CENTS (499), PACK_CURRENCY (usd), STRIPE_PRICE_ID
+(optional), BILLING_EXEMPT_EMAILS (comma-separated), APP_URL (one exact origin: Stripe return links, the OAuth issuer
+and the plugin's resource; default the request's host), OAUTH_CLIENT_HOSTS (CIMD client hosts, default
+chatgpt.com,openai.com), BILLING_DISABLED=1 (kill switch). vite dev reads these from ../.env.local.
 
 ## Photo engines
 **Try-on (default, free)**: FASHN VTON v1.5 (Apache-2.0) on https://huggingface.co/spaces/fashn-ai/fashn-vton-1.5,
@@ -203,10 +222,18 @@ and colour right. Fixed since: (1) the catalogue photo (usgoods_*) is worn by a 
 `/UQ/ST3/WesternCommon/imagesgoods/<num>/item/goods_<code>_<num>_3x4.jpg` when it exists (some are model shots too:
 garment.ts: model = something in the top-centre band (> 5%) AND skin tones in the upper third (> 1%); coverage alone
 misread tall flat pants whose waistband reaches the band; 68/68 on the catalog's photos), which also gave
-truer colour; (2) output is ~486x864 -> composite.ts takes everything above the first strongly changed rows (the
-collar, or the waistband for bottoms) from the shopper's photo at its own resolution (864x1536 for the front), feathered,
-and the model's result below; a per-pixel blend was tried and mixed old and new garments (dark pants over dark jeans
-barely differ). Not fixable in the model, handled in the UI: no size (the "Your size" panel under the photos shows
+truer colour; (2) output is ~486x864 -> composite.ts uses the model's output only in the region the try-on changed and
+the shopper's photo (at its own resolution, 864x1536 for the front) everywhere else: changed = 3x3 mean of the largest
+channel difference > 24 (40 left holes in the garment, 16 caught sand and wall texture); per row, leftmost to rightmost
+dense change, smoothed over 3% of the height (widest wins, which also fills rows inside the garment), widened 3% of the
+width, between the first and last garment rows +-1.2%, feathered 1.2%; unsharp mask 0.5 (radius 2 px) on the enlarged
+output inside that box (1.0 haloed). Inside the region, where both images show skin in the same place (YCbCr skin box,
+light to very dark tones alike; largest channel difference < 48; eroded 1 px, softened) the shopper's own skin is kept:
+sharper hands, forearms and neck. Off when a new garment's colour is itself skin-like (catalog hex; 54/237 colourways),
+so an old beige garment can never pass for skin under a new beige one. On the owner's photos the model's output now covers 13-31% of the image (was
+everything below the collar): legs under a new top, shoes, floor and the wall beside the person stay sharp. Per-pixel
+blending was tried and mixed old and new garments (dark pants over dark jeans barely differ); a solid per-row region
+can't leave holes in the garment. Not fixable in the model, handled in the UI: no size (the "Your size" panel under the photos shows
 UNIQLO's photo for colour, the size and the fit card); blurry hands get redrawn and bags/straps removed, and dark pants
 over dark jeans barely show (photo tips). A blur detector (Laplacian variance) couldn't tell a motion-blurred selfie
 (472) from a sharp photo (530), so there is none.
@@ -255,52 +282,36 @@ then check sign-in, a free look, the paywall and a test-card purchase (4242 4242
 and phone. UNIQLO's content is used for a non-commercial demo (Conventions): charging makes it commercial, so settle that
 first (the About section drops "non-commercial demo" while billing is on).
 
-## ChatGPT plugin
-FitRoom is an MCP server for ChatGPT plugins (developers.openai.com/plugins; "plugins" here are the 2025+ MCP-based
-ones, not the 2023 plugins, which OpenAI shut down in 2024). **Plugin rules, Commerce** (plugin-guidelines): no selling
-digital goods, credits or subscriptions in ChatGPT, directly or through freemium upsells; no checkout links, no plans,
-no upgrade prompts. Allowed: sign in to an existing account and use what it has; say a feature needs more credits and
-link to an informational page. So in ChatGPT: the same account and try-ons as the website (linked with OAuth), and
-with none left the panel says so and links /try-ons.html (which describes the packs; the buying happens on the site).
-**Tools** (api/_lib/mcpServer.ts; every tool has explicit readOnly/destructive/openWorld annotations):
-`find_clothes` (anonymous; catalog.json fetched from the site, cached 10 min: ids, colours with codes, sizes, size-chart
-body ranges), `try_on` (needs the account when billing is on; `photo` is a ChatGPT file param `{download_url, file_id,
-mime_type?, file_name?}`, `top`/`bottom` `{id, color?}`, `height_cm`/`weight_kg` optional; renders the panel; the model
-sees the outfit and try-ons left, the panel gets `_meta.fitroom` = full catalog items, proxied garment URLs, the photo,
-body, account), panel-only (`ui.visibility: ["app"]`): `charge_look` / `refund_look` (same ledger and look ids as
-/api/credits) and `fetch_photo` (server fetch of the download URL when the panel can't; https only, no IP literals,
-<= 15 MB, image/*, returned in `_meta` only, never stored or logged); with billing on also `my_try_ons` and
-`get_profile` (`openai/profile`, opaque id `fr_` + SHA-256 of the Google sub). Billing off: no sign-in anywhere, all
-tools `noauth`, charge_look always ok. A tool that needs the account and has none answers isError with
-`_meta["mcp/www_authenticate"]`, which makes ChatGPT offer to link FitRoom.
-**Panel** (`ui://fitroom/try-on-v1.html`, mime `text/html;profile=mcp-app`; change the URI on a breaking change): HTML
-that loads `${APP_URL}/widget/fitroom-tryon.js` (classic script, no CORS needed; vercel.json serves /widget/ with
-must-revalidate). `_meta.ui.domain` = the site origin; CSP connect = site, try-on Space(s) (VITE_TRYON_SPACE's and
-FASHN's), huggingface.co; resources = site. It reuses the website's try-on code (tryon/space.ts, garment.ts,
-composite.ts, photos/prepare.ts, fit/sizing.ts) in the shopper's browser, so GPU time is still the visitor's Hugging
-Face allowance. Garment photos load through the site's /uniqlo/ proxy, which now sends `Access-Control-Allow-Origin: *`.
-Runs once per try_on render; the finished photo is uploaded to the chat (`window.openai.uploadFile`, feature-detected)
-and kept in widget state (`imageIds`, so the model sees it; reopened chats show it without running again). Sizes and
-the outcome go to the model with `ui/update-model-context`. ChatGPT UI rules: system fonts, host colours (CSS variables),
-no logo (ChatGPT adds it); FitRoom ink only on the main button; light and dark.
-**OAuth** (api/oauth.ts + api/_lib/oauth.ts): FitRoom is the authorization server. `/.well-known/oauth-protected-resource`
-(+ `/mcp`) -> `{ resource: APP_URL/mcp, authorization_servers: [APP_URL] }`; `/.well-known/oauth-authorization-server` ->
-issuer APP_URL, `/api/oauth/authorize`, `/api/oauth/token`, S256 only, `token_endpoint_auth_methods_supported:
-["none"]`, `client_id_metadata_document_supported: true` (CIMD: client_id = an https URL on OAUTH_CLIENT_HOSTS whose JSON
-lists redirect_uris), `authorization_response_iss_parameter_supported: true` (every authorization response carries
-`iss`, so ChatGPT uses its stable redirect https://chatgpt.com/connector_platform_oauth_redirect). The authorize page
-(under /api so the site's session cookie works) offers "Continue as <email>" (POST + signed CSRF token bound to the
-request) or Google sign-in (also signs in on the site); framing denied; approvals only from our own page (Origin /
-Sec-Fetch-Site). Codes (5 min, single use via the ledger), access tokens (1 h, aud = APP_URL/mcp) and refresh tokens
-(60 days) are HMAC-signed with SESSION_SECRET, not stored (rotating SESSION_SECRET signs everyone out of ChatGPT too).
-A present-but-invalid bearer token on /mcp gets 401 + WWW-Authenticate. Off (404) when billing is off.
-**Connect (owner)**: deploy with billing configured and APP_URL=https://fitroom-woad.vercel.app; add that origin to the
-Google OAuth client's authorized JavaScript origins (already needed for the site); then chatgpt.com/plugins > + > Add
-custom MCP server > `https://fitroom-woad.vercel.app/mcp`, authentication OAuth (it discovers the rest); install, open a
-chat, `@FitRoom`, attach a full-body photo and ask to try something on. To publish in the directory: verify the
-organisation on platform.openai.com, fill in the privacy page's contact address, then submit at
-platform.openai.com/plugins (Scan Tools reads the tools, annotations and CSP from /mcp). Test prompts: "Find me a navy
-crew neck tee", "Try the Milano ribbed sweater in blue with black ultra stretch pants on my photo (I'm 178 cm, 65 kg)".
+## Accounts in the ChatGPT plugin
+The plugin itself is /api/mcp (Contracts, "ChatGPT plugin: /api/mcp"; docs/chatgpt-plugin.md). While paid try-ons are
+off it needs no sign-in and counts free photos per ChatGPT user per month (quota.ts). While they are on, the shopper links
+their FitRoom account and try_on spends the website's try-ons (api/_lib/mcp/accounts.ts):
+- **Plugin rules, Commerce** (developers.openai.com/plugins/plugin-guidelines): no selling digital goods, credits or
+  subscriptions in ChatGPT, directly or through freemium upsells; no checkout links, plans or upgrade prompts. Allowed:
+  sign in to an existing account and use what it has; say a feature needs more credits and link an informational page.
+  So: with none left, try_on says so and links /try-ons.html (which describes the packs; buying happens on the website).
+- **try_on**: `securitySchemes` oauth2 (`tryon`); no linked account = isError with `_meta["mcp/www_authenticate"]`
+  before any work, which makes ChatGPT offer to link FitRoom. Then today's shared cap (reserveDaily; still bounds FASHN
+  spend), then one look from the ledger (`m:<uuid>`: every photo is a new paid image, as with the paid generator; free
+  ones first, then bought ones; BILLING_EXEMPT_EMAILS and the owner are never charged). Nothing made = given back.
+  Empty account = status `limit`, the reason and the informational link, never a price. The in-flight lock is per
+  account. The monthly allowance per ChatGPT user is off.
+- **OAuth** (api/oauth.ts + api/_lib/oauth.ts): FitRoom is the authorization server. `/.well-known/oauth-protected-resource`
+  (+ `/api/mcp`) -> `{ resource: APP_URL/api/mcp, authorization_servers: [APP_URL] }`;
+  `/.well-known/oauth-authorization-server` -> issuer APP_URL, `/api/oauth/authorize`, `/api/oauth/token`, S256 only,
+  `token_endpoint_auth_methods_supported: ["none"]`, `client_id_metadata_document_supported: true` (CIMD: client_id = an
+  https URL on OAUTH_CLIENT_HOSTS whose JSON lists redirect_uris), `authorization_response_iss_parameter_supported: true`
+  (every authorization response carries `iss`, so ChatGPT uses its stable redirect
+  https://chatgpt.com/connector_platform_oauth_redirect). The authorize page (under /api so the website's session cookie
+  works) offers "Continue as <email>" (POST + signed CSRF token bound to the request) or Google sign-in (also signs in
+  on the website); framing denied; approvals only from our own page (Origin / Sec-Fetch-Site). Codes (5 min, single use
+  via the ledger), access tokens (1 h, aud = APP_URL/api/mcp) and refresh tokens (60 days) are HMAC-signed with
+  SESSION_SECRET, not stored (rotating SESSION_SECRET signs everyone out of ChatGPT too). /api/mcp answers a
+  present-but-invalid bearer token with 401 + WWW-Authenticate. All of it 404s while paid try-ons are off.
+- **Connect (owner)**: deploy with paid try-ons configured, FASHN_API_KEY and APP_URL=https://fitroom-woad.vercel.app;
+  in ChatGPT add https://fitroom-woad.vercel.app/api/mcp with OAuth authentication (it discovers the rest from the
+  metadata). Publishing in the directory needs a verified organisation on platform.openai.com and the privacy page's
+  contact address filled in.
 
 ## Contracts
 **Catalog item** (web/public/catalog.json `{ source, generatedAt, items }` and the /api/product response):
@@ -369,6 +380,42 @@ account's, 409 not paid). **POST /api/stripe**: Stripe webhook (signature checke
 /api/photoreal with billing on: 401/402 with `code` and `account`; successes carry `account`; `remaining` is the old
 cookie count, ignored by the client.
 
+**ChatGPT plugin: /api/mcp** (api/mcp.ts, api/_lib/mcp/; plan and rules: docs/chatgpt-plugin.md)
+MCP over Streamable HTTP, stateless (a server per request, `enableJsonResponse`, no sessions); POST JSON-RPC; GET from a
+browser = a JSON description (tools, catalogItems, widgetBytes, tryOn on/off); GET with `Accept: text/event-stream` and
+DELETE = 405; CORS `*`; 600 req/min per IP (ChatGPT calls from OpenAI's IPs). vercel.json: maxDuration 60, includeFiles
+catalog.json + widget.html (read from disk). Connect: ChatGPT developer mode > new connector > https://<host>/api/mcp, no
+auth while paid try-ons are off, OAuth while they are on (Accounts in the ChatGPT plugin, below); previews sit behind
+Vercel Authentication, so use production or a bypass.
+- `recommend_size` { product (ID, link or catalog name), color?, units? imperial|metric, height (in or cm), weight (lb
+  or kg), chest?, waist?, hips?, inseam?, fit? close|regular|relaxed, size? (one they're considering), ownGarment?
+  { chestFlat, length, hipsFlat, inseam } } -> text for the model (advice, fit card lines, buy link) + structuredContent
+  `{ kind: "size", product: ProductCard, size, sizeLabel, pick, text, summary, compare, borderline, card, estimated,
+  units, buyUrl, tryOn: { available, message? } }`. Same code as the website (parity test over every catalog item).
+  Names: an exact catalog name wins; else a unique close match; else "Which one: ..." with IDs.
+- `find_clothes` { query?, kind? tee|sweater|pants|top|bottom, color?, maxPrice?, limit? (1-12, default 8) } ->
+  `{ kind: "catalog", items: [ProductCard + colors[]] }`.
+- `try_on` { photo: { download_url, file_id?, ... } (`openai/fileParams`), top?: { product, color? }, bottom?: {...} } ->
+  `{ kind: "tryon", status: ok|partial|limit|unavailable|photo|busy|error, message, items, remaining, resetsAt }`, the
+  image in `_meta["fitroom/photo"]` (data URI). Top first, then bottoms on that result (FASHN tryon-v1.6, balanced,
+  jpeg, conservative moderation, garment-only goods_* shot fetched by the server, else the catalogue photo); a failed
+  second pass keeps the first (partial, counted). Budget 48 s. Photo links: https only, no IP literals or internal
+  names, each redirect checked, <= 10 MB, JPEG/PNG/WebP sniffed. Quota: per hashed `openai/subject` (then
+  `openai/session`, then IP), per calendar month (UTC); taken before the run, given back when nothing was made; the
+  daily cap is for everyone; a store error fails closed. Messages never mention paying (plugin rules: no upsells).
+  Paid try-ons on: the linked FitRoom account replaces the monthly allowance (accounts.ts; below); the result also
+  carries `remainingText` (what the widget shows: "4 try-ons left on your FitRoom account.", or null for unlimited).
+- Paid try-ons on, also: `my_try_ons` (try-ons left) and `get_profile` (`openai/profile`, opaque id `fr_` + SHA-256 of
+  the Google sub), both oauth2.
+- ProductCard `{ id, name, price, salePrice, slot, shape, fit, color: { code, name, hex }, image, url (colour link,
+  AFFILIATE_URL_TEMPLATE applied), sizes }`.
+- Widget `ui://fitroom/fitting-room-v1.html`, `text/html;profile=mcp-app` (MCP Apps), tools point at it with
+  `_meta.ui.resourceUri` and `openai/outputTemplate`; CSP resourceDomains image.uniqlo.com + Google Fonts, no
+  connectDomains, no `ui.domain`. Talks MCP Apps postMessage (ui/initialize, tool-input/result, size-changed, open-link,
+  message, tools/call), falls back to `window.openai` (toolOutput, toolResponseMetadata, openExternal,
+  sendFollowUpMessage, callTool, uploadFile for the in-card "Try it on with your photo" in ChatGPT). Renders with
+  textContent only. Change the widget's behaviour incompatibly = bump the URI (hosts cache it).
+
 **Share link / saved outfits** (web/src/outfit/): `/?top=<ID>.<colour code>[.<size>]&bottom=...&scene=studio|city|night`,
 e.g. `?top=E453754-000.67.S&bottom=E475598-000.09`; the size only when hand-picked (the recipient gets their own). Never
 photos or measurements. On load (after the catalog) items outside catalog.json are fetched via /api/product, unknown
@@ -376,7 +423,7 @@ colours fall back to the item's first, unknown sizes are dropped, and the params
 outfits: localStorage `fitroom.saved.v1`, newest first, max 20, `{ id, name, outfit, scene, savedAt }`. Share uses the
 native share sheet on touch devices, else the clipboard.
 
-**Size recommendation** (web/src/fit/sizing.ts): the chart size is the smallest size whose body ranges cover the user's. Tops go by
+**Size recommendation** (api/_lib/fit/sizing.ts, re-exported at web/src/fit/sizing.ts): the chart size is the smallest size whose body ranges cover the user's. Tops go by
 chest, plus waist only when the user typed one (an ANSUR estimate, SD 4.4 cm, must not push a size up); bottoms go
 by waist (estimated if blank), plus hips only when typed. If no size covers the body, the largest is shown as "Runs
 small for you" and rendered tight. Ease of the chosen size: more than 4 cm over its body range = close; otherwise
@@ -423,16 +470,16 @@ every value they offer is accepted. (5) Colourways sharing a name show UNIQLO's 
 | Try-on photo cropped (feet cut off) | frames were fixed at 2:3, results are the shopper's 9:16 | finished frames take the photo's own shape (.frame-done) |
 | UNIQLO API: HTTP/2 INTERNAL_ERROR / timeouts from a cloud session | UNIQLO blocks those IPs (it answers Vercel and home connections) | run `npm run catalog` locally |
 | Every deploy uploads 57 MB of unused 3D assets | web/public is copied into dist | .vercelignore excludes web/public/{hdri,models,garments} |
+| /api/mcp FUNCTION_INVOCATION_FAILED, ERR_REQUIRE_ESM for web/src/... | Vercel compiles api/ as CommonJS, web/ as ESM (web/package.json "type": "module") | code a function needs lives in api/_lib (web imports it via @api); never import web/src from api/ |
+| Try-on photo missing from the widget in ChatGPT | ChatGPT's MCP Apps bridge can drop `_meta` from ui/notifications/tool-result (forum reports, 2026) | widget falls back to window.openai.toolResponseMetadata |
+| Widget test page: SyntaxError "Invalid or unexpected token" | the widget's `</script>` ends the host page's inline script | escape `<` as \u003c when embedding HTML in a script |
 | Test files in api/ deployed as functions (Hobby allows 12 per deployment) | Vercel makes every file in api/ a function | .vercelignore excludes api/**/*.test.ts |
-| ChatGPT panel stuck on "Opening the fitting room" | the tool result arrived between the first render and the listener's subscription | subscribe, then catch up on bridge.lastResult (widget/Panel.tsx) |
-| Panel: "Cannot read properties of undefined (reading 'digest')" | crypto.subtle exists only in secure contexts (a test page on about:blank) | ChatGPT serves panels over HTTPS; local harnesses must too |
-| Local panel harness can't load http://localhost from an https page | Chrome Local Network Access | launch Chromium with --disable-features=LocalNetworkAccessChecks (tests only) |
 
 ## Commands
     cd web && npm run dev          # frontend + /api (vite serves api/*.ts; reads OPENAI_API_KEY from ../.env.local)
-    cd web && npm test && npm run typecheck && npm run build   # build = app + the ChatGPT panel (dist/widget)
-    cd web && npm run build:widget # the panel alone; vite dev serves it at /widget/ and /mcp + OAuth like Vercel
-    npm test && npm run typecheck  # api/ + scripts/ tests and types (root)
+    cd web && npm test && npm run typecheck && npm run build
+    npm test && npm run typecheck  # api/ + scripts/ tests and types (root); api/mcp.test.ts = the plugin over MCP
+    curl -s https://<host>/api/mcp # plugin self-description (tools, catalog size, widget bytes, try-on on/off)
     vercel dev                     # Vercel's own dev server (needs .env.local loaded, see Pitfalls)
     vercel --prod                  # deploy from the REPO ROOT, never from web/
     vercel logs <deployment-url>   # function errors
@@ -441,6 +488,9 @@ every value they offer is accepted. (5) Colourways sharing a name show UNIQLO's 
 
 Quality: docs/quality-audit.md (2026-11-10) has the test results, open findings by priority and the phased plan with
 measurable gates; web/src/fit/sizing.population.test.ts holds the sizing invariants over 3,400 body x item cases.
+Distribution: docs/chatgpt-plugin.md (2026-11-11) covers FitRoom as a ChatGPT plugin: the rules (no selling credits or
+upsells inside ChatGPT), ChatGPT's own Try On, and a phased plan that leads with size and fit; the endpoint itself is
+/api/mcp (Contracts, "ChatGPT plugin"), built 2026-11-11 and not yet tried inside ChatGPT.
 
 ## Conventions
 - Small commits with clear messages; pull before committing. Run `npm run build` before every deploy.

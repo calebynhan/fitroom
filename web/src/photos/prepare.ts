@@ -14,15 +14,27 @@ export const PHOTO_GUIDE: Record<PhotoSlot, { label: string; hint: string; maxSi
   face: { label: 'Face', hint: 'Left profile, close up', maxSide: 768, maxChars: 450_000 },
 };
 
+/** Body photos shorter than this make soft try-ons: the model's output is 864 px tall, and there is nothing sharper to keep. */
+export const MIN_SHARP_HEIGHT = 1000;
+/** Mean luma (0..255) below this: too dark for the try-on to see the body and the clothes well. */
+export const DARK_LUMA = 60;
+
 /**
  * A warning for a photo that will make poor shots, or null. Body photos taken in landscape leave the person small
- * (the beach-photo case): the model then has too few pixels of them to keep their likeness.
+ * (the beach-photo case): the model then has too few pixels of them to keep their likeness. Small photos come out soft;
+ * dark ones lose the body's shape and the garment's colour.
  */
-export function photoWarning(slot: PhotoSlot, photo: Pick<PreparedPhoto, 'width' | 'height'>): string | null {
+export function photoWarning(slot: PhotoSlot, photo: Pick<PreparedPhoto, 'width' | 'height' | 'luma' | 'sourceHeight'>): string | null {
   if (slot === 'face') return null;
   if (photo.width > photo.height) {
     return "This is a landscape photo, so you're small in it. Use an upright one where you fill the frame from head to feet.";
   }
+  // the photo as chosen, not as encoded: encode() may shrink a detailed photo to fit its budget
+  const tall = photo.sourceHeight ?? photo.height;
+  if (tall < MIN_SHARP_HEIGHT) {
+    return `This photo is small (${tall} px tall), so your try-on will look soft. Use the original from your camera, not a screenshot or a sent copy.`;
+  }
+  if (photo.luma !== undefined && photo.luma < DARK_LUMA) return 'This photo is quite dark. In brighter light the try-on gets your shape and the colours right.';
   return null;
 }
 
@@ -30,6 +42,32 @@ export interface PreparedPhoto {
   dataUrl: string;
   width: number;
   height: number;
+  /** Mean luma 0..255 (Rec. 601), measured on a small copy. */
+  luma?: number;
+  /** Height of the photo as chosen (after EXIF rotation), before any downscaling. */
+  sourceHeight?: number;
+}
+
+/** Mean luma (0..255) of RGBA pixels. */
+export function meanLuma(px: Uint8ClampedArray): number {
+  let s = 0;
+  const n = px.length / 4;
+  for (let i = 0; i < px.length; i += 4) s += 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2];
+  return n ? s / n : 0;
+}
+
+function measureLuma(source: CanvasImageSource): number | undefined {
+  try {
+    const c = document.createElement('canvas');
+    c.width = 32;
+    c.height = 32;
+    const ctx = c.getContext('2d');
+    if (!ctx) return undefined;
+    ctx.drawImage(source, 0, 0, 32, 32);
+    return meanLuma(ctx.getImageData(0, 0, 32, 32).data);
+  } catch {
+    return undefined;
+  }
 }
 
 export class PhotoError extends Error {}
@@ -88,7 +126,7 @@ function encode(decoded: Decoded, maxSide: number, maxChars: number): PreparedPh
     ctx.drawImage(decoded.source, 0, 0, width, height);
     for (const q of QUALITIES) {
       const dataUrl = canvas.toDataURL('image/jpeg', q);
-      if (dataUrl.length <= maxChars) return { dataUrl, width, height };
+      if (dataUrl.length <= maxChars) return { dataUrl, width, height, luma: measureLuma(canvas) };
     }
   }
   throw new PhotoError('That photo is too detailed to send. Try another one.');
@@ -107,7 +145,7 @@ export async function preparePhoto(file: File, slot: PhotoSlot): Promise<Prepare
     if (Math.min(decoded.width, decoded.height) < MIN_SHORT_SIDE) {
       throw new PhotoError(`That photo is too small. Use one at least ${MIN_SHORT_SIDE} px on its short side.`);
     }
-    return encode(decoded, PHOTO_GUIDE[slot].maxSide, PHOTO_GUIDE[slot].maxChars);
+    return { ...encode(decoded, PHOTO_GUIDE[slot].maxSide, PHOTO_GUIDE[slot].maxChars), sourceHeight: decoded.height };
   } finally {
     decoded.close();
   }

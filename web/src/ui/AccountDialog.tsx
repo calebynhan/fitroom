@@ -167,7 +167,7 @@ export function AccountDialog() {
         onClick={(e) => e.stopPropagation()}
       >
         <div className="dialog-head">
-          <span className="eyebrow muted">Your try-ons</span>
+          <span className="eyebrow muted">Your account</span>
           <button ref={closeRef} type="button" className="link-btn" onClick={close}>
             Close
           </button>

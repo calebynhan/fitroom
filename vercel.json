@@ -11,6 +11,10 @@
     "api/photoreal.ts": {
       "maxDuration": 120
     },
+    "api/mcp.ts": {
+      "maxDuration": 60,
+      "includeFiles": "{web/public/catalog.json,api/_lib/mcp/widget.html}"
+    },
     "api/account.ts": {
       "maxDuration": 15
     },
@@ -23,18 +27,11 @@
     "api/stripe.ts": {
       "maxDuration": 15
     },
-    "api/mcp.ts": {
-      "maxDuration": 30
-    },
     "api/oauth.ts": {
       "maxDuration": 15
     }
   },
   "rewrites": [
-    {
-      "source": "/mcp",
-      "destination": "/api/mcp"
-    },
     {
       "source": "/.well-known/oauth-protected-resource",
       "destination": "/api/oauth?step=resource"
@@ -58,30 +55,6 @@
     {
       "source": "/uniqlo/:path*",
       "destination": "https://image.uniqlo.com/:path*"
-    }
-  ],
-  "headers": [
-    {
-      "source": "/uniqlo/(.*)",
-      "headers": [
-        {
-          "key": "Access-Control-Allow-Origin",
-          "value": "*"
-        }
-      ]
-    },
-    {
-      "source": "/widget/(.*)",
-      "headers": [
-        {
-          "key": "Access-Control-Allow-Origin",
-          "value": "*"
-        },
-        {
-          "key": "Cache-Control",
-          "value": "public, max-age=0, must-revalidate"
-        }
-      ]
     }
   ]
 }

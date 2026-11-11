@@ -9,8 +9,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",
-    "jpeg-js": "^0.4.4",
-    "zod": "^4.6.7"
+    "jpeg-js": "^0.4.4"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

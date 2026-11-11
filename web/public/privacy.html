@@ -34,7 +34,7 @@
       <ul>
         <li><strong>FitRoom never stores or logs your photos.</strong> On the website they stay in your browser tab and are gone when you close it.</li>
         <li>To make a try-on, your photo goes from your browser to the FASHN VTON try-on model on Hugging Face (a public demo run by FASHN), which keeps uploads on its server for a while; FitRoom doesn't control that.</li>
-        <li>In ChatGPT, the photo you attach is held by ChatGPT (OpenAI). FitRoom's panel loads it into your browser for the try-on. If the panel can't load it directly, FitRoom's server fetches it once and hands it to the panel without storing or logging it.</li>
+        <li>In ChatGPT, the photo you attach is held by ChatGPT (OpenAI) under its terms. For a try-on, FitRoom's server downloads it into memory, sends it to FASHN's try-on API, which keeps no copy of the image after the request, and returns the result to the FitRoom card in your chat. FitRoom doesn't store or log it.</li>
         <li>Only use photos of yourself.</li>
       </ul>
 
@@ -43,13 +43,14 @@
         <li><strong>Your account</strong> (only if you sign in): your Google account id and email address, how many free try-ons you've used, how many you've bought, and a fingerprint of each look charged (a one-way digest of the photo and outfit, never the photo). Purpose: counting your try-ons, the same on the website and in ChatGPT.</li>
         <li><strong>Purchases</strong>: the Stripe checkout session id of each purchase, so it is credited once. Stripe handles payment; FitRoom never sees card details.</li>
         <li><strong>Sign-in to ChatGPT</strong>: when you connect FitRoom in ChatGPT, FitRoom issues ChatGPT signed tokens that name your account. They are not stored by FitRoom; they expire (an hour; refresh tokens 60 days).</li>
-        <li><strong>In your browser only</strong>: your measurements, fit preferences, saved outfits and a count of today's free GPU use (localStorage). FitRoom's servers never receive your measurements, except your height and weight when you give them to ChatGPT for a size.</li>
+        <li><strong>In your browser only</strong>: your measurements, fit preferences, saved outfits and a count of today's free GPU use (localStorage). FitRoom's servers never receive your measurements, except the ones you give ChatGPT for a size, which are used for that answer and not kept.</li>
+        <li><strong>ChatGPT without a FitRoom account</strong> (when try-ons there are free): a count of try-on photos per month, kept under a one-way digest of ChatGPT's anonymous user id.</li>
         <li><strong>Analytics</strong>: anonymous page views without cookies, and counts of try-on outcomes and checkout steps (Vercel Web Analytics). Never photos, emails or outfits.</li>
       </ul>
 
       <h2>Who receives data</h2>
       <ul>
-        <li>Hugging Face and FASHN: your photo and the garment photo, for the try-on.</li>
+        <li>Hugging Face and FASHN: your photo and the garment photo, for the try-on (on the website, FASHN's public demo on Hugging Face; in ChatGPT, FASHN's API).</li>
         <li>Google: sign-in. Stripe: payments. Vercel and Upstash: hosting and the account store.</li>
         <li>OpenAI: when you use FitRoom in ChatGPT (the conversation and attachments are ChatGPT's), and, only if the paid photo generator is switched on, your photos to make the generated shots.</li>
         <li>FitRoom doesn't sell data or use it for advertising.</li>

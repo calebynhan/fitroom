@@ -4,23 +4,16 @@
 // (WesternCommon goods_*): the garment alone on a plain backdrop, which the try-on reproduces without the styling and
 // with truer colour. Some goods_ shots are model shots too, so each photo is checked before choosing its photo type.
 
+import { garmentOnlyUrl } from '@api/fit/garmentPhoto';
 import type { GarmentPhotoType } from './space';
+
+export { garmentOnlyUrl };
 
 export interface GarmentPhoto {
   blob: Blob;
   type: GarmentPhotoType;
   /** The same-site URL it came from (shown as the colour reference). */
   url: string;
-}
-
-/**
- * The garment-only shot for a catalogue photo, if the URL follows UNIQLO's pattern:
- * /uniqlo/UQ/ST3/us/imagesgoods/453754/item/usgoods_67_453754_3x4.jpg
- *   -> /uniqlo/UQ/ST3/WesternCommon/imagesgoods/453754/item/goods_67_453754_3x4.jpg
- */
-export function garmentOnlyUrl(url: string): string | null {
-  const m = url.match(/^(.*\/UQ\/ST3\/)us(\/imagesgoods\/\d+\/item\/)usgoods_([A-Za-z0-9]+_\d+_3x4\.jpg)$/);
-  return m ? `${m[1]}WesternCommon${m[2]}goods_${m[3]}` : null;
 }
 
 /**

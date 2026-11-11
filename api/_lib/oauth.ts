@@ -16,7 +16,8 @@ const CLIENT_FETCH_MS = 5000;
 const CLIENT_DOC_MAX_CHARS = 64 * 1024;
 const DEFAULT_CLIENT_HOSTS = ['chatgpt.com', 'openai.com'];
 
-export const mcpResource = (origin: string) => `${origin}/mcp`;
+/** The protected resource: the plugin's MCP endpoint (api/mcp.ts). */
+export const mcpResource = (origin: string) => `${origin}/api/mcp`;
 export const resourceMetadataUrl = (origin: string) => `${origin}/.well-known/oauth-protected-resource`;
 
 /** RFC 9728: where ChatGPT learns which authorization server guards /mcp. */

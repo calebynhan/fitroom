@@ -13,7 +13,7 @@ export function AccountSection() {
   return (
     <section className="rail-section account" id="account" aria-labelledby="account-title">
       <h2 className="eyebrow" id="account-title">
-        Your try-ons
+        Your account
       </h2>
       {user ? (
         <>

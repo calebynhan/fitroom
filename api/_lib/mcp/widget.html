@@ -1,0 +1,392 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FitRoom</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600&family=Inter:wght@400;500;600&display=swap');
+  :root {
+    --paper: #ffffff; --bone: #f4f1ec; --stone: #e4dfd6; --hairline: #d6d1c8;
+    --ink: #111111; --graphite: #3a3835; --muted: #6f6a63; --khaki: #8b7e66; --sale: #8e2a21;
+    --display: 'Cormorant Garamond', 'Times New Roman', Georgia, serif;
+    --ui: Inter, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    color-scheme: light;
+  }
+  [data-theme='dark'] {
+    --paper: #111111; --bone: #1b1a18; --stone: #2a2826; --hairline: #3a3835;
+    --ink: #f4f1ec; --graphite: #d6d1c8; --muted: #a39e96; --sale: #e0786d;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--paper); color: var(--ink); font: 14px/1.45 var(--ui); }
+  main { padding: 16px; }
+  a { color: inherit; }
+  h1, h2 { font-family: var(--display); font-weight: 600; margin: 0; letter-spacing: 0.01em; }
+  h1 { font-size: 22px; line-height: 1.15; }
+  .muted { color: var(--muted); }
+  .small { font-size: 12px; }
+  .row { display: flex; gap: 16px; align-items: flex-start; }
+  .thumb { width: 88px; aspect-ratio: 3 / 4; object-fit: cover; background: var(--bone); border-radius: 2px; flex: none; }
+  .eyebrow { font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); margin: 0 0 4px; }
+  .price s { color: var(--muted); }
+  .price .sale { color: var(--sale); }
+  .rule { border: 0; border-top: 1px solid var(--hairline); margin: 16px 0; }
+  .size { font-family: var(--display); font-size: 56px; line-height: 1; font-weight: 600; margin: 4px 0 8px; }
+  .advice { font-size: 15px; margin: 0 0 4px; }
+  .note { background: var(--bone); padding: 8px 16px; border-radius: 2px; margin: 8px 0 0; font-size: 13px; }
+  table { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 13px; }
+  th, td { text-align: left; padding: 8px 8px 8px 0; border-bottom: 1px solid var(--hairline); vertical-align: top; }
+  th { font-weight: 500; color: var(--muted); width: 34%; }
+  thead th { color: var(--ink); font-weight: 600; }
+  td .sub { display: block; color: var(--muted); font-size: 12px; }
+  .notes { margin: 8px 0 0; padding: 0; list-style: none; }
+  .notes li { color: var(--muted); font-size: 12px; margin-top: 4px; }
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; align-items: center; }
+  button, .button {
+    font: 500 13px/1 var(--ui); padding: 12px 24px; border-radius: 999px; cursor: pointer; text-decoration: none;
+    border: 1px solid var(--ink); background: var(--ink); color: var(--paper); min-height: 44px;
+  }
+  button.secondary { background: transparent; color: var(--ink); }
+  button:disabled { opacity: 0.5; cursor: default; }
+  button:focus-visible { outline: 2px solid var(--khaki); outline-offset: 2px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 16px; }
+  .card img { width: 100%; aspect-ratio: 3 / 4; object-fit: cover; background: var(--bone); border-radius: 2px; display: block; }
+  .card h2 { font-size: 17px; margin: 8px 0 2px; line-height: 1.2; }
+  .card .actions { margin-top: 8px; }
+  .card .actions { gap: 4px; }
+  .card button { padding: 8px 12px; min-height: 36px; font-size: 12px; }
+  .swatches { display: flex; gap: 4px; margin-top: 4px; flex-wrap: wrap; }
+  .swatch { width: 12px; height: 12px; border-radius: 999px; border: 1px solid var(--hairline); }
+  .photo { width: 100%; max-height: 560px; object-fit: contain; background: var(--bone); border-radius: 2px; display: block; }
+  .error { border-left: 2px solid var(--sale); padding: 8px 16px; background: var(--bone); }
+  .pulse { height: 12px; background: var(--stone); border-radius: 2px; margin: 8px 0; animation: pulse 1.4s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: 0.45; } }
+  @media (prefers-reduced-motion: reduce) { .pulse { animation: none; } }
+  .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+</style>
+</head>
+<body>
+<main id="app" aria-live="polite"></main>
+<script>
+(function () {
+  'use strict';
+  var app = document.getElementById('app');
+  var state = { input: null, result: null, meta: null, isError: false, busy: '', cancelled: false };
+
+  // ---- Host bridge: MCP Apps (JSON-RPC over postMessage), with ChatGPT's window.openai as a fallback ----
+  var nextId = 1;
+  var pending = {};
+  var connected = false;
+  function post(msg) { window.parent.postMessage(msg, '*'); }
+  function request(method, params, timeoutMs) {
+    return new Promise(function (resolve, reject) {
+      var id = nextId++;
+      pending[id] = { resolve: resolve, reject: reject };
+      post({ jsonrpc: '2.0', id: id, method: method, params: params || {} });
+      setTimeout(function () {
+        if (pending[id]) { delete pending[id]; reject(new Error('timeout')); }
+      }, timeoutMs || 10000);
+    });
+  }
+  function notify(method, params) { post({ jsonrpc: '2.0', method: method, params: params || {} }); }
+
+  window.addEventListener('message', function (event) {
+    if (event.source !== window.parent) return;
+    var m = event.data;
+    if (!m || m.jsonrpc !== '2.0') return;
+    if (m.id != null && !m.method) {
+      var p = pending[m.id];
+      if (!p) return;
+      delete pending[m.id];
+      if (m.error) p.reject(new Error(m.error.message || 'error')); else p.resolve(m.result);
+      return;
+    }
+    switch (m.method) {
+      case 'ui/notifications/tool-input': state.input = (m.params && m.params.arguments) || null; render(); break;
+      case 'ui/notifications/tool-input-partial': if (!state.input) { state.input = (m.params && m.params.arguments) || null; render(); } break;
+      case 'ui/notifications/tool-result': receive(m.params); break;
+      case 'ui/notifications/tool-cancelled': state.cancelled = true; render(); break;
+      case 'ui/notifications/host-context-changed': applyContext(m.params); break;
+      default:
+        if (m.id == null) return;
+        if (m.method === 'ui/resource-teardown' || m.method === 'ping') post({ jsonrpc: '2.0', id: m.id, result: {} });
+        else post({ jsonrpc: '2.0', id: m.id, error: { code: -32601, message: 'Method not found' } });
+    }
+  });
+
+  if (window.parent !== window) {
+    request('ui/initialize', {
+      appInfo: { name: 'fitroom', version: '1.0.0' },
+      appCapabilities: { availableDisplayModes: ['inline'] },
+      protocolVersion: '2026-01-26'
+    }, 4000).then(function (res) {
+      connected = true;
+      applyContext(res && res.hostContext);
+      notify('ui/notifications/initialized', {});
+      reportSize();
+    }, function () { /* not an MCP Apps host: window.openai (ChatGPT) or nothing */ });
+  }
+
+  function applyContext(ctx) {
+    if (ctx && (ctx.theme === 'dark' || ctx.theme === 'light')) document.documentElement.setAttribute('data-theme', ctx.theme);
+  }
+
+  function openai() { return window.openai || null; }
+  function fromOpenai() {
+    var o = openai();
+    if (!o) return;
+    if (o.theme === 'dark' || o.theme === 'light') document.documentElement.setAttribute('data-theme', o.theme);
+    if (o.toolInput && !state.input) state.input = o.toolInput;
+    if (o.toolOutput && o.toolOutput !== state.result) {
+      state.result = o.toolOutput;
+      state.meta = o.toolResponseMetadata || null;
+      render();
+    } else if (!state.result) render();
+  }
+  window.addEventListener('openai:set_globals', fromOpenai);
+
+  function receive(res) {
+    if (!res) return;
+    state.result = res.structuredContent || null;
+    state.meta = res._meta || null;
+    state.isError = Boolean(res.isError);
+    if (!state.result) {
+      var text = (res.content || []).filter(function (c) { return c && c.type === 'text'; }).map(function (c) { return c.text; }).join('\n');
+      state.result = { kind: 'message', status: state.isError ? 'error' : 'ok', message: text || 'Something went wrong. Try again.' };
+    }
+    render();
+  }
+
+  function metaValue(key) {
+    if (state.meta && state.meta[key]) return state.meta[key];
+    var o = openai();
+    return (o && o.toolResponseMetadata && o.toolResponseMetadata[key]) || null;
+  }
+
+  function openLink(url) {
+    var o = openai();
+    if (connected) {
+      request('ui/open-link', { url: url }).catch(function () { window.open(url, '_blank', 'noopener'); });
+    } else if (o && o.openExternal) {
+      o.openExternal({ href: url });
+    } else {
+      window.open(url, '_blank', 'noopener');
+    }
+  }
+
+  function sendMessage(text) {
+    var o = openai();
+    if (connected) return request('ui/message', { role: 'user', content: [{ type: 'text', text: text }] });
+    if (o && o.sendFollowUpMessage) return o.sendFollowUpMessage({ prompt: text });
+    return Promise.reject(new Error('unsupported'));
+  }
+
+  function callTool(name, args) {
+    var o = openai();
+    if (connected) return request('tools/call', { name: name, arguments: args }, 90000);
+    if (o && o.callTool) return o.callTool(name, args);
+    return Promise.reject(new Error('unsupported'));
+  }
+
+  function canUpload() {
+    var o = openai();
+    return Boolean(o && o.uploadFile && o.getFileDownloadUrl);
+  }
+
+  var lastSize = '';
+  function reportSize() {
+    if (!connected) return;
+    var root = document.documentElement;
+    var before = root.style.height;
+    root.style.height = 'max-content';
+    var height = Math.ceil(root.getBoundingClientRect().height);
+    root.style.height = before;
+    var width = Math.ceil(window.innerWidth);
+    var key = width + 'x' + height;
+    if (key === lastSize) return;
+    lastSize = key;
+    notify('ui/notifications/size-changed', { width: width, height: height });
+  }
+  if (typeof ResizeObserver !== 'undefined') {
+    var observer = new ResizeObserver(function () { requestAnimationFrame(reportSize); });
+    observer.observe(document.documentElement);
+    observer.observe(document.body);
+  }
+
+  // ---- Rendering (textContent only: nothing from a tool result is parsed as HTML) ----
+  function h(tag, attrs, children) {
+    var el = document.createElement(tag);
+    Object.keys(attrs || {}).forEach(function (k) {
+      var v = attrs[k];
+      if (v == null || v === false) return;
+      if (k === 'text') el.textContent = v;
+      else if (k === 'onclick') el.addEventListener('click', v);
+      else if (k === 'style') el.style.cssText = v;
+      else el.setAttribute(k, v === true ? '' : String(v));
+    });
+    (children || []).forEach(function (c) {
+      if (c == null || c === false) return;
+      el.appendChild(typeof c === 'string' ? document.createTextNode(c) : c);
+    });
+    return el;
+  }
+
+  function money(n) { return '$' + Number(n).toFixed(2); }
+
+  function priceLine(p) {
+    if (p.salePrice != null && p.salePrice < p.price) {
+      return h('span', { class: 'price' }, [h('span', { class: 'sale', text: money(p.salePrice) }), ' ', h('s', { text: money(p.price) })]);
+    }
+    return h('span', { class: 'price', text: money(p.price) });
+  }
+
+  function productHeader(p) {
+    return h('div', { class: 'row' }, [
+      p.image ? h('img', { class: 'thumb', src: p.image, alt: p.name + ' in ' + p.color.name }) : null,
+      h('div', {}, [
+        h('h1', { text: p.name }),
+        h('p', { class: 'muted', style: 'margin:4px 0 0' }, [p.color.name + ' · ', priceLine(p)]),
+        h('p', { class: 'small muted', style: 'margin:4px 0 0' }, [
+          h('a', { href: p.url, onclick: function (e) { e.preventDefault(); openLink(p.url); }, text: 'View at UNIQLO' })
+        ])
+      ])
+    ]);
+  }
+
+  function fitTable(card) {
+    var head = h('tr', {}, [h('th', { scope: 'col' }, [h('span', { class: 'sr-only', text: 'Measure' })])].concat(
+      card.sizes.map(function (s) { return h('th', { scope: 'col', text: s }); })));
+    var rows = card.rows.map(function (r) {
+      return h('tr', {}, [h('th', { scope: 'row', text: r.label })].concat(r.cells.map(function (c) {
+        return h('td', {}, [c.main, c.sub ? h('span', { class: 'sub', text: c.sub }) : null]);
+      })));
+    });
+    return h('div', {}, [
+      h('table', {}, [h('thead', {}, [head]), h('tbody', {}, rows)]),
+      h('ul', { class: 'notes' }, (card.notes || []).map(function (n) { return h('li', { text: n }); }))
+    ]);
+  }
+
+  function tryOnBlock(r) {
+    var t = r.tryOn || {};
+    if (!t.available) return t.message ? h('p', { class: 'small muted', style: 'margin-top:16px', text: t.message }) : null;
+    var hint = 'Only photos of yourself, standing, head to toe. FitRoom doesn’t keep your photo.';
+    if (!canUpload()) {
+      return h('p', { class: 'small muted', style: 'margin-top:16px', text: 'To see it on you, attach a full-body photo of yourself and ask to try it on. ' + hint });
+    }
+    var input = h('input', { type: 'file', accept: 'image/jpeg,image/png,image/webp', class: 'sr-only', id: 'photo' });
+    input.addEventListener('change', function () {
+      var file = input.files && input.files[0];
+      if (file) tryOnUpload(file, r);
+    });
+    return h('div', { style: 'margin-top:16px' }, [
+      input,
+      h('button', { class: 'secondary', onclick: function () { input.click(); }, disabled: Boolean(state.busy) }, [state.busy ? state.busy : 'Try it on with your photo']),
+      h('p', { class: 'small muted', style: 'margin:8px 0 0', text: hint + (t.remaining != null ? ' ' + t.remaining + ' free photos left this month.' : '') })
+    ]);
+  }
+
+  async function tryOnUpload(file, r) {
+    var o = openai();
+    state.busy = 'Dressing your photo…';
+    render();
+    try {
+      var up = await o.uploadFile(file);
+      var dl = await o.getFileDownloadUrl({ fileId: up.fileId });
+      var args = { photo: { file_id: up.fileId, download_url: dl.downloadUrl, mime_type: file.type || undefined, file_name: file.name || undefined } };
+      args[r.product.slot === 'top' ? 'top' : 'bottom'] = { product: r.product.id, color: r.product.color.code };
+      var res = await callTool('try_on', args);
+      state.busy = '';
+      receive(res && res.structuredContent ? res : (res && res.result) || res);
+    } catch (err) {
+      state.busy = '';
+      state.result = { kind: 'message', status: 'error', message: 'The try-on didn’t start. Attach your photo in the chat and ask to try it on.' };
+      render();
+    }
+  }
+
+  function viewSize(r) {
+    var p = r.product;
+    var parts = [productHeader(p), h('hr', { class: 'rule' })];
+    if (!r.size) {
+      parts.push(h('p', { class: 'advice', text: r.text }));
+    } else {
+      parts.push(
+        h('p', { class: 'eyebrow', text: 'Your size' }),
+        h('p', { class: 'size', text: r.sizeLabel }),
+        h('p', { class: 'advice', text: r.text }),
+        r.summary ? h('p', { class: 'muted', style: 'margin:0', text: r.summary }) : null,
+        !r.card && r.estimated && r.estimated.length ? h('p', { class: 'note', text: 'Estimated from your height and weight: ' + r.estimated.join(', ') + '. Measure for exact numbers.' }) : null,
+        r.card ? fitTable(r.card) : null
+      );
+    }
+    parts.push(h('div', { class: 'actions' }, [
+      h('button', { onclick: function () { openLink(r.buyUrl || p.url); } }, [r.size ? 'Buy the ' + r.sizeLabel + ' at UNIQLO' : 'Open at UNIQLO'])
+    ]));
+    parts.push(tryOnBlock(r));
+    return parts;
+  }
+
+  function viewCatalog(r) {
+    if (!r.items || r.items.length === 0) return [h('p', { text: r.message || 'Nothing matched. Try a broader search.' })];
+    return [h('div', { class: 'grid' }, r.items.map(function (p) {
+      return h('article', { class: 'card' }, [
+        p.image ? h('img', { src: p.image, alt: p.name + ' in ' + p.color.name, loading: 'lazy' }) : null,
+        h('h2', { text: p.name }),
+        h('div', { class: 'small muted' }, [p.color.name + ' · ', priceLine(p)]),
+        h('div', { class: 'swatches', 'aria-label': (p.colors || []).length + ' colours' }, (p.colors || []).slice(0, 10).map(function (c) {
+          return h('span', { class: 'swatch', title: c.name, style: 'background:' + (/^#[0-9a-f]{3,8}$/i.test(c.hex) ? c.hex : '#ccc') });
+        })),
+        h('div', { class: 'actions' }, [
+          h('button', { onclick: function () { sendMessage('What size should I get in the UNIQLO ' + p.name + ' (' + p.id + ', ' + p.color.name + ')?').catch(function () {}); } }, ['Find my size']),
+          h('button', { class: 'secondary', onclick: function () { openLink(p.url); } }, ['UNIQLO'])
+        ])
+      ]);
+    }))];
+  }
+
+  function viewTryOn(r) {
+    var photo = metaValue('fitroom/photo');
+    var parts = [];
+    if (r.status === 'ok' || r.status === 'partial') {
+      if (photo) parts.push(h('img', { class: 'photo', src: photo, alt: 'Your photo wearing ' + r.items.map(function (i) { return i.name; }).join(' and ') }));
+      else parts.push(h('p', { class: 'error', text: 'The photo was made but this window couldn’t show it. Ask again to see it.' }));
+      parts.push(h('p', { class: 'small muted', style: 'margin:8px 0 0', text: 'Shows the clothes as UNIQLO photographed them, not in your size. Ask for your size to see how it will fit.' }));
+      if (r.message) parts.push(h('p', { class: 'note', text: r.message }));
+      parts.push(h('div', { class: 'actions' }, r.items.map(function (p) {
+        return h('button', { class: 'secondary', onclick: function () { openLink(p.url); } }, [p.name]);
+      })));
+    } else {
+      parts.push(h('p', { class: 'error', text: r.message }));
+    }
+    // remainingText: the server's wording (a FitRoom account's try-ons, or the month's free photos); null = say nothing
+    var left = r.remainingText !== undefined ? r.remainingText : r.remaining != null ? r.remaining + ' free try-on photo' + (r.remaining === 1 ? '' : 's') + ' left this month.' : null;
+    if (left) parts.push(h('p', { class: 'small muted', style: 'margin-top:8px', text: left }));
+    return parts;
+  }
+
+  function viewLoading() {
+    var i = state.input || {};
+    var label = i.photo ? 'Dressing your photo… about 20 seconds' : i.height ? 'Checking UNIQLO’s size chart…' : 'Finding clothes…';
+    return [h('p', { class: 'muted', text: state.cancelled ? 'Cancelled.' : label }), h('div', { class: 'pulse' }), h('div', { class: 'pulse', style: 'width:60%' })];
+  }
+
+  function render() {
+    var r = state.result;
+    var parts;
+    if (!r) parts = viewLoading();
+    else if (r.kind === 'size') parts = viewSize(r);
+    else if (r.kind === 'catalog') parts = viewCatalog(r);
+    else if (r.kind === 'tryon') parts = viewTryOn(r);
+    else parts = [h('p', { class: r.status === 'error' ? 'error' : '', text: r.message || '' })];
+    app.replaceChildren.apply(app, parts.filter(Boolean));
+    requestAnimationFrame(reportSize);
+  }
+
+  fromOpenai();
+  render();
+})();
+</script>
+</body>
+</html>

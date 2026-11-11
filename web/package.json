@@ -5,20 +5,16 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && vite build && vite build --config vite.widget.config.ts",
+    "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit",
-    "build:widget": "vite build --config vite.widget.config.ts"
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@gradio/client": "^2.7.2",
-    "@modelcontextprotocol/ext-apps": "^1.7.5",
-    "@modelcontextprotocol/sdk": "^1.32.2",
     "@vercel/analytics": "^2.0.1",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
-    "zod": "^4.6.7",
     "zustand": "^5.0.0"
   },
   "devDependencies": {
