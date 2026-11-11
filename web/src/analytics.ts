@@ -26,11 +26,18 @@ export function outcomeOf(err: SpaceError): TryOnOutcome {
   return 'error';
 }
 
-/** One event per photo attempted: `outcome`, why a partial one stopped, which view, garments, seconds taken. */
-export function trackTryOn(outcome: TryOnOutcome, view: string, garments: number, startedAt: number, reason?: TryOnOutcome): void {
+/** One event per photo attempted: `outcome`, why a partial one stopped, which view, garments, passes reused, seconds. */
+export function trackTryOn(
+  outcome: TryOnOutcome,
+  view: string,
+  garments: number,
+  startedAt: number,
+  reason?: TryOnOutcome,
+  reused = 0,
+): void {
   if (!import.meta.env.PROD) return;
   try {
-    track('tryon', { outcome, reason, view, garments, seconds: Math.round((Date.now() - startedAt) / 1000) });
+    track('tryon', { outcome, reason, view, garments, reused, seconds: Math.round((Date.now() - startedAt) / 1000) });
   } catch {
     // analytics must never break a try-on
   }

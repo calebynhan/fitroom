@@ -15,6 +15,7 @@ import { FitTable } from './FitTable';
 import { MeasureLink } from './measureLink';
 import { Lightbox } from './Lightbox';
 import { useNow, viewProgress } from './progress';
+import { AddSideButton, AllowanceNote } from './TryOnBudget';
 
 function Frame({ look, view, stale, onOpen }: { look: Look; view: View; stale: boolean; onOpen: () => void }) {
   const state = look.views[view];
@@ -329,6 +330,7 @@ function Shots({ look, stale }: { look: Look; stale: boolean }) {
       <p className="sr-only" aria-live="polite">
         {busy ? `${done} of ${look.order.length} photos ready.` : done === look.order.length ? `All ${done} photos are ready.` : ''}
       </p>
+      {TRY_ON && !stale && <AddSideButton lookKey={look.key} />}
       <div className="lookbook-foot">
         {done > 1 && (
           <button type="button" className="btn btn-outline" onClick={() => downloadAll(look)}>
@@ -351,6 +353,7 @@ function Shots({ look, stale }: { look: Look; stale: boolean }) {
               you buy. Photos are not saved: download the ones you want to keep.
             </p>
           )}
+          {TRY_ON && stale && <AllowanceNote />}
           {!TRY_ON && done > 0 && remaining !== null && remaining > 0 && (
             <p className="note">
               Shooting again uses one of your {remaining} remaining {remaining === 1 ? 'look' : 'looks'}.
@@ -367,7 +370,6 @@ function Shots({ look, stale }: { look: Look; stale: boolean }) {
 
 function Intro({ input }: { input: ShotInput }) {
   const missing = input.ready ? [] : input.missing;
-  const sideGiven = useApp((s) => Boolean(s.photos.side));
   const measured = useApp((s) => s.profile.heightCm !== null && s.profile.weightKg !== null);
   const steps = TRY_ON
     ? [
@@ -380,7 +382,7 @@ function Intro({ input }: { input: ShotInput }) {
         { label: 'Height and weight', done: !missing.includes('height and weight') },
         { label: 'Pick a top and bottoms', done: !missing.includes('something to wear') },
       ];
-  const views = engineViews(sideGiven);
+  const views = engineViews();
   return (
     <div className="lookbook intro">
       <div className="lookbook-head">
@@ -411,7 +413,10 @@ function Intro({ input }: { input: ShotInput }) {
           ))}
         </ol>
         {input.ready ? (
-          <p className="intro-ready">Ready. Press {TRY_ON ? 'Try It On' : 'Make My Shots'}.</p>
+          <>
+            <p className="intro-ready">Ready. Press {TRY_ON ? 'Try It On' : 'Make My Shots'}.</p>
+            {TRY_ON && <AllowanceNote />}
+          </>
         ) : (
           <a className="btn btn-dark intro-start" href="#you">
             Add Your Photos

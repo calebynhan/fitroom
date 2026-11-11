@@ -1,10 +1,13 @@
-// Shoots a try-on look on the free Space: each of the shopper's photos (front, and side if given) gets the top, then
-// the bottoms on that result. Photos are re-dressed, not regenerated, so the face and body stay the shopper's own.
+// Shoots a try-on look on the free Space: the shopper's front photo gets the top, then the bottoms on that result (the
+// side photo only when they ask for it). Photos are re-dressed, not regenerated, so the face and body stay their own.
 // One pass at a time (the Space runs one job at a time anyway). A quota error stops the rest: retrying would only
 // fail again until Hugging Face's allowance refills. Every run can be cancelled, and photos the shopper removed or
 // replaced are never sent again: their cached inputs are dropped and a run still using them is stopped.
+// Free GPU time is scarce (about 4 passes a day), so every finished pass is kept in memory: the same photo in the same
+// top is reused when only the bottoms change, and a retry after a partial photo starts from the part that worked.
 import type { View } from '@api/look';
 import { outcomeOf, trackTryOn } from '../analytics';
+import { recordPass, recordQuota } from './allowance';
 import { colorLabel, productImage, type Slot } from '../catalog/types';
 import type { LookCaption } from '../look/request';
 import { exclusive } from '../look/shoot';
@@ -29,6 +32,7 @@ export type TryOnInput =
       ready: true;
       key: string;
       caption: LookCaption;
+      /** The views a new look shoots: the front. The side photo, if given, is shot on request (addSideView). */
       order: View[];
       photos: Partial<Record<View, string>>;
       garments: TryOnGarment[];
@@ -60,18 +64,44 @@ export function tryOnInput(state: AppSnapshot): TryOnInput {
 
   const photos: Partial<Record<View, string>> = { front: state.photos.front.dataUrl };
   if (state.photos.side) photos.side = state.photos.side.dataUrl;
-  const order = Object.keys(photos) as View[];
+  const order: View[] = ['front'];
   const caption: LookCaption = {
     top: garments.find((g) => g.slot === 'top')?.name ?? null,
     bottom: garments.find((g) => g.slot === 'bottom')?.name ?? null,
     meta: 'Free try-on · your own photo',
   };
   // The photo does not depend on the size (the model draws the garment as photographed), so sizes aren't in the key.
-  const key = JSON.stringify({ engine: 'space', v: state.photoVersion, order, garments: garments.map((g) => [g.slot, g.image]) });
+  const key = JSON.stringify({ engine: 'space', v: state.photoVersion, garments: garments.map((g) => [g.slot, g.image]) });
   return { ready: true, key, caption, order, photos, garments, version: state.photoVersion };
 }
 
 const inputs = new Map<string, Ready>();
+/** Finished passes: photo version + view + the garments worn so far, in order -> the result. */
+const passes = new Map<string, Blob>();
+const MAX_PASSES = 16;
+const passKey = (version: number, view: View, garments: TryOnGarment[]) => [version, view, ...garments.map((g) => g.image)].join('|');
+
+function keepPass(key: string, blob: Blob): void {
+  passes.delete(key);
+  passes.set(key, blob);
+  while (passes.size > MAX_PASSES) passes.delete(passes.keys().next().value!);
+}
+
+/** How many of `garments` are already on `view` from an earlier pass (the longest finished prefix). */
+function reusable(input: Ready, view: View): number {
+  for (let n = input.garments.length; n > 0; n -= 1) if (passes.has(passKey(input.version, view, input.garments.slice(0, n)))) return n;
+  return 0;
+}
+
+/** Forgets every finished pass (tests). */
+export function forgetPasses(): void {
+  passes.clear();
+}
+
+/** GPU passes a try-on of `views` still needs (garments not already on each photo). */
+export function passesNeeded(input: Ready, views: View[] = input.order): number {
+  return views.reduce((sum, view) => sum + input.garments.length - reusable(input, view), 0);
+}
 const garmentPhotos = new Map<string, Promise<GarmentPhoto>>();
 /** The run in progress, so the shopper (or a photo change) can stop it. */
 let running: { controller: AbortController; version: number } | null = null;
@@ -86,6 +116,7 @@ export function cancelTryOn(): void {
 useApp.subscribe((state, prev) => {
   if (state.photoVersion === prev.photoVersion) return;
   for (const [key, input] of inputs) if (input.version !== state.photoVersion) inputs.delete(key);
+  for (const key of passes.keys()) if (!key.startsWith(`${state.photoVersion}|`)) passes.delete(key);
   if (running && running.version !== state.photoVersion) running.controller.abort();
 });
 
@@ -137,28 +168,33 @@ async function shootView(key: string, view: View, input: Ready, run: TryOnRunner
   const looks = useLooks.getState();
   const previous = looks.looks[key]?.views[view];
   const startedAt = Date.now();
-  const expectedMs = PASS_MS * input.garments.length;
+  const reused = reusable(input, view);
+  const expectedMs = PASS_MS * Math.max(1, input.garments.length - reused);
   const working = (status: string) => looks.setView(key, view, { kind: 'working', startedAt, expectedMs, status });
-  working('Sending your photo…');
+  working(reused ? 'Picking up where you left off…' : 'Sending your photo…');
   const photo = input.photos[view]!;
   let current: Blob | null = null;
-  let worn: string[] = [];
+  let worn: string[] = input.garments.slice(0, reused).map((g) => g.slot);
   // The shopper's own photo above the new garment, the model's result below it (composite.ts).
   const finish = async (result: Blob) => sharpenResult(photo, result, await blobToDataUrl(result));
   try {
-    current = await (await fetch(photo)).blob();
-    for (const garment of input.garments) {
+    current = reused ? passes.get(passKey(input.version, view, input.garments.slice(0, reused)))! : await (await fetch(photo)).blob();
+    for (const [i, garment] of input.garments.entries()) {
+      if (i < reused) continue;
       const g = await within(garmentPhoto(garment.image), GARMENT_WAIT_MS, signal, () => new SpaceError("Couldn't load the product photo. Try again.", true));
       current = await run(current, g.blob, garment.category, g.type, (s) => working(describeStatus(s)), signal);
+      recordPass();
+      keepPass(passKey(input.version, view, input.garments.slice(0, i + 1)), current);
       worn = [...worn, garment.slot];
     }
     looks.setView(key, view, { kind: 'done', image: await finish(current) });
-    trackTryOn('ok', view, input.garments.length, startedAt);
+    trackTryOn('ok', view, input.garments.length, startedAt, undefined, reused);
     return { quota: false, cancelled: false };
   } catch (err: unknown) {
     const e = asSpaceError(err);
     const outcome = outcomeOf(e);
-    trackTryOn(worn.length > 0 && !e.cancelled ? 'partial' : outcome, view, input.garments.length, startedAt, outcome);
+    if (e.quota) recordQuota();
+    trackTryOn(worn.length > 0 && !e.cancelled ? 'partial' : outcome, view, input.garments.length, startedAt, outcome, reused);
     const stop = { quota: e.quota, cancelled: e.cancelled };
     if (signal.aborted && running?.version !== useApp.getState().photoVersion) {
       // stopped because the photos changed: show nothing made from the old ones
@@ -209,12 +245,14 @@ export function makeTryOnLook(run: TryOnRunner = runSpace): Promise<void> {
   return exclusive(key, async () => {
     const previous = useLooks.getState().looks[key];
     inputs.set(key, input);
-    useLooks.getState().start(key, input.caption, input.order);
-    await shootViews(key, input.order, input, run);
+    // a reshoot keeps the side photo if the shopper had asked for it (finished passes make it free)
+    const order: View[] = previous?.order.includes('side') && input.photos.side ? [...input.order, 'side'] : input.order;
+    useLooks.getState().start(key, input.caption, order);
+    await shootViews(key, order, input, run);
     // A reshoot that produced nothing: keep the earlier photos rather than a failed, empty look.
     const look = useLooks.getState().looks[key];
     if (previous && doneCount(previous) > 0 && doneCount(look) === 0) {
-      const failed = look?.views[input.order[0]];
+      const failed = look?.views[order[0]];
       const reason = failed?.kind === 'error' ? failed.message : 'The new try-on failed.';
       useLooks.getState().restore(previous, `Couldn't redo this try-on: ${reason} Your earlier photos are kept.`);
     }
@@ -226,4 +264,25 @@ export function retryTryOnView(key: string, view: View, run: TryOnRunner = runSp
   const input = inputs.get(key);
   if (!input || !canRetryTryOn(key)) return Promise.resolve();
   return exclusive(key, () => shootViews(key, [view], input, run));
+}
+
+/** True when the look's side photo can be tried on: given, not tried yet, and still the photo on screen. */
+export function canAddSide(key: string): boolean {
+  const input = inputs.get(key);
+  const look = useLooks.getState().looks[key];
+  return Boolean(input?.photos.side && look && !look.order.includes('side') && canRetryTryOn(key));
+}
+
+/** Passes the side photo would take for this look. */
+export function sidePasses(key: string): number {
+  const input = inputs.get(key);
+  return input ? passesNeeded(input, ['side']) : 0;
+}
+
+/** Tries the outfit on the side photo too (asked for after the front, so the front alone costs half). */
+export function addSideView(key: string, run: TryOnRunner = runSpace): Promise<void> {
+  const input = inputs.get(key);
+  if (!input || !canAddSide(key)) return Promise.resolve();
+  useLooks.getState().addView(key, 'side');
+  return exclusive(key, () => shootViews(key, ['side'], input, run));
 }

@@ -28,37 +28,48 @@ broken.
   Radii 0 / 2px / pill. Spacing 4/8/16/24/48/80.
 
 ## v1 platform: done means
+Rewritten 2026-11-11 for the free try-on engine (the default). Ticked = built and checked in a browser on a local build;
+the last step for every item is the same check on the live URL, on desktop and a phone.
+
 **Core loop**
-- [ ] Onboarding: three photos (front full body, side full body, left face profile), downscaled in the browser; height
-      + weight (required), chest / waist / hips / inseam (optional; estimated from height + weight via the ANSUR II
-      regression when blank). Unit toggle in/lb ↔ cm/kg. Measurements saved to localStorage, photos never.
-- [ ] Four shots per look (front, three-quarter, side, back) that keep the person's identity and proportions and match
-      each other (same garments, shoes, light), about 30–60 s, with per-photo progress, retry, and download.
-- [ ] Size recommendation per item ("You're an M; L if you want it roomier"), from UNIQLO size charts vs. the
-      user's measurements. The chosen size changes how the garment sits in the shots (ease + length).
-- [ ] Fit confidence: a fit card per item (the chosen size vs one other, in numbers: chest/hip room, where the hem
-      lands, shoulders/thigh, sleeve/inseam), a free size-comparison front shot under the lookbook, and fit
-      preferences (Close / Regular / Relaxed per slot, or a top / pants of their own measured flat) that drive the pick.
+- [x] Onboarding: a full-body front photo (side optional), downscaled in the browser; height + weight (required), chest /
+      waist / hips / inseam (optional; estimated from height + weight via the ANSUR II regression when blank). Unit toggle
+      in/lb <-> cm/kg. Measurements saved to localStorage, photos never.
+- [x] The try-on photo: the shopper's own front photo wearing the top and the bottoms (the side photo on request), face,
+      body, pose and background kept, ~30-60 s, with progress, Cancel, Retry and Download; what it costs in free GPU time
+      said before it runs out (tryon/allowance.ts).
+- [x] Size recommendation per item ("You're an M; L if you want it roomier"), from UNIQLO size charts vs. the user's
+      measurements, honest about estimates (borderline sizes).
+- [x] Fit confidence: a fit card per item (the chosen size vs one other, in numbers: chest/hip room, where the hem lands,
+      shoulders/thigh, sleeve/inseam) and fit preferences (Close / Regular / Relaxed per slot, or a top / pants of their
+      own measured flat) that drive the pick. The photo can't show size (the model draws the garment as photographed), so
+      size lives in numbers, said under the photo.
 
 **Catalog**
-- [ ] UNIQLO men's tees, sweaters and pants (aim for 30+ items), with real names, prices, colors, swatches,
-      product photos and size charts, refreshed by a script.
-- [ ] Paste any UNIQLO US product link and it loads. Unsupported categories get a clear message.
+- [x] UNIQLO men's tees, sweaters and pants (34 items), with real names, prices, colors, swatches, product photos and
+      size charts, refreshed by a script (`npm run catalog`, from a home connection).
+- [x] Paste any UNIQLO US product link and it loads. Unsupported categories get a clear message.
 
 **Experience**
-- [ ] Mix tops and bottoms; settings (Studio / City / Night).
+- [x] Mix tops and bottoms.
 - [x] Save outfits; share an outfit by link (state encoded in the URL; never the photos).
-- [ ] Mobile layout: photos on top, controls below (bottom sheet later).
+- [x] Mobile layout: photos on top, controls below (bottom sheet later).
 
 **Production**
-- [ ] Rate limit /api/photoreal and cap total daily spend (in place: 3 looks per visitor cookie, 48 photos per IP and
-      200 per instance per day, both in memory per warm instance, so best effort; next: shared counters (Vercel KV /
-      Upstash) and a hard monthly budget on the OpenAI project; verify on the live URL).
-- [ ] Error handling on every API call; loading states.
+- [x] Error handling on every API call and Space call (deadlines, Cancel, shopper-facing messages); loading states.
 - [x] OG image + metadata (web/index.html, web/public/og.png 1200x630, favicon.svg), Vercel Analytics (web/src/analytics.ts:
       page views without cookies, URLs stripped of query/hash; a `tryon` event per photo { outcome ok|partial|quota|busy|
-      timeout|unreachable|cancelled|photo|error, reason, view, garments, seconds } (custom events need Vercel Pro; on Hobby
-      only page views count); Web Analytics must be enabled in the Vercel project), About / how-it-works (ui/AboutSection).
+      timeout|unreachable|cancelled|photo|error, reason, view, garments, reused, seconds } (custom events need Vercel
+      Pro; on Hobby only page views count); Web Analytics must be enabled in the Vercel project), About / how-it-works
+      (ui/AboutSection).
+- [ ] Capacity: about 4 free passes per visitor per day on a Space we don't control. Done: passes reused, side photo on
+      request, the allowance shown (Phase 6). Next: our own duplicate of the Space (VITE_TRYON_SPACE), a week of outcome
+      counts, then maybe "Sign in with Hugging Face" (5 GPU-min instead of 2).
+
+**Paid generator only** (VITE_PHOTO_ENGINE=openai): four shots per look (front, three-quarter, side, back) with settings
+(Studio / City / Night) and a free size-comparison front shot; /api/photoreal rate-limited (3 looks per visitor cookie, 48
+photos per IP and 200 per instance per day, in memory per warm instance, so best effort; shared counters and a hard
+monthly OpenAI budget before it is ever turned on for the public).
 
 ## Default body (Caleb)
 5'10" (178 cm), 143 lb (65 kg), chest 92 cm, waist 75 cm (29"), hips 90 cm, inseam 84 cm. Slim, slight V-taper.
@@ -105,7 +116,9 @@ Jeans E479000-000 (22-34 inch) came in through the men's listing; removed from c
       tryon/garment.ts    garment photo: UNIQLO's garment-only shot (goods_*) when it exists, else the catalogue photo;
                           flat-lay vs model judged from the top-centre backdrop
       tryon/composite.ts  sharper results: the shopper's photo above the new garment's top edge, the model below
-      tryon/shoot.ts      per photo: top, then bottoms on that result; partial photo kept; quota stops the rest
+      tryon/shoot.ts      the front: top, then bottoms on that result (side photo on request); finished passes reused;
+                          partial photo kept; quota stops the rest
+      tryon/allowance.ts  estimate of the free GPU allowance (passes today, used up, when it's back), localStorage
       outfit/             share links (share.ts), saved outfits (saved.ts), wearing either (load.ts)
       look/request.ts     app state -> the request every view shares + a key (same key = same photos)
       look/shoot.ts       front first, then three-quarter / side / back in parallel with the front shot attached;
@@ -114,7 +127,8 @@ Jeans E479000-000 (22-34 inch) came in through the men's listing; removed from c
                           busy flag, looks left
       analytics.ts        Vercel Web Analytics (production builds only) + try-on outcome events; never photos or outfits
       ui/                 Header (Make my shots, How it works), Lookbook (4 frames + Lightbox + Compare sizes), FitTable,
-                          Photo/Measure/Fit/Outfit/Scene/About sections, SavedOutfits
+                          Photo/Measure/Fit/Outfit/Scene/About sections, SavedOutfits,
+                          TryOnBudget (allowance note, "Try your side photo too")
     api/       Vercel functions: /api/product, /api/photoreal (shared contract: api/_lib/look.ts), /api/mcp (ChatGPT plugin)
       _lib/fit/           profile, sizing, fitCard, catalogItem, garmentPhoto: pure code shared by web (via @api) and api
       _lib/productLookup.ts  UNIQLO product by ID (cache, dedupe), used by /api/product and the plugin
@@ -139,13 +153,19 @@ called from the shopper's browser with @gradio/client, connected by URL (https:/
 by name it first asks huggingface.co for metadata). Endpoint `/try_on`: { person_image, garment_image, category:
 tops|bottoms|one-pieces, garment_photo_type: flat-lay|model (garment.ts decides per photo), num_timesteps (we use 30,
 default 50), guidance_scale 1.5, seed 42, segmentation_free true } -> one image (576x864 WebP). The Space sends CORS for
-any origin. Each photo the shopper gives (front required, side optional; no face close-up, no setting) gets the top,
-then the bottoms on that result: ~26 s a pass. The photo keeps their face, body, pose and background; it shows the
+any origin. The front photo gets the top, then the bottoms on that result: ~26 s a pass. The side photo (optional) is
+tried only when the shopper asks, after the front ("Try your side photo too"; also only then uploaded). No face
+close-up, no setting. Finished passes are kept in memory per (photo version, view, garments so far), last 16: the same
+photo in the same top is reused when only the bottoms change, Try On Again costs nothing (the seed is fixed, so it
+would be the same photo anyway), and a retry after a partial photo starts from the part that worked. Order stays top
+then bottoms (a bottoms-first order would make the same outfit depend on the path taken). The photo keeps their face, body, pose and background; it shows the
 garment as photographed, not in their size, so size lives in the fit card (no size-comparison photo). Sizes are not in
 the look key: changing a size keeps the photo.
 Limits: the Space runs one job at a time for everyone (queue max 30). ZeroGPU daily quota (docs, 2026-11-10):
 unauthenticated 2 GPU-minutes, free account 5, PRO 40; it resets 24 h after the first use. Anonymous visitors get a few
-passes a day, then "You have exceeded your ZeroGPU runs limit". The Space belongs to FASHN (no SLA; they can pause or
+passes a day, then "You have exceeded your ZeroGPU runs limit". tryon/allowance.ts estimates it (4 passes a day from the
+first pass, 0 after a quota error, back 24 h after the first pass; localStorage `fitroom.gpu.v1`) and says what a try-on
+costs before it starts; it is shared by everyone on the network, so only ever "about". The Space belongs to FASHN (no SLA; they can pause or
 remove it). Free accounts in good standing (verified email, > 30 days old) can host 2 ZeroGPU Spaces, so a duplicate
 under our own account is the free way to control availability and get our own queue (visitors still use their quota).
 Own Space: on the FASHN Space page, menu (three dots) > Duplicate this Space, keep ZeroGPU and Public (the browser calls
