@@ -335,3 +335,7 @@ input[type='text']:focus, textarea:focus { outline: 1px solid var(--ink); outlin
 .about-steps strong, .about strong { font-weight: 600; }
 .about-link { color: var(--ink); }
 @media (max-width: 520px) { .about-link { display: none; } }
+
+/* Free GPU allowance (TryOnBudget). */
+.allowance.warn { color: var(--sale); }
+.add-side { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }

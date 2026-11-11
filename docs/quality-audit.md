@@ -1,7 +1,7 @@
 # FitRoom quality audit, 2026-11-10
 
-Status: Phases 0, 1, 2 and 5 done (Phase 5's live-URL check pending a deploy); Phase 4 code side done; Phase 3 waiting on
-GPU quota. Findings 1-7, 9-18 fixed; 8 and 19 open.
+Status: Phases 0, 1, 2, 5 and 6 done (live-URL checks pending); Phase 4 code side done; Phase 3 waiting on GPU quota
+(retry scheduled 2026-11-12). Findings 1-7, 9-18 fixed; 8 and 19 open.
 
 What was tested, what is wrong, and a plan to improve it that can be measured. Covers the free try-on engine (the
 default), sizing and the fit card, the catalog and the UI, on branch `claude/focused-turing-yuhkiq` (PR #2).
@@ -152,6 +152,15 @@ finished try-on look and the phones with a saved outfit; no horizontal overflow;
 Flows: save, share (link copied, outfit only), wear a saved outfit, open a shared link in a fresh browser (outfit, hand-
 picked size and setting applied, params stripped), a link to an unknown item (clear error), Measure-clothes panel stays
 open when cleared, size panel hidden under an out-of-date look, About link. Still to do: the same on the live URL.
+
+### Phase 6: more try-ons from the same allowance - done 2026-11-11
+The free allowance (~4 passes a day) bought about one outfit a day: 2 passes per photo, 4 with the side photo. Now:
+finished passes are reused (new pants on the same top = 1 pass; Try On Again = 0; a retry after a partial photo redoes
+only the missing garment); the side photo is tried only on request; the cost of the next try-on and roughly what is left
+today are shown before it runs. **Gate:** measured with the real code and a stand-in Space in Chromium (desktop, iPhone
+13): front 2 passes, side 2 on request, new pants on the same top 1; the estimate warns once fewer passes are left than
+needed; axe 0 violations, no overflow. So a shopper browsing pants on one top gets about 3 outfits a day (2 + 1 + 1 passes)
+instead of 2, or 1 if they had given a side photo (it used to be tried automatically).
 
 ## How to rerun
 

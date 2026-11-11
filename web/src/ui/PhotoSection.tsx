@@ -132,6 +132,7 @@ export function PhotoSection() {
             <li>Sharp and still: whole body, upright, hands at your sides (blurry hands get redrawn).</li>
             <li>Wear clothes that contrast with what you'll try: over dark jeans, dark pants barely show.</li>
             <li>No bag or straps: the try-on removes them.</li>
+            <li>The side photo is tried on only when you ask, after the front: free GPU time is short (a few try-ons a day).</li>
           </ul>
           <p className="note">Your photo stays as it is (face, pose and background); only the clothes change.</p>
           <p className="note fine">
