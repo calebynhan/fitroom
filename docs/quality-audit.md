@@ -1,6 +1,7 @@
 # FitRoom quality audit, 2026-11-10
 
-Status: Phases 0, 1 and 2 done; findings 1-7, 9-12, 14 and 16 fixed.
+Status: Phases 0, 1, 2 and 5 done (Phase 5's live-URL check pending a deploy); Phase 4 code side done; Phase 3 waiting on
+GPU quota. Findings 1-7, 9-18 fixed; 8 and 19 open.
 
 What was tested, what is wrong, and a plan to improve it that can be measured. Covers the free try-on engine (the
 default), sizing and the fit card, the catalog and the UI, on branch `claude/focused-turing-yuhkiq` (PR #2).
@@ -119,7 +120,9 @@ height + weight only (78% of tops, 84% of pants), so one prompt in Measurements 
 most sizes (chest, waist), and each borderline item links to its field. Found while testing: a top measured all the
 way round (35 in "flat") picked a 3XL; now a garment more than 10 cm beyond every size is ignored and flagged.
 
-### Phase 3: try-on quality (P1 8, eval-driven)
+### Phase 3: try-on quality (P1 8, eval-driven) - blocked on GPU quota
+Not started: every check from this environment on 2026-11-10 and 11 got "You have exceeded your ZeroGPU runs limit".
+Run it from a connection with quota (or a PRO token) with the eval page.
 Run the eval set before and after each change; keep a change only if it improves the metrics without new flags.
 Candidates, in order of expected value: garment crop + `flat-lay` for worn product photos; `num_timesteps` 30 vs 50;
 seed sweeps; sharpening the side photo; a second engine (the eval page makes swapping Spaces a one-line change).
@@ -133,10 +136,22 @@ seed sweeps; sharpening the side photo; a second engine (the eval page makes swa
 - Anonymous counts of try-on outcomes (ok / quota / busy / timeout, no photos) to see real failure rates.
 **Gate:** a week of outcome counts with timeouts < 2% and a known quota rate.
 
+Code side done 2026-11-11: `VITE_TRYON_SPACE` picks our own duplicate with FASHN's as the fallback (20 s connect each);
+an anonymous `tryon` analytics event per photo (outcome ok / partial / quota / busy / timeout / unreachable / cancelled /
+photo / error, plus why a partial one stopped). Left for the owner: duplicate the Space (steps in CLAUDE.md, Photo
+engines), turn on Web Analytics in Vercel (custom events need Pro; on Hobby only page views count), then a week of counts.
+Sign-in with Hugging Face not built: it needs an OAuth app and changes the privacy story; revisit after the counts.
+
 ### Phase 5: UX and launch
 Tap targets, axe issues, panel and range-text fixes (P2 13, 15, 17, 18), then the remaining v1 items in CLAUDE.md
 (save/share outfits, OG image, analytics, About). **Gate:** axe clean on both states; every flow checked on the live URL
 on desktop and a phone.
+
+Result 2026-11-11 (local build in Chromium, desktop 1440 px, iPhone 13, Pixel 7): axe 0 violations on the empty state, a
+finished try-on look and the phones with a saved outfit; no horizontal overflow; no non-inline tap target under 24 px.
+Flows: save, share (link copied, outfit only), wear a saved outfit, open a shared link in a fresh browser (outfit, hand-
+picked size and setting applied, params stripped), a link to an unknown item (clear error), Measure-clothes panel stays
+open when cleared, size panel hidden under an out-of-date look, About link. Still to do: the same on the live URL.
 
 ## How to rerun
 
