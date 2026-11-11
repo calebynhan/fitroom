@@ -44,7 +44,7 @@ broken.
 
 **Experience**
 - [ ] Mix tops and bottoms; settings (Studio / City / Night).
-- [ ] Save outfits; share an outfit by link (state encoded in the URL; never the photos).
+- [x] Save outfits; share an outfit by link (state encoded in the URL; never the photos).
 - [ ] Mobile layout: photos on top, controls below (bottom sheet later).
 
 **Production**
@@ -96,6 +96,7 @@ Jeans E479000-000 (22-34 inch) came in through the men's listing; removed from c
                           flat-lay vs model judged from the top-centre backdrop
       tryon/composite.ts  sharper results: the shopper's photo above the new garment's top edge, the model below
       tryon/shoot.ts      per photo: top, then bottoms on that result; partial photo kept; quota stops the rest
+      outfit/             share links (share.ts), saved outfits (saved.ts), wearing either (load.ts)
       look/request.ts     app state -> the request every view shares + a key (same key = same photos)
       look/shoot.ts       front first, then three-quarter / side / back in parallel with the front shot attached;
                           shootCompare = the front again with one item in its comparison size
@@ -206,6 +207,13 @@ detail?, retryable, remaining? }`.
   blemishes, hair not restyled, no beautifying) and the body numbers (never slimmer/taller/younger); each garment
   exactly as its product photo with size and fit on this body; plain white sneakers; per-view direction; setting; no
   logos or text. Never call the person a "model" or the shot a "product page": it pulls the face toward a generic one.
+
+**Share link / saved outfits** (web/src/outfit/): `/?top=<ID>.<colour code>[.<size>]&bottom=...&scene=studio|city|night`,
+e.g. `?top=E453754-000.67.S&bottom=E475598-000.09`; the size only when hand-picked (the recipient gets their own). Never
+photos or measurements. On load (after the catalog) items outside catalog.json are fetched via /api/product, unknown
+colours fall back to the item's first, unknown sizes are dropped, and the params are stripped from the URL. Saved
+outfits: localStorage `fitroom.saved.v1`, newest first, max 20, `{ id, name, outfit, scene, savedAt }`. Share uses the
+native share sheet on touch devices, else the clipboard.
 
 **Size recommendation** (web/src/fit/sizing.ts): the chart size is the smallest size whose body ranges cover the user's. Tops go by
 chest, plus waist only when the user typed one (an ANSUR estimate, SD 4.4 cm, must not push a size up); bottoms go

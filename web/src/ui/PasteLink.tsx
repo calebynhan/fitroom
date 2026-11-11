@@ -1,5 +1,6 @@
 import { parseProductId, toCatalogItem, type UniqloDetails } from '@api/uniqlo';
 import { useState, type ClipboardEvent, type FormEvent } from 'react';
+import { fetchProduct } from '../catalog/fetchProduct';
 import type { CatalogItem } from '../catalog/types';
 import { useApp } from '../state/store';
 
@@ -12,21 +13,6 @@ type Status =
 // Run on a uniqlo.com product page (same-origin there): copies the product JSON to the clipboard.
 const CONSOLE_SNIPPET =
   "fetch(location.pathname.replace(/.*products\\/(E\\d{6}-\\d{3}).*/,'/us/api/commerce/v5/en/products/$1/price-groups/00/details?includeModelSize=false&httpFailure=true')).then(r=>r.text()).then(t=>copy(t))";
-
-type ProductResponse = CatalogItem | { error: string; code?: string };
-
-async function fetchProduct(url: string): Promise<ProductResponse> {
-  try {
-    const res = await fetch('/api/product', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url }),
-    });
-    return (await res.json()) as ProductResponse;
-  } catch {
-    return { error: 'Could not reach the server.', code: 'blocked' };
-  }
-}
 
 function itemFromPastedJson(text: string, link: string): CatalogItem | string {
   try {

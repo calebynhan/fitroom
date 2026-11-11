@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { TRY_ON } from './look/engine';
 import { parseCatalog } from './catalog/types';
+import { loadOutfitFromUrl } from './outfit/load';
 import { hasUnsavedPhotos, useLooks } from './state/looks';
 import { useApp } from './state/store';
 import { Header } from './ui/Header';
@@ -26,7 +27,8 @@ function useCatalogLoader(): string | null {
       .catch((err: unknown) => {
         console.error('[catalog] failed to load', err);
         setError('Could not load the bestsellers. Paste a UNIQLO link instead.');
-      });
+      })
+      .finally(() => void loadOutfitFromUrl()); // a shared link's items are fetched even without the catalog
   }, [setCatalog]);
   return error;
 }

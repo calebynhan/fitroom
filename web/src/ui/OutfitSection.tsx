@@ -7,6 +7,7 @@ import { useApp } from '../state/store';
 import { FitTable } from './FitTable';
 import { MeasureLink } from './measureLink';
 import { PasteLink } from './PasteLink';
+import { SavedOutfits } from './SavedOutfits';
 import { onRadioKeys, rovingTab } from './radioKeys';
 
 const CUT_LABEL: Record<CatalogItem['fit'], string> = { slim: 'Slim cut', regular: 'Regular cut', relaxed: 'Relaxed cut' };
@@ -167,6 +168,7 @@ export function OutfitSection({ loadError }: { loadError: string | null }) {
       {loadError && <p className="msg error">{loadError}</p>}
       <SlotGroup slot="top" />
       <SlotGroup slot="bottom" />
+      <SavedOutfits />
     </section>
   );
 }
