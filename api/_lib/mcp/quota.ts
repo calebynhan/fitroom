@@ -1,62 +1,16 @@
 // Free try-on photos in ChatGPT: TRYON_FREE_PER_MONTH (default 5) outfit photos per person per calendar month, and
 // TRYON_DAILY_CAP (default 100) for everyone together per UTC day, which bounds spend. The person is ChatGPT's
 // anonymised user id (`openai/subject`), hashed before it is used as a key; no FitRoom account.
-// Counters live in Upstash Redis (UPSTASH_REDIS_REST_URL + _TOKEN, or Vercel KV's KV_REST_API_URL + _TOKEN) when
-// configured, so every instance sees the same counts; otherwise in memory per warm instance (best effort).
+// Counters live in the plugin's store (store.ts): Upstash Redis when configured, else memory per warm instance.
 import { createHash } from 'node:crypto';
+import type { Store } from './store';
+
+export { memoryStore, storeFromEnv, upstashStore } from './store';
 
 type Env = Record<string, string | undefined>;
 
-export interface QuotaStore {
-  /** Adds `by` to the counter (created with a TTL) and returns the new value. Throws when the store is unreachable. */
-  incr(key: string, by: number, ttlS: number): Promise<number>;
-}
-
-export function memoryStore(now: () => number = Date.now): QuotaStore {
-  const counters = new Map<string, { value: number; expires: number }>();
-  return {
-    async incr(key, by, ttlS) {
-      const t = now();
-      const current = counters.get(key);
-      const value = (current && current.expires > t ? current.value : 0) + by;
-      if (counters.size > 20_000) counters.clear();
-      counters.set(key, { value, expires: t + ttlS * 1000 });
-      return value;
-    },
-  };
-}
-
-export function upstashStore(url: string, token: string, fetchImpl: typeof fetch = fetch): QuotaStore {
-  const base = url.replace(/\/+$/, '');
-  return {
-    async incr(key, by, ttlS) {
-      const res = await fetchImpl(`${base}/pipeline`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify([
-          ['INCRBY', key, String(by)],
-          ['EXPIRE', key, String(ttlS)],
-        ]),
-        signal: AbortSignal.timeout(3000),
-      });
-      if (!res.ok) throw new Error(`upstash ${res.status}`);
-      const out = (await res.json()) as { result?: unknown; error?: string }[];
-      const value = out?.[0]?.result;
-      if (typeof value !== 'number') throw new Error(`upstash ${out?.[0]?.error ?? 'bad reply'}`);
-      return value;
-    },
-  };
-}
-
-let defaultStore: QuotaStore | null = null;
-
-export function storeFromEnv(env: Env = process.env): QuotaStore {
-  const url = env.UPSTASH_REDIS_REST_URL ?? env.KV_REST_API_URL;
-  const token = env.UPSTASH_REDIS_REST_TOKEN ?? env.KV_REST_API_TOKEN;
-  if (url && token) return upstashStore(url, token);
-  defaultStore ??= memoryStore();
-  return defaultStore;
-}
+/** The quota only needs counters; any Store (store.ts) is one. */
+export type QuotaStore = Pick<Store, 'incr'>;
 
 function positive(raw: string | undefined, fallback: number): number {
   const n = Number(raw);

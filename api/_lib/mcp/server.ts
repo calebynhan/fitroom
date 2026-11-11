@@ -1,7 +1,9 @@
 // FitRoom as a ChatGPT plugin: an MCP server (tools + one widget) built per request (stateless, so it runs on Vercel
 // functions). Tools: recommend_size (the size to buy and a fit card, from UNIQLO's chart and the web app's sizing
-// code), find_clothes (the catalog), try_on (the outfit on the shopper's own photo; FASHN API; free photos capped per
-// ChatGPT user). The widget (widget.html) renders all three in the FitRoom design system. Contract: CLAUDE.md, ChatGPT plugin.
+// code, plus what earlier buyers reported), find_clothes (the catalog), try_on (the outfit on the shopper's own photo;
+// FASHN API; free photos capped per ChatGPT user), report_fit (how a bought item fits: anonymous tallies). The widget
+// (widget.html) renders the first three in the FitRoom design system. Every call is counted without personal data
+// (metrics.ts). Contract: CLAUDE.md, ChatGPT plugin.
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
@@ -15,10 +17,13 @@ import {
   type Tool,
 } from '@modelcontextprotocol/sdk/types.js';
 import { colorLabel } from '../fit/catalogItem';
-import { formatSize } from '../fit/sizing';
-import { productCard, resolveColor, resolveProduct, searchCatalog, type Kind, type ProductCard } from './catalog';
-import { limitsFromEnv, reserve, storeFromEnv, userKey, type QuotaStore } from './quota';
+import { chartSizes, formatSize, shortSize } from '../fit/sizing';
+import { colorFromLink, productCard, resolveColor, resolveProduct, searchCatalog, type Kind, type ProductCard } from './catalog';
+import { addReport, MIN_REPORTS, readReports, reportLine, VERDICTS, WHERE, type SizeReports, type Verdict, type Where } from './fitReports';
+import { recordCall } from './metrics';
+import { limitsFromEnv, reserve, userKey } from './quota';
 import { adviseSize, cardLines, matchSize, parseBody, type BodyInput } from './sizing';
+import { storeFromEnv, type Store } from './store';
 import { defaultDeps, fetchShopperPhoto, tryOnOutfit, tryOnStatus, type Garment, type TryOnDeps } from './tryOn';
 
 export const SERVER_NAME = 'fitroom';
@@ -28,13 +33,21 @@ export const WIDGET_MIME = 'text/html;profile=mcp-app';
 const TRY_ON_BUDGET_MS = 48_000; // inside vercel.json maxDuration 60 for api/mcp.ts
 const PHOTO_META_KEY = 'fitroom/photo';
 
-const INSTRUCTIONS = [
-  "FitRoom picks the size to buy for UNIQLO men's tees, sweaters and pants from the shopper's height and weight",
-  "(plus any measurements they know), using UNIQLO's own size charts, and shows how it will fit in numbers.",
-  'It can also put the clothes on a photo of the shopper themselves.',
-  'Repeat sizes and fit notes exactly as returned; when a size is marked as estimated or "between", say so.',
-  'Never comment on how a person looks; describe only the clothes and the fit.',
-].join(' ');
+/** What the model is told about FitRoom; the try-on and fit-report lines only when those tools are listed. */
+export function instructionsFor(tools: Tool[]): string {
+  const has = (name: string) => tools.some((t) => t.name === name);
+  return [
+    "FitRoom answers \"what size should I get?\" for UNIQLO men's T-shirts, sweaters, sweatshirts, jeans, chinos and",
+    "other pants: it reads UNIQLO's own size chart against the shopper's height and weight (plus any measurements they",
+    'know) and shows how the size will fit in numbers, along with what earlier buyers of that size reported.',
+    has('try_on') ? 'It can also put the clothes on a photo of the shopper themselves.' : null,
+    'Repeat sizes and fit notes exactly as returned; when a size is marked as estimated or "between", say so.',
+    has('report_fit') ? 'When the user says how a UNIQLO item they bought fits, record it with report_fit.' : null,
+    'Never comment on how a person looks; describe only the clothes and the fit.',
+  ]
+    .filter(Boolean)
+    .join(' ');
+}
 
 /** A hanger, monochrome on a 20x20 viewBox (ChatGPT asks for currentColor icons on entrypoint tools). */
 const ICON =
@@ -90,11 +103,13 @@ export const TOOLS: Tool[] = [
     name: 'recommend_size',
     title: 'Find my size',
     description:
-      "The size to buy in a UNIQLO men's tee, sweater or pants for this shopper, from UNIQLO's own size chart and " +
-      'their height and weight (chest, waist, hips, inseam make it exact; blanks are estimated), and a fit card that ' +
-      'compares it with one other size in numbers: chest or hip room, where the hem lands, shoulders, sleeve, inseam. ' +
-      'Use whenever someone asks what size to get in a UNIQLO item, whether a size will fit, or how something will fit ' +
-      "them. Ask for height and weight first if you don't know them. Repeat the size and its caveats exactly.",
+      "The size to buy in a UNIQLO men's T-shirt, sweater, sweatshirt or pants (jeans, chinos, trousers) for this " +
+      "shopper, from UNIQLO's own size chart and their height and weight (chest, waist, hips, inseam make it exact; " +
+      'blanks are estimated), with a fit card comparing it with one other size in numbers (chest or hip room, where ' +
+      'the hem lands, shoulders, sleeve, inseam) and what earlier buyers of that size reported. Use whenever someone ' +
+      'asks what size to get at UNIQLO, S or M, whether a size will fit, whether something runs small or is true to ' +
+      "size, or how it will fit them; works for any UNIQLO US product link in those categories. Ask for height and " +
+      "weight first if you don't know them. Repeat the size and its caveats exactly.",
     inputSchema: {
       type: 'object',
       properties: {
@@ -132,8 +147,9 @@ export const TOOLS: Tool[] = [
     name: 'find_clothes',
     title: 'Browse UNIQLO basics',
     description:
-      "Search FitRoom's catalog of UNIQLO men's tees, sweaters and pants: names, prices, colours and product photos. " +
-      'Use to find something to size or try on. Each result has an ID for recommend_size and try_on.',
+      "Search FitRoom's catalog of UNIQLO men's T-shirts, sweaters and pants: names, prices, colours and product " +
+      'photos. Use when someone wants UNIQLO basics to choose from ("a black crew neck under $30", "chinos"), or to ' +
+      'find the ID of an item to size or try on.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -181,12 +197,39 @@ export const TOOLS: Tool[] = [
     icons: ICONS,
     _meta: toolMeta('Dressing your photo', 'Photo ready', { 'openai/fileParams': ['photo'] }),
   },
+  {
+    name: 'report_fit',
+    title: 'Tell FitRoom how it fit',
+    description:
+      'Records how a UNIQLO item the user bought fits them ("the M was tight in the chest", "the 30 waist was perfect"), ' +
+      'so recommend_size can tell later shoppers what buyers of that size found. Only when the user says it about an ' +
+      'item they own; never guess or ask leading questions. Anonymous: no measurements are kept, one report per person ' +
+      'per item.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        product: { type: 'string', description: 'UNIQLO product ID, link, or catalog name.' },
+        size: { type: 'string', description: 'The size they bought ("M", "30").' },
+        fit: { type: 'string', enum: [...VERDICTS], description: 'too_small, just_right or too_big.' },
+        where: { type: 'string', enum: [...WHERE], description: 'Where it was off, if they said. Default overall.' },
+      },
+      required: ['product', 'size', 'fit'],
+      additionalProperties: false,
+    },
+    annotations: { title: 'Tell FitRoom how it fit', readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    icons: ICONS,
+    _meta: {
+      securitySchemes: [{ type: 'noauth' }],
+      'openai/toolInvocation/invoking': 'Noting how it fit',
+      'openai/toolInvocation/invoked': 'Noted',
+    },
+  },
 ];
 
 export interface ServerContext {
   ip: string;
   env?: Record<string, string | undefined>;
-  store?: QuotaStore;
+  store?: Store;
   deps?: TryOnDeps;
 }
 
@@ -204,11 +247,22 @@ function priceText(p: ProductCard): string {
   return p.salePrice != null && p.salePrice < p.price ? `$${p.salePrice.toFixed(2)} (was $${p.price.toFixed(2)})` : `$${p.price.toFixed(2)}`;
 }
 
-async function recommendSize(args: Record<string, unknown>, ctx: ServerContext): Promise<CallToolResult> {
+/** Tallies for the sizes on the fit card that have enough reports to show; {} when the store can't be read. */
+async function shownReports(store: Store, productId: string, sizes: string[]): Promise<Record<string, SizeReports>> {
+  try {
+    const all = await readReports(store, productId);
+    return Object.fromEntries(sizes.filter((s) => (all[s]?.total ?? 0) >= MIN_REPORTS).map((s) => [s, all[s]]));
+  } catch (err: unknown) {
+    console.error('[mcp] fit reports read failed', err instanceof Error ? err.message : err);
+    return {};
+  }
+}
+
+async function recommendSize(args: Record<string, unknown>, ctx: ServerContext, store: Store): Promise<CallToolResult> {
   const product = await resolveProduct(str(args.product) ?? '');
   if (!product.ok) return failure('size', product.message);
   const item = product.item;
-  const { color, matched } = resolveColor(item, str(args.color));
+  const { color, matched } = resolveColor(item, str(args.color) ?? colorFromLink(str(args.product)));
   const body = parseBody(args as BodyInput, item.slot);
   if (!body.ok) return failure('size', body.message);
   const askedRaw = str(args.size);
@@ -216,9 +270,13 @@ async function recommendSize(args: Record<string, unknown>, ctx: ServerContext):
   const advice = adviseSize(item, body, asked);
   const card = productCard(item, color.code);
   const status = tryOnStatus(ctx.env ?? process.env);
+  const cardSizes = [advice.size, advice.compare].filter((s): s is string => typeof s === 'string');
+  const reports = advice.size ? await shownReports(store, item.id, cardSizes) : {};
+  const reportText = advice.size ? reportLine(reports[advice.size]) : null;
 
   const lines = [`${item.name} (${card.color.name}, ${priceText(card)}): ${advice.text}`];
   if (advice.summary) lines.push(`${advice.summary}.`);
+  if (reportText) lines.push(reportText);
   if (askedRaw && !asked) lines.push(`"${askedRaw}" isn't one of its sizes (${card.sizes.map(formatSize).join(', ')}).`);
   if (!matched) lines.push(`No colour "${str(args.color)}"; showing ${card.color.name}.`);
   if (advice.card) lines.push(...cardLines(advice.card));
@@ -239,8 +297,56 @@ async function recommendSize(args: Record<string, unknown>, ctx: ServerContext):
     estimated: advice.estimated,
     units: advice.units,
     buyUrl: card.url,
+    reports,
+    reportText,
+    /** Whether report_fit is offered here, so the card only invites fit reports that will be kept. */
+    reportsOn: toolsFor(ctx).some((t) => t.name === 'report_fit'),
     tryOn: status.on ? { available: true } : { available: false, message: status.message },
   });
+}
+
+/** The item's own size name for what the user said ("m", "30", '30"'), from the chart or the size list. */
+function boughtSize(item: Parameters<typeof matchSize>[0], raw: unknown): string | null {
+  const fromChart = matchSize(item, raw);
+  if (fromChart) return fromChart;
+  if (typeof raw !== 'string') return null;
+  const want = raw.trim().toLowerCase().replace(/["”\s]|inch(es)?$/g, '');
+  const sizes = Array.isArray(item.sizes) ? item.sizes : chartSizes(item);
+  return sizes.find((s) => s.toLowerCase() === raw.trim().toLowerCase() || shortSize(s).toLowerCase() === want) ?? null;
+}
+
+const VERDICT_TEXT: Record<Verdict, string> = { too_small: 'runs small', just_right: 'fits', too_big: 'runs big' };
+
+async function reportFit(args: Record<string, unknown>, store: Store, user: string): Promise<CallToolResult> {
+  const product = await resolveProduct(str(args.product) ?? '');
+  if (!product.ok) return failure('message', product.message);
+  const item = product.item;
+  const size = boughtSize(item, args.size);
+  const sizes = Array.isArray(item.sizes) ? item.sizes : [];
+  if (!size) return failure('message', `Which size did they buy? The ${item.name} comes in ${sizes.map(formatSize).join(', ')}.`);
+  if (!(VERDICTS as readonly unknown[]).includes(args.fit)) return failure('message', 'Say whether it was too small, just right or too big.');
+  const verdict = args.fit as Verdict;
+  const where = (WHERE as readonly unknown[]).includes(args.where) ? (args.where as Where) : null;
+  let added: boolean;
+  try {
+    added = await addReport(store, user, item.id, size, verdict, where);
+  } catch (err: unknown) {
+    console.error('[mcp] fit report failed', err instanceof Error ? err.message : err);
+    return failure('message', "FitRoom couldn't save that right now. Try again later.");
+  }
+  const label = formatSize(size);
+  if (!added) {
+    const message = `This person already told FitRoom how the ${item.name} fits; one report per item counts. Thanks.`;
+    return result(message, { kind: 'message', status: 'duplicate', message, productId: item.id });
+  }
+  const tallies = await readReports(store, item.id).catch(() => ({}) as Record<string, SizeReports>);
+  const line = reportLine(tallies[size]);
+  const off = where && verdict !== 'just_right' ? ` (${where})` : '';
+  const message = [
+    `Thanks: noted that the ${item.name} in ${label} ${VERDICT_TEXT[verdict]}${off}.`,
+    line ?? `FitRoom shows these to other shoppers once a size has ${MIN_REPORTS} reports.`,
+  ].join(' ');
+  return result(message, { kind: 'message', status: 'ok', message, productId: item.id });
 }
 
 function findClothes(args: Record<string, unknown>): CallToolResult {
@@ -265,7 +371,7 @@ function findClothes(args: Record<string, unknown>): CallToolResult {
 
 const inFlightTryOns = new Set<string>();
 
-async function tryOn(args: Record<string, unknown>, ctx: ServerContext, user: string): Promise<CallToolResult> {
+async function tryOn(args: Record<string, unknown>, ctx: ServerContext, user: string, store: Store): Promise<CallToolResult> {
   const env = ctx.env ?? process.env;
   const deps = ctx.deps ?? defaultDeps;
   const status = tryOnStatus(env);
@@ -282,14 +388,14 @@ async function tryOn(args: Record<string, unknown>, ctx: ServerContext, user: st
     if (product.item.slot !== slot) {
       return tryOnFailure('error', `${product.item.name} is ${product.item.slot === 'top' ? 'a top' : 'pants'}; pass it as "${product.item.slot}".`);
     }
-    garments.push({ item: product.item, colorCode: resolveColor(product.item, str((g as Record<string, unknown>).color)).color.code });
+    const asked = str((g as Record<string, unknown>).color) ?? colorFromLink(str((g as Record<string, unknown>).product));
+    garments.push({ item: product.item, colorCode: resolveColor(product.item, asked).color.code });
   }
   if (garments.length === 0) return tryOnFailure('error', 'Say which top or pants to try on.');
 
   if (inFlightTryOns.has(user)) return tryOnFailure('busy', 'Your last try-on is still developing. Wait for it to finish.');
   inFlightTryOns.add(user);
   try {
-    const store = ctx.store ?? storeFromEnv(env);
     const limits = limitsFromEnv(env);
     const ticket = await reserve(store, user, limits, deps.now());
     if (!ticket.ok) {
@@ -349,13 +455,40 @@ function widgetResourceMeta(): Record<string, unknown> {
   };
 }
 
+/** What a call came to, for the usage counters: ok | borderline | no_chart | empty | duplicate | <try-on status> | error. */
+export function outcomeOf(res: CallToolResult): string {
+  const sc = (res.structuredContent ?? {}) as Record<string, unknown>;
+  if (typeof sc.status === 'string' && sc.status !== 'error') return sc.status;
+  if (res.isError) return 'error';
+  if (sc.kind === 'size') return sc.size == null ? 'no_chart' : sc.borderline ? 'borderline' : 'ok';
+  if (sc.kind === 'catalog') return Array.isArray(sc.items) && sc.items.length ? 'ok' : 'empty';
+  return 'ok';
+}
+
+/** The catalog ID a call was about (none for a search). */
+function productOf(res: CallToolResult): { product?: string } {
+  const sc = (res.structuredContent ?? {}) as { product?: { id?: unknown }; items?: { id?: unknown }[]; productId?: unknown; kind?: unknown };
+  const id = sc.product?.id ?? sc.productId ?? (sc.kind === 'tryon' ? sc.items?.[0]?.id : undefined);
+  return typeof id === 'string' ? { product: id } : {};
+}
+
+/**
+ * The tools this deployment can actually serve: try_on only with a FASHN key (else it could only say "not switched
+ * on"), report_fit only with a shared store (in memory a "noted" report would vanish with the instance).
+ */
+export function toolsFor(ctx: Pick<ServerContext, 'env' | 'store'>): Tool[] {
+  const env = ctx.env ?? process.env;
+  const sharedStore = Boolean(ctx.store) || storeFromEnv(env).kind === 'upstash';
+  return TOOLS.filter((t) => (t.name === 'try_on' ? tryOnStatus(env).on : t.name === 'report_fit' ? sharedStore : true));
+}
+
 export function createServer(ctx: ServerContext): Server {
   const server = new Server(
     { name: SERVER_NAME, version: SERVER_VERSION, title: 'FitRoom', icons: ICONS },
-    { capabilities: { tools: {}, resources: {} }, instructions: INSTRUCTIONS },
+    { capabilities: { tools: {}, resources: {} }, instructions: instructionsFor(toolsFor(ctx)) },
   );
 
-  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOLS }));
+  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: toolsFor(ctx) }));
 
   server.setRequestHandler(ListResourcesRequestSchema, async () => ({
     resources: [{ uri: WIDGET_URI, name: 'FitRoom fitting room', mimeType: WIDGET_MIME, _meta: widgetResourceMeta() }],
@@ -369,21 +502,36 @@ export function createServer(ctx: ServerContext): Server {
   server.setRequestHandler(CallToolRequestSchema, async (request): Promise<CallToolResult> => {
     const args = (request.params.arguments ?? {}) as Record<string, unknown>;
     const user = userKey(request.params._meta as Record<string, unknown> | undefined, ctx.ip);
+    const store = ctx.store ?? storeFromEnv(ctx.env ?? process.env);
+    const tool = request.params.name;
+    const started = Date.now();
+    let res: CallToolResult;
     try {
-      switch (request.params.name) {
+      switch (tool) {
         case 'recommend_size':
-          return await recommendSize(args, ctx);
+          res = await recommendSize(args, ctx, store);
+          break;
         case 'find_clothes':
-          return findClothes(args);
+          res = findClothes(args);
+          break;
         case 'try_on':
-          return await tryOn(args, ctx, user);
+          res = await tryOn(args, ctx, user, store);
+          break;
+        case 'report_fit':
+          res = toolsFor(ctx).some((t) => t.name === 'report_fit')
+            ? await reportFit(args, store, user)
+            : failure('message', "FitRoom can't record fit reports on this deployment yet.");
+          break;
         default:
-          return failure('message', `Unknown tool ${request.params.name}.`);
+          return failure('message', `Unknown tool ${tool}.`);
       }
     } catch (err: unknown) {
-      console.error('[mcp] tool crashed', request.params.name, err instanceof Error ? err.stack ?? err.message : err);
-      return failure('message', 'Something went wrong on FitRoom. Try again.');
+      console.error('[mcp] tool crashed', tool, err instanceof Error ? err.stack ?? err.message : err);
+      res = failure('message', 'Something went wrong on FitRoom. Try again.');
     }
+    const event = { tool, outcome: outcomeOf(res), ms: Date.now() - started, ...productOf(res) };
+    await recordCall(store, user, event, Date.now(), (ctx.env ?? process.env).MCP_EVENT_LOGS !== '0');
+    return res;
   });
 
   return server;

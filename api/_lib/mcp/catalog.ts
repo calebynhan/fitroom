@@ -88,6 +88,11 @@ export async function resolveProduct(query: string): Promise<Resolved> {
   };
 }
 
+/** The colour a pasted UNIQLO link was showing (?colorDisplayCode=09), if any. */
+export function colorFromLink(text: string | undefined): string | undefined {
+  return text?.match(/[?&]colorDisplayCode=(\d{2})\b/)?.[1];
+}
+
 /** The colour by UNIQLO code ("09") or name ("black", "navy"); the item's first colour when nothing matches. */
 export function resolveColor(item: CatalogItem, query: string | undefined): { color: CatalogColor; matched: boolean } {
   const q = (query ?? '').trim().toLowerCase();

@@ -270,7 +270,7 @@
 
   function tryOnBlock(r) {
     var t = r.tryOn || {};
-    if (!t.available) return t.message ? h('p', { class: 'small muted', style: 'margin-top:16px', text: t.message }) : null;
+    if (!t.available) return null; // try_on isn't offered here: say nothing about it
     var hint = 'Only photos of yourself, standing, head to toe. FitRoom doesn’t keep your photo.';
     if (!canUpload()) {
       return h('p', { class: 'small muted', style: 'margin-top:16px', text: 'To see it on you, attach a full-body photo of yourself and ask to try it on. ' + hint });
@@ -317,6 +317,7 @@
         h('p', { class: 'size', text: r.sizeLabel }),
         h('p', { class: 'advice', text: r.text }),
         r.summary ? h('p', { class: 'muted', style: 'margin:0', text: r.summary }) : null,
+        r.reportText ? h('p', { class: 'note', text: r.reportText }) : null,
         !r.card && r.estimated && r.estimated.length ? h('p', { class: 'note', text: 'Estimated from your height and weight: ' + r.estimated.join(', ') + '. Measure for exact numbers.' }) : null,
         r.card ? fitTable(r.card) : null
       );
@@ -325,6 +326,7 @@
       h('button', { onclick: function () { openLink(r.buyUrl || p.url); } }, [r.size ? 'Buy the ' + r.sizeLabel + ' at UNIQLO' : 'Open at UNIQLO'])
     ]));
     parts.push(tryOnBlock(r));
+    if (r.size && r.reportsOn) parts.push(h('p', { class: 'small muted', style: 'margin-top:16px', text: 'Bought it? Tell ChatGPT how it fits, and FitRoom passes it on (anonymously) to the next shopper.' }));
     return parts;
   }
 

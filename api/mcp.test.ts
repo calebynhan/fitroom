@@ -5,10 +5,13 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { afterEach, describe, expect, it } from 'vitest';
+
+process.env.MCP_EVENT_LOGS = '0'; // keep the per-call log lines out of the test output
 import { completeBody, EMPTY_PROFILE, sizingBody, type Profile } from './_lib/fit/profile';
 import { sizeAdvice } from './_lib/fit/sizing';
 import { DELETE, GET, OPTIONS, POST } from './mcp';
 import { catalogItems, resolveProduct } from './_lib/mcp/catalog';
+import { readStats } from './_lib/mcp/metrics';
 import { memoryStore } from './_lib/mcp/quota';
 import { createServer, WIDGET_MIME, WIDGET_URI } from './_lib/mcp/server';
 import type { TryOnDeps } from './_lib/mcp/tryOn';
@@ -39,19 +42,29 @@ const sc = (r: CallToolResult) => r.structuredContent as Record<string, any>;
 const CALEB = { height: 70, weight: 143, chest: 36.2, waist: 29.5, hips: 35.4, inseam: 33.1 };
 
 describe('/api/mcp over HTTP', () => {
-  it('lists the three tools, each tied to the widget; try_on takes the photo as a file param', async () => {
-    const client = await httpClient();
+  it('lists only the tools this deployment can serve: no FASHN key = no try_on, no shared store = no report_fit', async () => {
+    const client = await httpClient(); // no FASHN_API_KEY, no Upstash in the test environment
     expect(client.getServerVersion()?.name).toBe('fitroom');
     const { tools } = await client.listTools();
-    expect(tools.map((t) => t.name)).toEqual(['recommend_size', 'find_clothes', 'try_on']);
+    expect(tools.map((t) => t.name)).toEqual(['recommend_size', 'find_clothes']);
+    expect(client.getInstructions()).not.toMatch(/photo|report_fit/);
     for (const tool of tools) {
       expect(tool._meta?.ui).toMatchObject({ resourceUri: WIDGET_URI });
       expect(tool._meta?.['openai/outputTemplate']).toBe(WIDGET_URI);
       expect(tool.icons?.[0].mimeType).toBe('image/svg+xml');
+      expect(tool.annotations?.readOnlyHint).toBe(true);
     }
+  });
+
+  it('with a FASHN key and a shared store it lists all four; try_on takes the photo as a file param, report_fit has no card', async () => {
+    const client = await memoryClient(fakeFashn().deps, {});
+    const { tools } = await client.listTools();
+    expect(tools.map((t) => t.name)).toEqual(['recommend_size', 'find_clothes', 'try_on', 'report_fit']);
+    expect(client.getInstructions()).toMatch(/photo of the shopper.*report_fit/);
     expect(tools[2]._meta?.['openai/fileParams']).toEqual(['photo']);
-    expect(tools[0].annotations?.readOnlyHint).toBe(true);
     expect(tools[2].annotations?.readOnlyHint).toBe(false);
+    expect(tools[3]._meta?.ui).toBeUndefined(); // a thank-you needs no card
+    expect(tools[3].annotations?.readOnlyHint).toBe(false);
   });
 
   it('serves the widget as an MCP Apps resource with a CSP for UNIQLO photos', async () => {
@@ -79,6 +92,7 @@ describe('/api/mcp over HTTP', () => {
     for (const [id, size] of expected) {
       const r = await call(client, 'recommend_size', { product: id, ...CALEB });
       expect(r.isError).toBeFalsy();
+      expect(sc(r).reportsOn).toBe(false); // no shared store here: the card mustn't invite fit reports
       expect(sc(r).size).toBe(size);
       expect(sc(r).card.rows.length).toBeGreaterThan(1);
       expect(text(r)).toContain(`colorDisplayCode=`);
@@ -106,6 +120,10 @@ describe('/api/mcp over HTTP', () => {
     expect(sc(byName).size).toBe('M');
     expect(sc(byName).card.sizes).toEqual(['M', 'S']);
     expect(sc(byName).text).toContain('You asked about M');
+
+    const link = await call(client, 'recommend_size', { product: 'https://www.uniqlo.com/us/en/products/E453754-000/00?colorDisplayCode=09', ...CALEB });
+    expect(sc(link).product.color.code).toBe('09'); // the colour the shopper was looking at
+    expect(sc(link).buyUrl).toContain('colorDisplayCode=09');
 
     const relaxed = await call(client, 'recommend_size', { product: 'E453754-000', ...CALEB, fit: 'relaxed' });
     expect(sc(relaxed).pick.reason).toBe('relaxed');
@@ -291,5 +309,80 @@ describe('try_on', () => {
     const client = await memoryClient(deps, {});
     const r = await call(client, 'try_on', { photo: PHOTO, bottom: { product: 'E453754-000' } }, { 'openai/subject': 'v1/f' });
     expect(text(r)).toContain('pass it as "top"');
+  });
+});
+
+describe('report_fit and what buyers reported', () => {
+  const said = (fit: string, where?: string) => ({ product: 'E453754-000', size: 'S', fit, ...(where ? { where } : {}) });
+
+  it('keeps one anonymous report per person per item, then shows the tallies with the size advice from 5 reports', async () => {
+    const store = memoryStore();
+    const client = await memoryClient(fakeFashn().deps, {}, store);
+    const first = await call(client, 'report_fit', said('too_small', 'chest'), { 'openai/subject': 'v1/buyer-1' });
+    expect(first.isError).toBeFalsy();
+    expect(text(first)).toContain('Thanks: noted that the Washable Milano Ribbed Sweater in S runs small (chest).');
+    expect(text(first)).toContain('once a size has 5 reports');
+    const again = await call(client, 'report_fit', said('just_right'), { 'openai/subject': 'v1/buyer-1' });
+    expect(sc(again).status).toBe('duplicate');
+
+    for (const [i, fit] of ['just_right', 'just_right', 'just_right', 'too_small'].entries()) {
+      await call(client, 'report_fit', said(fit, fit === 'too_small' ? 'chest' : undefined), { 'openai/subject': `v1/buyer-${i + 2}` });
+    }
+    const advice = await call(client, 'recommend_size', { product: 'E453754-000', ...CALEB });
+    expect(sc(advice).reportText).toBe('Shoppers who bought the S: 3 of 5 say it fits; 2 say it runs small (chest).');
+    expect(sc(advice).reportsOn).toBe(true);
+    expect(sc(advice).reports.S).toMatchObject({ total: 5, just_right: 3, too_small: 2, where: 'chest' });
+    expect(text(advice)).toContain('Shoppers who bought the S: 3 of 5 say it fits');
+  });
+
+  it('asks again for a size the item does not come in, and for a verdict it does not know', async () => {
+    const client = await memoryClient(fakeFashn().deps, {});
+    const badSize = await call(client, 'report_fit', { product: 'E453754-000', size: 'XXXXL', fit: 'too_big' }, { 'openai/subject': 'v1/x' });
+    expect(text(badSize)).toBe('Which size did they buy? The Washable Milano Ribbed Sweater comes in XXS, XS, S, M, L, XL, XXL, 3XL.');
+    const badFit = await call(client, 'report_fit', { product: 'E453754-000', size: 'm', fit: 'meh' }, { 'openai/subject': 'v1/x' });
+    expect(text(badFit)).toContain('too small, just right or too big');
+    const inch = await call(client, 'report_fit', { product: 'E450251-000', size: '30', fit: 'just_right' }, { 'openai/subject': 'v1/x' });
+    expect(text(inch)).toContain('in 30" fits');
+  });
+});
+
+describe('usage counters', () => {
+  it('counts every call by tool and outcome, distinct users per day, and the products asked about; nothing personal', async () => {
+    const store = memoryStore();
+    const client = await memoryClient(fakeFashn().deps, {}, store);
+    await call(client, 'recommend_size', { product: 'E453754-000', ...CALEB }, { 'openai/subject': 'v1/a' });
+    await call(client, 'recommend_size', { product: 'E475598-000', height: 70, weight: 143 }, { 'openai/subject': 'v1/b' });
+    await call(client, 'recommend_size', { product: 'nope nope', ...CALEB }, { 'openai/subject': 'v1/a' });
+    await call(client, 'find_clothes', { query: 'zzzz' }, { 'openai/subject': 'v1/a' });
+    await call(client, 'try_on', { photo: PHOTO, top: { product: 'E453754-000' } }, { 'openai/subject': 'v1/c' });
+    const stats = await readStats(store, 2);
+    const today = stats.days[0];
+    expect(today.users).toBe(3);
+    expect(today.calls).toEqual({
+      'recommend_size:ok': 1,
+      'recommend_size:borderline': 1,
+      'recommend_size:error': 1,
+      'find_clothes:empty': 1,
+      'try_on:ok': 1,
+    });
+    expect(today.products).toMatchObject({ 'recommend_size:E453754-000': 1, 'recommend_size:E475598-000': 1, 'try_on:E453754-000': 1 });
+    expect(Object.keys(today.meanMs).sort()).toEqual(['find_clothes', 'recommend_size', 'try_on']);
+    expect(stats.week).toEqual({ users: 3, activeDaysPerUser: 1 });
+    expect(JSON.stringify(stats)).not.toMatch(/v1\/|70|143|36\.2/); // no ids, no measurements
+  });
+
+  it('shows the counts only with the owner token', async () => {
+    const prev = process.env.MCP_STATS_TOKEN;
+    delete process.env.MCP_STATS_TOKEN;
+    expect((await GET(new Request('https://fitroom.test/api/mcp?stats=anything'))).status).toBe(404);
+    process.env.MCP_STATS_TOKEN = 'owner-secret-123';
+    expect((await GET(new Request('https://fitroom.test/api/mcp?stats=wrong'))).status).toBe(404);
+    const ok = await GET(new Request('https://fitroom.test/api/mcp?stats=owner-secret-123'));
+    expect(ok.status).toBe(200);
+    const body = await ok.json();
+    expect(body.store).toBe('memory');
+    expect(body.days).toHaveLength(14);
+    if (prev === undefined) delete process.env.MCP_STATS_TOKEN;
+    else process.env.MCP_STATS_TOKEN = prev;
   });
 });
