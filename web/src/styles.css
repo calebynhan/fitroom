@@ -352,3 +352,14 @@ input[type='text']:focus, textarea:focus { outline: 1px solid var(--ink); outlin
 .before-after-control { display: flex; align-items: center; gap: 16px; }
 .before-after-control input { flex: 1; accent-color: var(--ink); min-height: 24px; }
 @media (max-width: 900px) { .lightbox-inner .before-after-stage img { max-width: calc(100vw - 32px); max-height: calc(100dvh - 170px); } }
+
+/* Your try-ons (LooksStrip). */
+.looks-strip { display: flex; flex-direction: column; gap: 8px; padding-top: 24px; border-top: 1px solid var(--hairline); }
+.looks-strip ul { list-style: none; margin: 0; padding: 0 0 4px; display: flex; gap: 16px; overflow-x: auto; }
+.look-thumb { display: flex; flex-direction: column; gap: 8px; width: 112px; padding: 0; border: 0; background: none; text-align: left; }
+.look-thumb img { width: 112px; height: 168px; object-fit: cover; object-position: center 30%; border: 1px solid var(--hairline); }
+.look-thumb.current img { border-color: var(--ink); outline: 1px solid var(--ink); }
+.look-thumb:hover:not(:disabled) img { border-color: var(--graphite); }
+.look-thumb-name { display: flex; flex-direction: column; font: 400 11px/1.35 var(--sans); color: var(--graphite); }
+.look-thumb-name > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.look-thumb.current .look-thumb-name { color: var(--ink); font-weight: 500; }

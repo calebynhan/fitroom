@@ -100,7 +100,8 @@ Jeans E479000-000 (22-34 inch) came in through the men's listing; removed from c
 ## Architecture
     web/       Vite + React + TS + zustand. No 3D.
       photos/prepare.ts   decode (EXIF-aware), downscale (front 1536 px, side 1024 px, face 768 px), JPEG data URL;
-                          memory only; photoWarning flags landscape body photos (person too small)
+                          memory only; photoWarning flags body photos that make poor try-ons: landscape (person
+                          small), under 1000 px tall (soft: the model outputs 864), mean luma < 60 (dark)
       body/profile.ts     measurements, ANSUR estimates, units, fit preferences + reference garment, localStorage
       fit/sizing.ts       size pick (chart, preference or reference garment), ease/length, comparison size + deltas
       fit/fitCard.ts      the fit card: two sizes on this body in numbers (cm or in)
@@ -123,6 +124,7 @@ Jeans E479000-000 (22-34 inch) came in through the men's listing; removed from c
       analytics.ts        Vercel Web Analytics (production builds only) + try-on outcome events; never photos or outfits
       ui/                 Header (Make my shots, How it works), Lookbook (4 frames + Lightbox + Compare sizes), FitTable,
                           BeforeAfter (lightbox: drag between the shopper's photo and the try-on; done.before),
+                          LooksStrip ("Your try-ons": every outfit tried on these photos; one tap goes back, free),
                           Photo/Measure/Fit/Outfit/Scene/About sections, SavedOutfits,
                           TryOnBudget (allowance note, "Try your side photo too")
     api/       Vercel functions: /api/product, /api/photoreal (shared contract: api/_lib/look.ts)

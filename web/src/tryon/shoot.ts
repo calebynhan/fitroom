@@ -11,7 +11,7 @@ import { recordPass, recordQuota } from './allowance';
 import { colorLabel, productImage, type Slot } from '../catalog/types';
 import type { LookCaption } from '../look/request';
 import { exclusive } from '../look/shoot';
-import { doneCount, useLooks } from '../state/looks';
+import { doneCount, useLooks, type Look } from '../state/looks';
 import { useApp } from '../state/store';
 import { sharpenResult } from './composite';
 import { loadGarmentPhoto, type GarmentPhoto } from './garment';
@@ -247,7 +247,8 @@ export function makeTryOnLook(run: TryOnRunner = runSpace): Promise<void> {
     inputs.set(key, input);
     // a reshoot keeps the side photo if the shopper had asked for it (finished passes make it free)
     const order: View[] = previous?.order.includes('side') && input.photos.side ? [...input.order, 'side'] : input.order;
-    useLooks.getState().start(key, input.caption, order);
+    const { top, bottom } = useApp.getState().outfit;
+    useLooks.getState().start(key, input.caption, order, { ...(top ? { top } : {}), ...(bottom ? { bottom } : {}) });
     await shootViews(key, order, input, run);
     // A reshoot that produced nothing: keep the earlier photos rather than a failed, empty look.
     const look = useLooks.getState().looks[key];
@@ -285,4 +286,11 @@ export function addSideView(key: string, run: TryOnRunner = runSpace): Promise<v
   if (!input || !canAddSide(key)) return Promise.resolve();
   useLooks.getState().addView(key, 'side');
   return exclusive(key, () => shootViews(key, ['side'], input, run));
+}
+
+/** Looks made from the photos on screen, with at least one finished photo: the ones the shopper can go back to. */
+export function reachableLooks(looks: Record<string, Look>): Look[] {
+  return Object.values(looks)
+    .filter((l) => l.outfit && doneCount(l) > 0 && canRetryTryOn(l.key))
+    .sort((a, b) => (b.startedAt ?? 0) - (a.startedAt ?? 0));
 }

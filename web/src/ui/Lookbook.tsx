@@ -16,6 +16,7 @@ import { MeasureLink } from './measureLink';
 import { Lightbox } from './Lightbox';
 import { useNow, viewProgress } from './progress';
 import { AddSideButton, AllowanceNote } from './TryOnBudget';
+import { LooksStrip } from './LooksStrip';
 
 function Frame({ look, view, stale, onOpen }: { look: Look; view: View; stale: boolean; onOpen: () => void }) {
   const state = look.views[view];
@@ -362,6 +363,7 @@ function Shots({ look, stale }: { look: Look; stale: boolean }) {
         </div>
       </div>
       {!stale && !TRY_ON && <ComparePanel look={look} />}
+      {TRY_ON && <LooksStrip currentKey={stale ? null : look.key} />}
       {TRY_ON && !stale && <TryOnSizes />}
       {open && openDone && <Lightbox look={look} view={open} onClose={() => setOpen(null)} onNavigate={setOpen} />}
     </div>
