@@ -20,6 +20,7 @@ export function LooksStrip({ currentKey }: { currentKey: string | null }) {
   const looks = useLooks((s) => s.looks);
   const busy = useLooks((s) => s.busy);
   const applyOutfit = useApp((s) => s.applyOutfit);
+  const outfit = useApp((s) => s.outfit);
   const photoVersion = useApp((s) => s.photoVersion);
   // photoVersion: looks made from replaced photos drop out
   const list = useMemo(() => reachableLooks(looks), [looks, photoVersion]);
@@ -40,7 +41,17 @@ export function LooksStrip({ currentKey }: { currentKey: string | null }) {
                 className={`look-thumb ${current ? 'current' : ''}`}
                 aria-pressed={current}
                 disabled={busy !== null}
-                onClick={() => look.outfit && applyOutfit(look.outfit)}
+                onClick={() => {
+                  if (current || !look.outfit) return;
+                  // sizes don't change the photo: keep a size picked since, when it's the same item
+                  const back = { ...look.outfit };
+                  for (const slot of ['top', 'bottom'] as const) {
+                    const now = outfit[slot];
+                    const then = back[slot];
+                    if (then && now?.itemId === then.itemId && now.size) back[slot] = { ...then, size: now.size };
+                  }
+                  applyOutfit(back);
+                }}
               >
                 {src && <img src={src} alt="" />}
                 <span className="look-thumb-name">

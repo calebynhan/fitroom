@@ -104,7 +104,9 @@ export function garmentRegion(mask: Uint8Array, width: number, height: number): 
     if (left >= 0 && right >= left) raw[y] = [left, right];
   }
 
-  // smooth over neighbouring rows (widest wins), which also fills rows inside the garment where little changed
+  // smooth over neighbouring rows (widest wins), which also fills short runs of rows inside the garment where little
+  // changed (dark over dark); a longer run with no change at all (the legs between a new top's hem and shoes the model
+  // nudged) stays out of the region: the model left it as it was, so the photo shows the same thing, sharper
   const k = Math.max(2, Math.round(height * SMOOTH));
   const margin = Math.round(width * SIDE_MARGIN);
   const spans: ([number, number] | null)[] = new Array(height).fill(null);
@@ -118,15 +120,14 @@ export function garmentRegion(mask: Uint8Array, width: number, height: number): 
         right = Math.max(right, s[1]);
       }
     }
-    // a gap longer than the window inside the garment: keep the whole row (never show the old garment)
-    spans[y] = Number.isFinite(left) ? [Math.max(0, left - margin), Math.min(width - 1, right + margin)] : [0, width - 1];
+    spans[y] = Number.isFinite(left) ? [Math.max(0, left - margin), Math.min(width - 1, right + margin)] : null;
   }
   return { top, bottom, spans };
 }
 
 /**
- * How much of the model's output to use per pixel (0..1, row-major, result resolution): 1 inside the region and its
- * margin, fading to 0 over FEATHER. Separable box blur, so it needs no canvas filter (Safari has none).
+ * How much of the model's output to use per pixel (0..1, row-major, result resolution): 1 inside the region, 0.5 at the
+ * outer edge of its margin, 0 beyond, over FEATHER. Separable box blur, so it needs no canvas filter (Safari has none).
  */
 export function regionAlpha(region: Region, width: number, height: number): Float32Array {
   const alpha = new Float32Array(width * height);
@@ -166,8 +167,14 @@ function boxBlur(src: Float32Array, width: number, height: number, r: number): F
   return out;
 }
 
-/** Bounding box of alpha > 0, scaled to the photo's pixels (null when empty). */
-function alphaBox(alpha: Float32Array, width: number, height: number, scale: number): { x: number; y: number; w: number; h: number } | null {
+/** Bounding box of alpha > 0, scaled to the photo's pixels and clamped to them (null when empty). */
+export function alphaBox(
+  alpha: Float32Array,
+  width: number,
+  height: number,
+  photoWidth: number,
+  photoHeight: number,
+): { x: number; y: number; w: number; h: number } | null {
   let x0 = width;
   let y0 = height;
   let x1 = -1;
@@ -182,9 +189,12 @@ function alphaBox(alpha: Float32Array, width: number, height: number, scale: num
     }
   }
   if (x1 < 0) return null;
-  const x = Math.floor(x0 * scale);
-  const y = Math.floor(y0 * scale);
-  return { x, y, w: Math.ceil((x1 + 1) * scale) - x, h: Math.ceil((y1 + 1) * scale) - y };
+  // separate scales: sameFraming allows a 1% aspect difference
+  const sx = photoWidth / width;
+  const sy = photoHeight / height;
+  const x = Math.min(photoWidth - 1, Math.floor(x0 * sx));
+  const y = Math.min(photoHeight - 1, Math.floor(y0 * sy));
+  return { x, y, w: Math.min(photoWidth, Math.ceil((x1 + 1) * sx)) - x, h: Math.min(photoHeight, Math.ceil((y1 + 1) * sy)) - y };
 }
 
 /**
@@ -301,7 +311,7 @@ export async function sharpenResult(photo: string, result: Blob, fallback: strin
     const [final, f] = canvas(OW, OH);
     f.imageSmoothingQuality = 'high';
     f.drawImage(output, 0, 0, OW, OH);
-    const box = alphaBox(alpha, W, H, OW / W);
+    const box = alphaBox(alpha, W, H, OW, OH);
     if (SHARPEN.amount > 0 && box) {
       const enlarged = f.getImageData(box.x, box.y, box.w, box.h);
       unsharp(enlarged.data, box.w, box.h, SHARPEN.radius, SHARPEN.amount);

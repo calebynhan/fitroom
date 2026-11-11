@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { changedMask, changedPerRow, garmentRegion, garmentTop, isSkin, regionAlpha, sameFraming, sameSkin, skinColouredHex, unsharp } from './composite';
+import { alphaBox, changedMask, changedPerRow, garmentRegion, garmentTop, isSkin, regionAlpha, sameFraming, sameSkin, skinColouredHex, unsharp } from './composite';
 
 function image(w: number, h: number, paint?: (x: number, y: number) => [number, number, number]) {
   const px = new Uint8ClampedArray(w * h * 4);
@@ -54,6 +54,23 @@ describe('the region taken from the model', () => {
     const patchy = image(w, h, (x, y) => (y >= 70 && y < 150 && x > 30 && x < 70 && (y < 100 || y >= 104) ? [20, 60, 90] : [120, 120, 120]));
     const region = garmentRegion(changedMask(before, patchy, w, h), w, h)!;
     for (let y = 100; y < 104; y += 1) expect(region.spans[y]![1] - region.spans[y]![0]).toBeGreaterThan(38);
+  });
+
+  it('leaves a long unchanged stretch to the photo (legs between a new top and nudged shoes)', () => {
+    const topAndShoes = image(w, h, (x, y) => ((y >= 40 && y < 100 && x > 30 && x < 70) || (y >= 185 && y < 192 && x > 35 && x < 65) ? [20, 60, 90] : [120, 120, 120]));
+    const region = garmentRegion(changedMask(before, topAndShoes, w, h), w, h)!;
+    expect(region.spans[70]).not.toBeNull();
+    expect(region.spans[140]).toBeNull();
+    expect(region.spans[188]).not.toBeNull();
+  });
+
+  it('keeps the sharpening box inside the photo whatever the scale', () => {
+    const alpha = new Float32Array(480 * 864);
+    alpha[863 * 480 + 479] = 1; // bottom-right corner
+    const box = alphaBox(alpha, 480, 864, 864, 1536)!;
+    expect(box.x + box.w).toBeLessThanOrEqual(864);
+    expect(box.y + box.h).toBeLessThanOrEqual(1536);
+    expect(box.h).toBeGreaterThan(0);
   });
 
   it('uses the model fully inside the region and the photo well outside it, with a soft edge', () => {

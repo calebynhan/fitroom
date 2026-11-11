@@ -32,6 +32,8 @@ describe('photo budgets and warnings', () => {
     expect(photoWarning('front', { width: 864, height: 1536, luma: 40 })).toMatch(/dark/);
     expect(photoWarning('front', { width: 864, height: 1536, luma: 120 })).toBeNull();
     expect(photoWarning('face', { width: 300, height: 400, luma: 20 })).toBeNull();
+    // shrunk by us to fit the upload budget, but taken at full resolution: no warning
+    expect(photoWarning('side', { width: 614, height: 819, sourceHeight: 4000 })).toBeNull();
   });
 
   it('measures brightness', () => {

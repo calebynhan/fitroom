@@ -24,13 +24,15 @@ export const DARK_LUMA = 60;
  * (the beach-photo case): the model then has too few pixels of them to keep their likeness. Small photos come out soft;
  * dark ones lose the body's shape and the garment's colour.
  */
-export function photoWarning(slot: PhotoSlot, photo: Pick<PreparedPhoto, 'width' | 'height' | 'luma'>): string | null {
+export function photoWarning(slot: PhotoSlot, photo: Pick<PreparedPhoto, 'width' | 'height' | 'luma' | 'sourceHeight'>): string | null {
   if (slot === 'face') return null;
   if (photo.width > photo.height) {
     return "This is a landscape photo, so you're small in it. Use an upright one where you fill the frame from head to feet.";
   }
-  if (photo.height < MIN_SHARP_HEIGHT) {
-    return `This photo is small (${photo.height} px tall), so your try-on will look soft. Use the original from your camera, not a screenshot or a sent copy.`;
+  // the photo as chosen, not as encoded: encode() may shrink a detailed photo to fit its budget
+  const tall = photo.sourceHeight ?? photo.height;
+  if (tall < MIN_SHARP_HEIGHT) {
+    return `This photo is small (${tall} px tall), so your try-on will look soft. Use the original from your camera, not a screenshot or a sent copy.`;
   }
   if (photo.luma !== undefined && photo.luma < DARK_LUMA) return 'This photo is quite dark. In brighter light the try-on gets your shape and the colours right.';
   return null;
@@ -42,6 +44,8 @@ export interface PreparedPhoto {
   height: number;
   /** Mean luma 0..255 (Rec. 601), measured on a small copy. */
   luma?: number;
+  /** Height of the photo as chosen (after EXIF rotation), before any downscaling. */
+  sourceHeight?: number;
 }
 
 /** Mean luma (0..255) of RGBA pixels. */
@@ -141,7 +145,7 @@ export async function preparePhoto(file: File, slot: PhotoSlot): Promise<Prepare
     if (Math.min(decoded.width, decoded.height) < MIN_SHORT_SIDE) {
       throw new PhotoError(`That photo is too small. Use one at least ${MIN_SHORT_SIDE} px on its short side.`);
     }
-    return encode(decoded, PHOTO_GUIDE[slot].maxSide, PHOTO_GUIDE[slot].maxChars);
+    return { ...encode(decoded, PHOTO_GUIDE[slot].maxSide, PHOTO_GUIDE[slot].maxChars), sourceHeight: decoded.height };
   } finally {
     decoded.close();
   }
