@@ -15,7 +15,7 @@ import { doneCount, useLooks, type Look } from '../state/looks';
 import { useApp } from '../state/store';
 import { sharpenResult, skinColouredHex } from './composite';
 import { loadGarmentPhoto, type GarmentPhoto } from './garment';
-import { describeStatus, garmentUrl, PASS_MS, runSpace, SpaceError, within, type TryOnCategory, type TryOnRunner } from './space';
+import { describeStatus, garmentUrl, PASS_MS, runSpace, SpaceError, warmUp, within, type TryOnCategory, type TryOnRunner } from './space';
 
 type AppSnapshot = Pick<ReturnType<typeof useApp.getState>, 'catalog' | 'outfit' | 'photos' | 'photoVersion'>;
 
@@ -118,6 +118,9 @@ export function cancelTryOn(): void {
 // Photos removed or replaced: forget every input holding the old ones and stop a run that is still sending them.
 useApp.subscribe((state, prev) => {
   if (state.photoVersion === prev.photoVersion) return;
+  // a front photo means a try-on is coming: open the connection now (config only, no photo is sent), saving seconds later
+  const freeEngine = import.meta.env.VITE_PHOTO_ENGINE !== 'openai';
+  if (freeEngine && state.photos.front && !prev.photos.front && typeof window !== 'undefined' && !import.meta.env.VITEST) void warmUp();
   for (const [key, input] of inputs) if (input.version !== state.photoVersion) inputs.delete(key);
   for (const key of passes.keys()) if (!key.startsWith(`${state.photoVersion}|`)) passes.delete(key);
   if (running && running.version !== state.photoVersion) running.controller.abort();
