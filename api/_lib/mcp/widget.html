@@ -54,7 +54,8 @@
   .card img { width: 100%; aspect-ratio: 3 / 4; object-fit: cover; background: var(--bone); border-radius: 2px; display: block; }
   .card h2 { font-size: 17px; margin: 8px 0 2px; line-height: 1.2; }
   .card .actions { margin-top: 8px; }
-  .card button { padding: 8px 16px; min-height: 36px; font-size: 12px; }
+  .card .actions { gap: 4px; }
+  .card button { padding: 8px 12px; min-height: 36px; font-size: 12px; }
   .swatches { display: flex; gap: 4px; margin-top: 4px; flex-wrap: wrap; }
   .swatch { width: 12px; height: 12px; border-radius: 999px; border: 1px solid var(--hairline); }
   .photo { width: 100%; max-height: 560px; object-fit: contain; background: var(--bone); border-radius: 2px; display: block; }
@@ -114,16 +115,18 @@
     }
   });
 
-  request('ui/initialize', {
-    appInfo: { name: 'fitroom', version: '1.0.0' },
-    appCapabilities: { availableDisplayModes: ['inline'] },
-    protocolVersion: '2026-01-26'
-  }, 4000).then(function (res) {
-    connected = true;
-    applyContext(res && res.hostContext);
-    notify('ui/notifications/initialized', {});
-    reportSize();
-  }, function () { /* not an MCP Apps host: window.openai (ChatGPT) or nothing */ });
+  if (window.parent !== window) {
+    request('ui/initialize', {
+      appInfo: { name: 'fitroom', version: '1.0.0' },
+      appCapabilities: { availableDisplayModes: ['inline'] },
+      protocolVersion: '2026-01-26'
+    }, 4000).then(function (res) {
+      connected = true;
+      applyContext(res && res.hostContext);
+      notify('ui/notifications/initialized', {});
+      reportSize();
+    }, function () { /* not an MCP Apps host: window.openai (ChatGPT) or nothing */ });
+  }
 
   function applyContext(ctx) {
     if (ctx && (ctx.theme === 'dark' || ctx.theme === 'light')) document.documentElement.setAttribute('data-theme', ctx.theme);

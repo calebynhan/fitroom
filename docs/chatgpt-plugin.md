@@ -3,6 +3,28 @@
 Question: can FitRoom become a ChatGPT plugin and use it for distribution, with 5 free generations per person (no
 FitRoom account), then charge for more?
 
+## Status (2026-11-11): the endpoint is built
+
+`/api/mcp` (api/mcp.ts, api/_lib/mcp/; contract in CLAUDE.md, "ChatGPT plugin") implements Phases 1 and 2 below in code:
+`recommend_size`, `find_clothes`, `try_on` and one widget, in the FitRoom design. Verified:
+- Through the MCP protocol with the SDK client (api/mcp.test.ts): tools, widget resource, the documented default-body
+  sizes, word-for-word parity with the website's size advice on all 34 catalog items, every catalog name resolving to
+  its item, try-on against a fake FASHN API (top then pants, partial photo, 5 free per user, daily cap, private
+  photo links refused), errors in shopper words.
+- On a Vercel preview: the function loads (catalog and widget bundled), CORS, the self-description at GET /api/mcp.
+- In a browser: the widget in a spec-following MCP Apps host page (Playwright, CSP from the declared domains):
+  handshake, auto height, Buy link through the host, "Find my size" as a chat message, the photo even when the host
+  drops `_meta`, dark theme, a 360 px width, and ChatGPT's plain `window.openai` path. No console errors.
+
+Not yet done, in order:
+1. **Phase 0 decisions**: read the live plugin guidelines; UNIQLO affiliate program (set `AFFILIATE_URL_TEMPLATE`).
+2. **Try-on on**: a FASHN API key (`FASHN_API_KEY`, ~$0.075 per garment) and Upstash/Vercel KV for shared counters,
+   in Vercel (Production). Without the key `try_on` says it isn't switched on and everything else works.
+3. **Deploy to production** (previews sit behind Vercel Authentication, which ChatGPT can't pass), then in ChatGPT:
+   Settings > Apps & Connectors > developer mode > create a connector for `https://fitroom-woad.vercel.app/api/mcp`,
+   no authentication, and run the Phase 1 prompt set. Not tested inside ChatGPT itself yet.
+4. Privacy policy and terms pages, then submit to the Plugin Directory (Phase 3).
+
 ## Short answer
 
 1. **"ChatGPT plugin" is the right name again.** The 2023 plugins (ai-plugin.json + OpenAPI) were shut down in 2024.

@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { completeBody, EMPTY_PROFILE, sizingBody, type Profile } from './_lib/fit/profile';
 import { sizeAdvice } from './_lib/fit/sizing';
 import { DELETE, GET, OPTIONS, POST } from './mcp';
-import { catalogItems } from './_lib/mcp/catalog';
+import { catalogItems, resolveProduct } from './_lib/mcp/catalog';
 import { memoryStore } from './_lib/mcp/quota';
 import { createServer, WIDGET_MIME, WIDGET_URI } from './_lib/mcp/server';
 import type { TryOnDeps } from './_lib/mcp/tryOn';
@@ -65,7 +65,7 @@ describe('/api/mcp over HTTP', () => {
     expect(widget.text).toContain('openai:set_globals');
     expect(widget._meta.ui.csp.resourceDomains).toContain('https://image.uniqlo.com');
     expect(widget._meta.ui.csp.connectDomains).toEqual([]);
-    expect(widget._meta.ui.domain).toBe('https://fitroom.test');
+    expect(widget._meta.ui.domain).toBeUndefined();
   });
 
   it("gives the documented sizes for the default body, the same as the web app's sizing", async () => {
@@ -109,6 +109,16 @@ describe('/api/mcp over HTTP', () => {
 
     const relaxed = await call(client, 'recommend_size', { product: 'E453754-000', ...CALEB, fit: 'relaxed' });
     expect(sc(relaxed).pick.reason).toBe('relaxed');
+  });
+
+  it('resolves every catalog item by its exact name, and a near name when only one item fits', async () => {
+    for (const item of catalogItems()) {
+      const r = await resolveProduct(item.name);
+      expect(r.ok && r.item.id, item.name).toBe(item.id);
+    }
+    const near = await resolveProduct('milano ribbed sweater');
+    expect(near.ok && near.item.id).toBe('E453754-000');
+    expect((await resolveProduct('Ultra Stretch Pants')).ok).toBe(true);
   });
 
   it('says what is wrong in shopper words: unknown product, ambiguous name, impossible height', async () => {
@@ -211,7 +221,7 @@ function fakeFashn(opts: { failBottoms?: string } = {}) {
 }
 
 async function memoryClient(deps: TryOnDeps, env: Record<string, string>, store = memoryStore()): Promise<Client> {
-  const server = createServer({ ip: '203.0.113.9', origin: 'https://fitroom.test', env: { FASHN_API_KEY: 'test-key', ...env }, store, deps });
+  const server = createServer({ ip: '203.0.113.9', env: { FASHN_API_KEY: 'test-key', ...env }, store, deps });
   const [a, b] = InMemoryTransport.createLinkedPair();
   await server.connect(a);
   const client = new Client({ name: 'test', version: '1.0.0' });

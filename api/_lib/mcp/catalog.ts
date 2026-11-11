@@ -65,12 +65,15 @@ export async function resolveProduct(query: string): Promise<Resolved> {
   }
   const wanted = words(text);
   if (wanted.length === 0) return { ok: false, message: 'Name a UNIQLO product, or paste its link.' };
+  const key = (list: string[]) => [...new Set(list)].sort().join(' ');
+  const exact = catalogItems().find((item) => key(words(item.name)) === key(wanted));
+  if (exact) return { ok: true, item: exact };
   const scored = catalogItems()
     .map((item) => {
       const have = new Set(words(item.name));
       const hits = wanted.filter((w) => have.has(w)).length;
-      // share of the query found in the name, nudged toward names without extra words
-      return { item, score: hits / wanted.length - 0.01 * Math.max(0, have.size - hits) };
+      // share of the query found in the name, less a little for each word of the name the query didn't mention
+      return { item, score: hits / wanted.length - 0.04 * Math.max(0, have.size - hits) };
     })
     .filter((s) => s.score > 0)
     .sort((a, b) => b.score - a.score);

@@ -4,7 +4,7 @@
 // Tools and widget: _lib/mcp/server.ts. Contract: CLAUDE.md, ChatGPT plugin.
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import { catalogItems } from './_lib/mcp/catalog';
-import { SERVER_NAME, SERVER_VERSION, TOOLS, createServer } from './_lib/mcp/server';
+import { SERVER_NAME, SERVER_VERSION, TOOLS, createServer, widgetHtml } from './_lib/mcp/server';
 import { tryOnStatus } from './_lib/mcp/tryOn';
 import { clientIp } from './_lib/rateLimit';
 import { createWindowLimiter } from './_lib/windowLimit';
@@ -49,7 +49,7 @@ export async function POST(request: Request): Promise<Response> {
   const verdict = limiter.hit(ip);
   if (!verdict.ok) return jsonRpcError(429, 'Too many requests. Try again in a minute.', { 'Retry-After': String(verdict.retryAfterS) });
 
-  const server = createServer({ ip, origin: originOf(request) });
+  const server = createServer({ ip });
   const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
   try {
     await server.connect(transport);
@@ -76,6 +76,7 @@ export async function GET(request: Request): Promise<Response> {
     transport: 'streamable-http (POST JSON-RPC)',
     tools: TOOLS.map((t) => t.name),
     catalogItems: catalogItems().length,
+    widgetBytes: widgetHtml().length,
     tryOn: tryOnStatus().on ? 'on' : 'off',
   };
   return withCors(new Response(JSON.stringify(info, null, 2), { status: 200, headers: { 'Content-Type': 'application/json' } }));

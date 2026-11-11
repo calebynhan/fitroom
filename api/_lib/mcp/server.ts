@@ -185,8 +185,6 @@ export const TOOLS: Tool[] = [
 
 export interface ServerContext {
   ip: string;
-  /** Origin this server is reached at, e.g. https://fitroom-woad.vercel.app (the widget's domain). */
-  origin: string;
   env?: Record<string, string | undefined>;
   store?: QuotaStore;
   deps?: TryOnDeps;
@@ -337,14 +335,14 @@ async function tryOn(args: Record<string, unknown>, ctx: ServerContext, user: st
   }
 }
 
-function widgetResourceMeta(origin: string): Record<string, unknown> {
+/**
+ * CSP for the widget: UNIQLO product photos and the two FitRoom fonts; no network calls (tools go through the host).
+ * No `ui.domain`: its format is host-specific and the spec's default sandbox origin is all the widget needs.
+ */
+function widgetResourceMeta(): Record<string, unknown> {
   const resourceDomains = ['https://image.uniqlo.com', 'https://fonts.googleapis.com', 'https://fonts.gstatic.com'];
   return {
-    ui: {
-      csp: { resourceDomains, connectDomains: [] },
-      prefersBorder: true,
-      ...(origin.startsWith('https://') ? { domain: origin } : {}),
-    },
+    ui: { csp: { resourceDomains, connectDomains: [] }, prefersBorder: true },
     'openai/widgetDescription': 'FitRoom: the size to buy, how it fits in numbers, and try-on photos of UNIQLO basics.',
     'openai/widgetPrefersBorder': true,
     'openai/widgetCSP': { resource_domains: resourceDomains, connect_domains: [] },
@@ -360,12 +358,12 @@ export function createServer(ctx: ServerContext): Server {
   server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOLS }));
 
   server.setRequestHandler(ListResourcesRequestSchema, async () => ({
-    resources: [{ uri: WIDGET_URI, name: 'FitRoom fitting room', mimeType: WIDGET_MIME, _meta: widgetResourceMeta(ctx.origin) }],
+    resources: [{ uri: WIDGET_URI, name: 'FitRoom fitting room', mimeType: WIDGET_MIME, _meta: widgetResourceMeta() }],
   }));
   server.setRequestHandler(ListResourceTemplatesRequestSchema, async () => ({ resourceTemplates: [] }));
   server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
     if (request.params.uri !== WIDGET_URI) throw new Error(`Unknown resource ${request.params.uri}`);
-    return { contents: [{ uri: WIDGET_URI, mimeType: WIDGET_MIME, text: widgetHtml(), _meta: widgetResourceMeta(ctx.origin) }] };
+    return { contents: [{ uri: WIDGET_URI, mimeType: WIDGET_MIME, text: widgetHtml(), _meta: widgetResourceMeta() }] };
   });
 
   server.setRequestHandler(CallToolRequestSchema, async (request): Promise<CallToolResult> => {
