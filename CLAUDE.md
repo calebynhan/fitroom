@@ -155,12 +155,14 @@ Jeans E479000-000 (22-34 inch) came in through the men's listing; removed from c
       _lib/fit/           profile, sizing, fitCard, catalogItem, garmentPhoto: pure code shared by web (via @api) and api
       _lib/productLookup.ts  UNIQLO product by ID (cache, dedupe), used by /api/product and the plugin
       _lib/mcp/           the plugin: server.ts (tools, widget resource), catalog.ts, sizing.ts (body input -> advice),
-                          tryOn.ts (FASHN API), quota.ts (free photos per ChatGPT user; the daily cap), accounts.ts
+                          tryOn.ts (FASHN API), quota.ts (free photos per ChatGPT user; the daily cap), store.ts
+                          (Upstash or memory), metrics.ts (usage counts), fitReports.ts (did-it-fit tallies), accounts.ts
                           (paid try-ons on: the linked FitRoom account's try-ons), widget.html (the card)
       _lib/               paid try-ons: billing.ts (config, owner exemption), account.ts (charge / give back), ledger.ts
                           (Upstash + Lua), session.ts, googleToken.ts, stripe.ts, accountTypes.ts (browser-facing types);
                           oauth.ts (FitRoom as the plugin's OAuth server)
-    web/public/try-ons.html, privacy.html   informational page the plugin links to; privacy policy (plugin submission)
+    web/public/privacy.html, terms.html (+ legal.css), try-ons.html: privacy policy and terms (served as /privacy and
+                          /terms too, cleanUrls; required for plugin submission), the informational page the plugin links to
     scripts/   Node/TS data scripts: catalog ingest, size-chart parsing -> web/public/catalog.json
     pipeline/  LEGACY (unused by the app): Python + bpy 3D mannequin and garments. See Legacy below.
 
@@ -172,8 +174,10 @@ PHOTOREAL_DISABLED=1 (kill switch).
 ChatGPT plugin (/api/mcp): FASHN_API_KEY (try-on photos; unset = try_on says it's not switched on), TRYON_FREE_PER_MONTH
 (default 5 per ChatGPT user; only while paid try-ons are off), TRYON_DAILY_CAP (default 100 photos a day for everyone),
 TRYON_DISABLED=1 (kill switch), UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN or KV_REST_API_URL + KV_REST_API_TOKEN
-(shared counters; unset = in memory per warm instance, best effort), AFFILIATE_URL_TEMPLATE (wraps product links, `{url}`
-= the encoded UNIQLO URL).
+(shared counters; unset = in memory per warm instance, best effort; report_fit is only offered with a shared store),
+AFFILIATE_URL_TEMPLATE (wraps product links, `{url}` = the encoded UNIQLO URL; turning it on means updating "Buying
+clothes" in terms.html), MCP_STATS_TOKEN (opens GET /api/mcp?stats=<token>), MCP_EVENT_LOGS=0 (no per-call log lines),
+VITE_CHATGPT_PLUGIN_URL (build time: the Plugin Directory listing; set = About shows "Use FitRoom in ChatGPT").
 Paid try-ons (server, runtime; .env.example): GOOGLE_CLIENT_ID, SESSION_SECRET (32+ chars), KV_REST_API_URL +
 KV_REST_API_TOKEN (or UPSTASH_REDIS_REST_URL/_TOKEN; the same store as the plugin's counters), STRIPE_SECRET_KEY,
 STRIPE_WEBHOOK_SECRET, FREE_LOOKS (5), PACK_LOOKS (20), PACK_PRICE_CENTS (499), PACK_CURRENCY (usd), STRIPE_PRICE_ID
@@ -382,19 +386,44 @@ cookie count, ignored by the client.
 
 **ChatGPT plugin: /api/mcp** (api/mcp.ts, api/_lib/mcp/; plan and rules: docs/chatgpt-plugin.md)
 MCP over Streamable HTTP, stateless (a server per request, `enableJsonResponse`, no sessions); POST JSON-RPC; GET from a
-browser = a JSON description (tools, catalogItems, widgetBytes, tryOn on/off); GET with `Accept: text/event-stream` and
+browser = a JSON description (tools, catalogItems, widgetBytes, tryOn on/off); GET ?stats=<MCP_STATS_TOKEN> = usage
+(per day: distinct users, calls by tool:outcome, mean ms, top products; week: users, active days per user; 404 without
+the token); GET with `Accept: text/event-stream` and
 DELETE = 405; CORS `*`; 600 req/min per IP (ChatGPT calls from OpenAI's IPs). vercel.json: maxDuration 60, includeFiles
-catalog.json + widget.html (read from disk). Connect: ChatGPT developer mode > new connector > https://<host>/api/mcp, no
-auth while paid try-ons are off, OAuth while they are on (Accounts in the ChatGPT plugin, below); previews sit behind
-Vercel Authentication, so use production or a bypass.
+catalog.json + widget.html (read from disk). Connect (ChatGPT web, Nov 2026; no Developer mode toggle any more): Plugins >
+Add > Add custom MCP server > https://<host>/api/mcp; no authentication while paid try-ons are off, OAuth while they are
+on (Accounts in the ChatGPT plugin, below); @FitRoom tags one message; previews sit behind Vercel Authentication, so use
+production or a bypass. First run in ChatGPT: docs/plugin-kit/test-run-2026-11-11.md. Tools are listed only when they
+can work: try_on needs FASHN_API_KEY, report_fit a shared store (Upstash); the model instructions follow the same list.
+Every call is counted (metrics.ts): a `[mcp-event] {tool, outcome, ms, product}` log line plus daily counters, and the
+hashed user in a per-day HyperLogLog (a linked account is hashed too: `acct:` + SHA-256 of the Google sub); never
+measurements, sizes, photos, emails or conversation text. Listing, test cases and submission steps: docs/plugin-kit/;
+launch plan and drafts: docs/launch-kit.md. Data handling is public in web/public/privacy.html: change it in the same
+commit as any change to what the plugin or site keeps.
 - `recommend_size` { product (ID, link or catalog name), color?, units? imperial|metric, height (in or cm), weight (lb
   or kg), chest?, waist?, hips?, inseam?, fit? close|regular|relaxed, size? (one they're considering), ownGarment?
   { chestFlat, length, hipsFlat, inseam } } -> text for the model (advice, fit card lines, buy link) + structuredContent
-  `{ kind: "size", product: ProductCard, size, sizeLabel, pick, text, summary, compare, borderline, card, estimated,
-  units, buyUrl, tryOn: { available, message? } }`. Same code as the website (parity test over every catalog item).
-  Names: an exact catalog name wins; else a unique close match; else "Which one: ..." with IDs.
+  `{ kind: "size", product: ProductCard, size, sizeLabel, asked, askedLabel, askedSummary, pick, text, summary, compare,
+  borderline, card, estimated, units, buyUrl, reports, reportText, reportsOn, tryOn: { available, message? } }`. `size` is
+  always the size to buy; a different size they asked about is `asked` (card: recommended first, then the asked one). Same code as the website (parity test over
+  every catalog item). Names: an exact catalog name wins; else a unique close match; else "Which one: ..." with IDs. A
+  pasted link's `colorDisplayCode` is the colour unless `color` says otherwise. `reports` = buyer tallies for the sizes
+  on the card that have >= 5 (`reportText`: "Shoppers who bought the S: 3 of 5 say it fits; 2 say it runs small (chest).").
+- `size_chart` { product?, kind? top|bottom, size?, chest?, waist?, hips?, units? } -> UNIQLO's chart without the
+  shopper's body: `{ kind: "chart", product: ProductCard|null, fitLabel ("UNIQLO calls it a slim fit"), general,
+  charts: [{ title, columns, rows: [{ size, label, cells }], cut: { ease, roomText }|null, match: { size, label, fits,
+  text }|null }], askedSize, reportTexts, note }`. Columns: tops Chest (body), Chest (garment), Length, Sleeve,
+  Shoulders; pants Waist (body), Hips (garment), Inseam, Thigh, Rise (empty columns dropped). `cut` = median over sizes of
+  garment chest (pants: hips) minus the size's largest body measurement, read with easeOfRoom. `match` = recommend() on
+  just the given chest (tops) / waist (pants). Without a product: every catalog item of that slot voted per size (the
+  most common body range), pants as two charts (letter sizes, inch sizes). For "true to size / runs small / size up /
+  what does a medium measure / which size for a 32 waist"; the routing probes that missed in the first run.
 - `find_clothes` { query?, kind? tee|sweater|pants|top|bottom, color?, maxPrice?, limit? (1-12, default 8) } ->
   `{ kind: "catalog", items: [ProductCard + colors[]] }`.
+- Not covered (catalog.ts notCoveredMessage, on recommend_size / size_chart names and find_clothes queries): jackets,
+  coats, puffers, parkas, hoodies, cardigans, vests, shorts, button-up shirts, polos, swimwear, underwear, accessories
+  (uniqlo.ts unsupportedGarmentText + a few words), and women's / kids' items -> "FitRoom sizes UNIQLO men's T-shirts,
+  sweaters, sweatshirts and pants... so don't guess a size". The model made up a puffer size before this.
 - `try_on` { photo: { download_url, file_id?, ... } (`openai/fileParams`), top?: { product, color? }, bottom?: {...} } ->
   `{ kind: "tryon", status: ok|partial|limit|unavailable|photo|busy|error, message, items, remaining, resetsAt }`, the
   image in `_meta["fitroom/photo"]` (data URI). Top first, then bottoms on that result (FASHN tryon-v1.6, balanced,
@@ -407,13 +436,20 @@ Vercel Authentication, so use production or a bypass.
   carries `remainingText` (what the widget shows: "4 try-ons left on your FitRoom account.", or null for unlimited).
 - Paid try-ons on, also: `my_try_ons` (try-ons left) and `get_profile` (`openai/profile`, opaque id `fr_` + SHA-256 of
   the Google sub), both oauth2.
+- `report_fit` { product, size (as they said it: "M", "30"), fit: too_small|just_right|too_big, where?: overall|chest|
+  shoulders|waist|hips|thighs|length|sleeves|inseam } -> a thank-you (no card). Keeps only tallies: hash
+  `fr:fit:<productId>` fields "<size>|<verdict>[|<where>]" (2 years) and one report per person per product
+  (`fr:fitby:<productId>:<hashed user>`, 180 days; a second is `duplicate`). Only when the user says how an item they
+  bought fits; never prompted by the model.
 - ProductCard `{ id, name, price, salePrice, slot, shape, fit, color: { code, name, hex }, image, url (colour link,
   AFFILIATE_URL_TEMPLATE applied), sizes }`.
-- Widget `ui://fitroom/fitting-room-v1.html`, `text/html;profile=mcp-app` (MCP Apps), tools point at it with
+- Widget `ui://fitroom/fitting-room-v2.html` (v2: chart view, recommended size as headline), `text/html;profile=mcp-app` (MCP Apps), tools point at it with
   `_meta.ui.resourceUri` and `openai/outputTemplate`; CSP resourceDomains image.uniqlo.com + Google Fonts, no
   connectDomains, no `ui.domain`. Talks MCP Apps postMessage (ui/initialize, tool-input/result, size-changed, open-link,
   message, tools/call), falls back to `window.openai` (toolOutput, toolResponseMetadata, openExternal,
-  sendFollowUpMessage, callTool, uploadFile for the in-card "Try it on with your photo" in ChatGPT). Renders with
+  sendFollowUpMessage, callTool, uploadFile for the in-card "Try it on with your photo" in ChatGPT). The try-on block
+  shows only when `tryOn.available`, the "Bought it? Tell ChatGPT how it fits" line only when `reportsOn`. Fonts load
+  from a <link> the script adds (never a CSS @import: it blocks the script and the handshake). Renders with
   textContent only. Change the widget's behaviour incompatibly = bump the URI (hosts cache it).
 
 **Share link / saved outfits** (web/src/outfit/): `/?top=<ID>.<colour code>[.<size>]&bottom=...&scene=studio|city|night`,
@@ -473,6 +509,10 @@ every value they offer is accepted. (5) Colourways sharing a name show UNIQLO's 
 | /api/mcp FUNCTION_INVOCATION_FAILED, ERR_REQUIRE_ESM for web/src/... | Vercel compiles api/ as CommonJS, web/ as ESM (web/package.json "type": "module") | code a function needs lives in api/_lib (web imports it via @api); never import web/src from api/ |
 | Try-on photo missing from the widget in ChatGPT | ChatGPT's MCP Apps bridge can drop `_meta` from ui/notifications/tool-result (forum reports, 2026) | widget falls back to window.openai.toolResponseMetadata |
 | Widget test page: SyntaxError "Invalid or unexpected token" | the widget's `</script>` ends the host page's inline script | escape `<` as \u003c when embedding HTML in a script |
+| ChatGPT: "Couldn't open Find my size" / "Find my size timed out" | the card's Google Fonts `@import` blocked its script (and the MCP Apps handshake) until the font CSS arrived | fonts via a `<link>` the script adds |
+| ChatGPT answers UNIQLO sizing from web search (routing 2/10) | the only sizing tool required height and weight; item questions had no tool | size_chart (no body needed) + descriptions that claim those questions |
+| Card said "YOUR SIZE: M" over "You're an S" | `size` was the size asked about | `size` = recommended, `asked` labelled separately |
+| ChatGPT routing probes skewed | ChatGPT memory carries earlier test answers into new chats | run probes in temporary chats / memory off |
 | Test files in api/ deployed as functions (Hobby allows 12 per deployment) | Vercel makes every file in api/ a function | .vercelignore excludes api/**/*.test.ts |
 
 ## Commands
@@ -480,6 +520,7 @@ every value they offer is accepted. (5) Colourways sharing a name show UNIQLO's 
     cd web && npm test && npm run typecheck && npm run build
     npm test && npm run typecheck  # api/ + scripts/ tests and types (root); api/mcp.test.ts = the plugin over MCP
     curl -s https://<host>/api/mcp # plugin self-description (tools, catalog size, widget bytes, try-on on/off)
+    curl -s "https://<host>/api/mcp?stats=$MCP_STATS_TOKEN"   # plugin usage (needs Upstash for real numbers)
     vercel dev                     # Vercel's own dev server (needs .env.local loaded, see Pitfalls)
     vercel --prod                  # deploy from the REPO ROOT, never from web/
     vercel logs <deployment-url>   # function errors
@@ -490,7 +531,10 @@ Quality: docs/quality-audit.md (2026-11-10) has the test results, open findings 
 measurable gates; web/src/fit/sizing.population.test.ts holds the sizing invariants over 3,400 body x item cases.
 Distribution: docs/chatgpt-plugin.md (2026-11-11) covers FitRoom as a ChatGPT plugin: the rules (no selling credits or
 upsells inside ChatGPT), ChatGPT's own Try On, and a phased plan that leads with size and fit; the endpoint itself is
-/api/mcp (Contracts, "ChatGPT plugin"), built 2026-11-11 and not yet tried inside ChatGPT.
+/api/mcp (Contracts, "ChatGPT plugin"), live since 2026-11-11; first tried inside ChatGPT the same day
+(docs/plugin-kit/test-run-2026-11-11.md). docs/plugin-kit/ has
+the listing (copy, logo, screenshots, test cases with real expected answers, submission steps); docs/launch-kit.md the
+distribution plan and drafts.
 
 ## Conventions
 - Small commits with clear messages; pull before committing. Run `npm run build` before every deploy.

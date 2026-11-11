@@ -7,7 +7,8 @@ import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { billingConfig } from '../billing';
 import { ledger, resetLedger } from '../ledger';
-import { memoryStore, type QuotaStore } from './quota';
+import { memoryStore } from './quota';
+import type { Store } from './store';
 import { createServer } from './server';
 import type { TryOnDeps } from './tryOn';
 
@@ -40,7 +41,7 @@ function fakeFashn(fail = false) {
 }
 
 const clients: Client[] = [];
-async function client(opts: { user?: typeof ME | null; billing?: Record<string, string>; fail?: boolean; store?: QuotaStore; env?: Record<string, string> } = {}) {
+async function client(opts: { user?: typeof ME | null; billing?: Record<string, string>; fail?: boolean; store?: Store; env?: Record<string, string> } = {}) {
   const fashn = fakeFashn(opts.fail);
   const billing = billingConfig({ ...BILLING_ENV, ...opts.billing } as NodeJS.ProcessEnv);
   const server = createServer({
@@ -141,6 +142,6 @@ describe('try_on with FitRoom accounts', () => {
     const r = await tryOn(c);
     expect(sc(r)).toMatchObject({ status: 'ok', remaining: 4, remainingText: '4 free try-on photos left this month.' });
     const tools = (await c.listTools()).tools.map((t) => t.name);
-    expect(tools).toEqual(['recommend_size', 'find_clothes', 'try_on']);
+    expect(tools).toEqual(['recommend_size', 'size_chart', 'find_clothes', 'try_on', 'report_fit']);
   });
 });

@@ -224,7 +224,8 @@ describe('the linked account on /api/mcp', () => {
 
   it('accepts the access token from the flow: try_on needs the account, and the account tools answer', async () => {
     const { access } = await linkAccount();
-    const list = await mcp('tools/list', {}, access);
+    process.env.FASHN_API_KEY = 'test-key'; // try_on is only listed where it can run
+    const list = await mcp('tools/list', {}, access).finally(() => delete process.env.FASHN_API_KEY);
     const tools = Object.fromEntries(list.body.result.tools.map((t: any) => [t.name, t]));
     expect(tools.try_on._meta.securitySchemes).toEqual([{ type: 'oauth2', scopes: ['tryon'] }]);
     expect(tools.recommend_size._meta.securitySchemes).toEqual([{ type: 'noauth' }]);

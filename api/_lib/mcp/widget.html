@@ -5,7 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>FitRoom</title>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600&family=Inter:wght@400;500;600&display=swap');
   :root {
     --paper: #ffffff; --bone: #f4f1ec; --stone: #e4dfd6; --hairline: #d6d1c8;
     --ink: #111111; --graphite: #3a3835; --muted: #6f6a63; --khaki: #8b7e66; --sale: #8e2a21;
@@ -64,6 +63,11 @@
   @keyframes pulse { 50% { opacity: 0.45; } }
   @media (prefers-reduced-motion: reduce) { .pulse { animation: none; } }
   .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .asked { margin: 8px 0 0; font-size: 13px; }
+  tr.match td, tr.match th { background: var(--bone); font-weight: 600; color: var(--ink); }
+  .chart th { width: auto; }
+  .chart td, .chart th { white-space: nowrap; }
+  .scroll { overflow-x: auto; }
 </style>
 </head>
 <body>
@@ -71,6 +75,12 @@
 <script>
 (function () {
   'use strict';
+  // Fonts load without blocking: a stylesheet still loading holds back every script after it, and a slow font fetch
+  // kept the MCP Apps handshake waiting until ChatGPT gave up ("Find my size timed out", test run 2026-11-11).
+  var fonts = document.createElement('link');
+  fonts.rel = 'stylesheet';
+  fonts.href = 'https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600&family=Inter:wght@400;500;600&display=swap';
+  document.head.appendChild(fonts);
   var app = document.getElementById('app');
   var state = { input: null, result: null, meta: null, isError: false, busy: '', cancelled: false };
 
@@ -270,7 +280,7 @@
 
   function tryOnBlock(r) {
     var t = r.tryOn || {};
-    if (!t.available) return t.message ? h('p', { class: 'small muted', style: 'margin-top:16px', text: t.message }) : null;
+    if (!t.available) return null; // try_on isn't offered here: say nothing about it
     var hint = 'Only photos of yourself, standing, head to toe. FitRoom doesn’t keep your photo.';
     if (!canUpload()) {
       return h('p', { class: 'small muted', style: 'margin-top:16px', text: 'To see it on you, attach a full-body photo of yourself and ask to try it on. ' + hint });
@@ -315,8 +325,10 @@
       parts.push(
         h('p', { class: 'eyebrow', text: 'Your size' }),
         h('p', { class: 'size', text: r.sizeLabel }),
-        h('p', { class: 'advice', text: r.text }),
+        h('p', { class: 'advice', text: r.askedLabel ? r.text.replace(/ You asked about .*$/, '') : r.text }),
         r.summary ? h('p', { class: 'muted', style: 'margin:0', text: r.summary }) : null,
+        r.askedLabel ? h('p', { class: 'asked' }, [h('strong', { text: 'You asked about ' + r.askedLabel + ': ' }), r.askedSummary || 'compared below.']) : null,
+        r.reportText ? h('p', { class: 'note', text: r.reportText }) : null,
         !r.card && r.estimated && r.estimated.length ? h('p', { class: 'note', text: 'Estimated from your height and weight: ' + r.estimated.join(', ') + '. Measure for exact numbers.' }) : null,
         r.card ? fitTable(r.card) : null
       );
@@ -325,6 +337,33 @@
       h('button', { onclick: function () { openLink(r.buyUrl || p.url); } }, [r.size ? 'Buy the ' + r.sizeLabel + ' at UNIQLO' : 'Open at UNIQLO'])
     ]));
     parts.push(tryOnBlock(r));
+    if (r.size && r.reportsOn) parts.push(h('p', { class: 'small muted', style: 'margin-top:16px', text: 'Bought it? Tell ChatGPT how it fits, and FitRoom passes it on (anonymously) to the next shopper.' }));
+    return parts;
+  }
+
+  function viewChart(r) {
+    var parts = [];
+    if (r.product) parts.push(productHeader(r.product), h('hr', { class: 'rule' }));
+    if (r.note) parts.push(h('p', { class: 'muted small', text: r.note }));
+    (r.charts || []).forEach(function (c) {
+      var matchSize = c.match ? c.match.size : null;
+      var asked = (r.askedSize || '').toLowerCase().replace(/["\s]|inch(es)?$/g, '');
+      parts.push(
+        h('p', { class: 'eyebrow', style: 'margin-top:16px', text: r.product ? 'UNIQLO size chart' : c.title }),
+        c.match ? h('p', { class: 'advice', text: c.match.text }) : null,
+        h('div', { class: 'scroll' }, [h('table', { class: 'chart' }, [
+          h('thead', {}, [h('tr', {}, [h('th', { scope: 'col', text: 'Size' })].concat(c.columns.map(function (col) { return h('th', { scope: 'col', text: col }); })))]),
+          h('tbody', {}, c.rows.map(function (row) {
+            var hit = row.size === matchSize || (asked && row.label.toLowerCase().replace('"', '') === asked);
+            return h('tr', { class: hit ? 'match' : '' }, [h('th', { scope: 'row', text: row.label })].concat(row.cells.map(function (cell) { return h('td', { text: cell }); })));
+          }))
+        ])]),
+        c.cut ? h('p', { class: 'small muted', style: 'margin:8px 0 0', text: (r.fitLabel ? r.fitLabel + '. ' : '') + 'By the chart, ' + c.cut.roomText + ': a ' + c.cut.ease + ' cut.' }) : (r.fitLabel ? h('p', { class: 'small muted', text: r.fitLabel + '.' }) : null)
+      );
+    });
+    (r.reportTexts || []).forEach(function (t) { parts.push(h('p', { class: 'note', text: t })); });
+    parts.push(h('p', { class: 'small muted', style: 'margin-top:16px', text: 'For your own size and how it fits you, tell ChatGPT your height and weight.' }));
+    if (r.product) parts.push(h('div', { class: 'actions' }, [h('button', { class: 'secondary', onclick: function () { openLink(r.product.url); } }, ['Open at UNIQLO'])]));
     return parts;
   }
 
@@ -368,7 +407,7 @@
 
   function viewLoading() {
     var i = state.input || {};
-    var label = i.photo ? 'Dressing your photo… about 20 seconds' : i.height ? 'Checking UNIQLO’s size chart…' : 'Finding clothes…';
+    var label = i.photo ? 'Dressing your photo… about 20 seconds' : i.height || i.chest || i.waist || i.kind || i.size ? 'Checking UNIQLO’s size chart…' : 'Finding clothes…';
     return [h('p', { class: 'muted', text: state.cancelled ? 'Cancelled.' : label }), h('div', { class: 'pulse' }), h('div', { class: 'pulse', style: 'width:60%' })];
   }
 
@@ -378,6 +417,7 @@
     if (!r) parts = viewLoading();
     else if (r.kind === 'size') parts = viewSize(r);
     else if (r.kind === 'catalog') parts = viewCatalog(r);
+    else if (r.kind === 'chart') parts = viewChart(r);
     else if (r.kind === 'tryon') parts = viewTryOn(r);
     else parts = [h('p', { class: r.status === 'error' ? 'error' : '', text: r.message || '' })];
     app.replaceChildren.apply(app, parts.filter(Boolean));

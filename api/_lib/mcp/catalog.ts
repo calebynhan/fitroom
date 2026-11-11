@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { colorLabel, findColor, parseCatalog, productImage } from '../fit/catalogItem';
 import { getProduct } from '../productLookup';
-import { parseProductId, type CatalogColor, type CatalogItem } from '../uniqlo';
+import { parseProductId, unsupportedGarmentText, type CatalogColor, type CatalogItem } from '../uniqlo';
 
 let items: CatalogItem[] | null = null;
 
@@ -45,7 +45,27 @@ function words(text: string): string[] {
     .map((w) => SYNONYMS[w] ?? w);
 }
 
-export type Resolved = { ok: true; item: CatalogItem } | { ok: false; message: string };
+export type Resolved = { ok: true; item: CatalogItem } | { ok: false; message: string; notCovered?: boolean };
+
+export const COVERAGE = "FitRoom sizes UNIQLO men's T-shirts, sweaters, sweatshirts and pants (jeans, chinos, trousers)";
+const NOT_COVERED_EXTRA = /\bpuffers?\b|\bouterwear\b|\bdown\b|\bpolos?\b|\bblouses?\b|\bswim\w*|\bunderwear\b|\bhats?\b|\bcaps?\b|\bshoes?\b|\bsneakers?\b|\bbags?\b|\bbras?\b|\bscarf|\bscarves\b|\bgloves?\b|\bbelts?\b/i;
+const OTHER_PEOPLE = /\bwomen'?s?\b|\bwomens\b|\bladies\b|\bgirls?\b|\bkids?\b|\bboys?\b|\bbab(y|ies)\b|\btoddlers?\b/i;
+
+/**
+ * Shopper words when the text asks about something FitRoom can't size (a jacket, shorts, women's or kids' items),
+ * else null. Tells the model not to fill the gap with a guess (seen in ChatGPT: "puffer jacket" got a made-up size).
+ */
+export function notCoveredMessage(text: string): string | null {
+  // a bare "shirt" usually means a T-shirt; only button-up words count ("oxford shirt", "flannel", "button-down")
+  const buttonUp = /\b(button[- ]?(up|down)s?|oxfords?|flannels?|dress shirts?|linen shirts?|denim shirts?|overshirts?|shirt jackets?)\b/i.test(text);
+  if (OTHER_PEOPLE.test(text)) {
+    return `${COVERAGE}; women's and kids' sizing isn't covered yet. Don't guess a size: UNIQLO's size guide on the product page has the chart.`;
+  }
+  if (unsupportedGarmentText(text) || NOT_COVERED_EXTRA.test(text) || buttonUp) {
+    return `${COVERAGE}. It can't size that item yet, so don't guess a size: UNIQLO's size guide on the product page has the chart.`;
+  }
+  return null;
+}
 
 /**
  * A product from a UNIQLO link, an ID ("E453754-000"), a 6-digit number, or a name close to one in the catalog
@@ -61,6 +81,8 @@ export async function resolveProduct(query: string): Promise<Resolved> {
     const res = await getProduct(id);
     if (res.ok) return { ok: true, item: res.item };
     if (res.body.code === 'blocked') return { ok: false, message: `UNIQLO didn't answer for ${id}. Try again in a minute.` };
+    // a jacket / women's link: the lookup's own words, plus what FitRoom covers and not to guess (ChatGPT test, case 10)
+    if (res.body.code === 'unsupported') return { ok: false, message: `${res.body.error} ${COVERAGE}; don't guess a size.`, notCovered: true };
     return { ok: false, message: res.body.error };
   }
   const wanted = words(text);
@@ -68,6 +90,8 @@ export async function resolveProduct(query: string): Promise<Resolved> {
   const key = (list: string[]) => [...new Set(list)].sort().join(' ');
   const exact = catalogItems().find((item) => key(words(item.name)) === key(wanted));
   if (exact) return { ok: true, item: exact };
+  const notCovered = notCoveredMessage(text);
+  if (notCovered) return { ok: false, message: notCovered, notCovered: true };
   const scored = catalogItems()
     .map((item) => {
       const have = new Set(words(item.name));
@@ -84,8 +108,13 @@ export async function resolveProduct(query: string): Promise<Resolved> {
     ok: false,
     message: close.length
       ? `Which one: ${close.join(', ')}? Pass its ID or link.`
-      : `"${text}" isn't in FitRoom's catalog. Paste the UNIQLO US product link instead, or search with find_clothes.`,
+      : `"${text}" isn't in FitRoom's catalog. Paste the UNIQLO US product link instead, or search with find_clothes. ${COVERAGE}; don't guess a size for anything else.`,
   };
+}
+
+/** The colour a pasted UNIQLO link was showing (?colorDisplayCode=09), if any. */
+export function colorFromLink(text: string | undefined): string | undefined {
+  return text?.match(/[?&]colorDisplayCode=(\d{2})\b/)?.[1];
 }
 
 /** The colour by UNIQLO code ("09") or name ("black", "navy"); the item's first colour when nothing matches. */

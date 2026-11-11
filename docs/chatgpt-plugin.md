@@ -16,14 +16,29 @@ FitRoom account), then charge for more?
   handshake, auto height, Buy link through the host, "Find my size" as a chat message, the photo even when the host
   drops `_meta`, dark theme, a 360 px width, and ChatGPT's plain `window.openai` path. No console errors.
 
-Not yet done, in order:
-1. **Phase 0 decisions**: read the live plugin guidelines; UNIQLO affiliate program (set `AFFILIATE_URL_TEMPLATE`).
-2. **Try-on on**: a FASHN API key (`FASHN_API_KEY`, ~$0.075 per garment) and Upstash/Vercel KV for shared counters,
-   in Vercel (Production). Without the key `try_on` says it isn't switched on and everything else works.
-3. **Deploy to production** (previews sit behind Vercel Authentication, which ChatGPT can't pass), then in ChatGPT:
-   Settings > Apps & Connectors > developer mode > create a connector for `https://fitroom-woad.vercel.app/api/mcp`,
-   no authentication, and run the Phase 1 prompt set. Not tested inside ChatGPT itself yet.
-4. Privacy policy and terms pages, then submit to the Plugin Directory (Phase 3).
+Since then (2026-11-11, same day): merged and live in production at https://fitroom-woad.vercel.app/api/mcp. Added:
+privacy and terms pages (/privacy, /terms); privacy-safe usage counts with an owner-only stats view; `report_fit`
+(anonymous "did it fit?" tallies, shown with the size advice from 5 reports per size); tools listed only when they can
+work; the listing kit (docs/plugin-kit/) and launch kit (docs/launch-kit.md).
+
+First run inside ChatGPT (2026-11-11, docs/plugin-kit/test-run-2026-11-11.md): FitRoom answered correctly whenever it
+was called, but ChatGPT picked it on its own for only 2 of 10 routing probes (the ones with height and weight). Fixed
+on the branch: a `size_chart` tool for questions about the item itself (no height or weight), the recommended size as
+the card's headline, a card that no longer waits on fonts (the "timed out" first load), pasted links passed unchanged,
+and a plain "not covered, don't guess" for jackets and the like. Needs a second run after merging.
+
+Left for the owner, in order (details in docs/plugin-kit/README.md, section 1):
+1. Upstash Redis on the Vercel project, and `MCP_STATS_TOKEN`.
+2. Decide on UNIQLO and affiliate links (the terms currently say FitRoom earns nothing from purchases).
+3. `FASHN_API_KEY` if try-on should launch too (optional).
+4. Test in ChatGPT developer mode with the kit's test cases and routing probes. Still not tried inside ChatGPT.
+5. Verify the OpenAI organization and submit to the Plugin Directory, then set `VITE_CHATGPT_PLUGIN_URL`.
+6. Launch from outside ChatGPT (docs/launch-kit.md).
+
+Not done, deliberately: more categories, women's sizing and other brands. They need fresh retailer data, and UNIQLO
+refuses this cloud machine (it answers Vercel and home connections), so new parsing couldn't be checked against
+real size charts. Next step: widen the category rules in api/_lib/uniqlo.ts (shorts need their own length rule), then
+check the parsing on real charts with `npm run catalog` from a home connection, or as a Vercel-side job.
 
 ## Short answer
 

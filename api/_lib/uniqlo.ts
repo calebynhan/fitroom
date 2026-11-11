@@ -83,6 +83,10 @@ const UNSUPPORTED_NAME = /\bvests?\b|\bhood(ed|ie|ies)?\b|\bfull[- ]zip\b|\bcard
 const PANTS = /\bpants?\b|\btrousers?\b|\bchinos?\b|\bjeans?\b|\bjoggers?\b|\bsweatpants?\b|\bslacks?\b|\bbottoms?\b/i;
 // Word boundaries matter: "Sweatshirts" contains "tshirt".
 const TOP = /\bt-?shirts?\b|\btees?\b|\bsweaters?\b|\bknit|\bsweatshirts?\b|\bpullovers?\b|\bturtlenecks?\b|\bhenleys?\b/i;
+/** True when FitRoom can't size this kind of garment (the same rules mapShape refuses by), judged on any text. */
+export function unsupportedGarmentText(text: string): boolean {
+  return UNSUPPORTED.test(text) || UNSUPPORTED_NAME.test(text);
+}
 const LONG_SLEEVE_NAME = /long[- ]sleeve/i;
 const SHORT_SLEEVE_NAME = /short[- ]sleeve|half[- ]sleeve|\bt-?shirts?\b|\btees?\b/i;
 const LONG_BY_DEFAULT = /\bsweaters?\b|\bknit|\bsweatshirts?\b|\bpullovers?\b|\bturtlenecks?\b/i;

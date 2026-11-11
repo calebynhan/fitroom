@@ -9,7 +9,9 @@ import { siteOrigin } from './_lib/account';
 import { billingConfig } from './_lib/billing';
 import { authChallenge, bearerUser } from './_lib/oauth';
 import { catalogItems } from './_lib/mcp/catalog';
-import { SERVER_NAME, SERVER_VERSION, TOOLS, createServer, widgetHtml } from './_lib/mcp/server';
+import { readStats, statsAllowed } from './_lib/mcp/metrics';
+import { SERVER_NAME, SERVER_VERSION, createServer, toolsFor, widgetHtml } from './_lib/mcp/server';
+import { storeFromEnv } from './_lib/mcp/store';
 import { tryOnStatus } from './_lib/mcp/tryOn';
 import { clientIp } from './_lib/rateLimit';
 import { createWindowLimiter } from './_lib/windowLimit';
@@ -80,13 +82,20 @@ export async function GET(request: Request): Promise<Response> {
   if ((request.headers.get('accept') ?? '').includes('text/event-stream')) {
     return withCors(new Response(null, { status: 405, headers: { Allow: 'POST, OPTIONS' } }));
   }
+  // Usage for the owner: GET /api/mcp?stats=<MCP_STATS_TOKEN> (counts only, no personal data; see metrics.ts)
+  const statsToken = new URL(request.url).searchParams.get('stats');
+  if (statsToken !== null) {
+    if (!statsAllowed(statsToken)) return jsonRpcError(404, 'Not found');
+    const stats = await readStats(storeFromEnv());
+    return withCors(new Response(JSON.stringify(stats, null, 2), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+  }
   const info = {
     name: SERVER_NAME,
     version: SERVER_VERSION,
-    about: "FitRoom's ChatGPT plugin: the size to buy in UNIQLO men's basics, how it fits in numbers, and try-on photos.",
+    about: "FitRoom's ChatGPT plugin: the size to buy in UNIQLO men's basics, how it fits in numbers, what buyers reported, and try-on photos.",
     mcp: `${originOf(request)}/api/mcp`,
     transport: 'streamable-http (POST JSON-RPC)',
-    tools: TOOLS.map((t) => t.name),
+    tools: toolsFor({}).map((t) => t.name),
     catalogItems: catalogItems().length,
     widgetBytes: widgetHtml().length,
     tryOn: tryOnStatus().on ? 'on' : 'off',

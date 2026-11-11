@@ -45,6 +45,8 @@
         <li><strong>Sign-in to ChatGPT</strong>: when you connect FitRoom in ChatGPT, FitRoom issues ChatGPT signed tokens that name your account. They are not stored by FitRoom; they expire (an hour; refresh tokens 60 days).</li>
         <li><strong>In your browser only</strong>: your measurements, fit preferences, saved outfits and a count of today's free GPU use (localStorage). FitRoom's servers never receive your measurements, except the ones you give ChatGPT for a size, which are used for that answer and not kept.</li>
         <li><strong>ChatGPT without a FitRoom account</strong> (when try-ons there are free): a count of try-on photos per month, kept under a one-way digest of ChatGPT's anonymous user id.</li>
+        <li><strong>Plugin usage counts</strong>: for each request ChatGPT makes to FitRoom, which tool ran, how it ended (for example "ok" or "error"), how long it took and which product it was about; and a count of distinct users per day, kept in a form that can count people but not list them (built from the same one-way digest). Never measurements, sizes, photos or what you wrote.</li>
+        <li><strong>Fit reports you give in ChatGPT</strong> ("the M was tight in the chest"): added to anonymous tallies per item, size and verdict, which FitRoom shows other shoppers next to the size advice. To keep one report per person per item, FitRoom keeps a one-way digest of who reported which item.</li>
         <li><strong>Analytics</strong>: anonymous page views without cookies, and counts of try-on outcomes and checkout steps (Vercel Web Analytics). Never photos, emails or outfits.</li>
       </ul>
 
@@ -60,6 +62,7 @@
       <ul>
         <li>Photos: not kept by FitRoom.</li>
         <li>Look fingerprints: 90 days. Purchase records: about 13 months. Your account counts: while your account exists.</li>
+        <li>Plugin usage counts and daily user counts: 90 days. Fit-report tallies: up to 2 years; the one-report-per-item check: 180 days.</li>
       </ul>
 
       <h2>Your controls</h2>
@@ -67,12 +70,13 @@
         <li>Sign out on the website at any time; disconnect FitRoom in ChatGPT's settings.</li>
         <li>Clear your measurements and saved outfits by clearing this site's data in your browser.</li>
         <li>To get a copy of your account data or have it deleted, contact FitRoom (below).</li>
+        <li>Usage counts and fit-report tallies don't name anyone, so FitRoom can't find or delete one person's share of them.</li>
       </ul>
 
       <h2>Contact</h2>
-      <p id="contact">Contact address to be added by the site owner before the plugin is published.</p>
+      <p id="contact">Questions, data requests and deletion: <a href="https://github.com/calebynhan/fitroom/issues" rel="noreferrer">open an issue on FitRoom's GitHub</a>.</p>
 
-      <p class="fine"><a href="/">FitRoom</a> · <a href="/try-ons.html">How try-ons work</a> · Not affiliated with UNIQLO.</p>
+      <p class="fine"><a href="/">FitRoom</a> · <a href="/try-ons.html">How try-ons work</a> · <a href="/terms">Terms</a> · Not affiliated with UNIQLO.</p>
     </main>
   </body>
 </html>
