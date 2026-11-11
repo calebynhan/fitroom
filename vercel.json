@@ -10,6 +10,10 @@
     },
     "api/photoreal.ts": {
       "maxDuration": 120
+    },
+    "api/mcp.ts": {
+      "maxDuration": 60,
+      "includeFiles": "{web/public/catalog.json,api/_lib/mcp/widget.html}"
     }
   },
   "rewrites": [
