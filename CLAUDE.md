@@ -285,6 +285,8 @@ every value they offer is accepted. (5) Colourways sharing a name show UNIQLO's 
 
 Quality: docs/quality-audit.md (2026-11-10) has the test results, open findings by priority and the phased plan with
 measurable gates; web/src/fit/sizing.population.test.ts holds the sizing invariants over 3,400 body x item cases.
+Distribution: docs/chatgpt-plugin.md (2026-11-11) covers FitRoom as a ChatGPT plugin: the rules (no selling credits or
+upsells inside ChatGPT), ChatGPT's own Try On, and a phased plan that leads with size and fit.
 
 ## Conventions
 - Small commits with clear messages; pull before committing. Run `npm run build` before every deploy.
