@@ -4,7 +4,7 @@
 // back. Either way a session counts once. 400 bad_input, 401 signin, 403 not yours, 409 not paid, 429, 502/503.
 import { asker, siteOrigin, viewFor } from './_lib/account';
 import { isExempt } from './_lib/billing';
-import { json, readJson } from './_lib/http';
+import { fromThisSite, json, readJson } from './_lib/http';
 import { ledger } from './_lib/ledger';
 import { clientIp } from './_lib/rateLimit';
 import { CHECKOUT_ID_RE, createCheckout, getCheckout, paidPack, StripeError } from './_lib/stripe';
@@ -12,10 +12,14 @@ import { createWindowLimiter } from './_lib/windowLimit';
 
 const limiter = createWindowLimiter({ limit: 20, windowMs: 60_000 });
 
-function failed(err: unknown, what: string): Response {
+function failed(err: unknown, what: 'start' | 'confirm'): Response {
   console.error(`[api/checkout] ${what} failed`, err instanceof Error ? err.message : err);
-  const status = err instanceof StripeError && err.status < 500 ? 502 : 503;
-  return json({ error: "Couldn't reach the payment page. Nothing was charged; try again in a moment.", code: 'unavailable' }, status);
+  const status = err instanceof StripeError ? 502 : 503;
+  const error =
+    what === 'start'
+      ? "Couldn't reach the payment page. Nothing was charged; try again in a moment."
+      : "Couldn't confirm the payment just now. If it went through, your try-ons are added automatically within a few minutes.";
+  return json({ error, code: 'unavailable' }, status);
 }
 
 export async function POST(request: Request): Promise<Response> {
@@ -23,6 +27,7 @@ export async function POST(request: Request): Promise<Response> {
   if (!verdict.ok) {
     return json({ error: 'Too many requests. Wait a minute and try again.', code: 'rate_limited' }, 429, { 'Retry-After': String(verdict.retryAfterS) });
   }
+  if (!fromThisSite(request)) return json({ error: 'Bad request.', code: 'bad_input' }, 403);
   const who = asker(request);
   const { config, user } = who;
   const body = await readJson(request);

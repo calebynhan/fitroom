@@ -4,7 +4,7 @@
 // once (api/checkout.ts "confirm" may have done so already). 400 = bad signature; 500 = try again later (Stripe retries).
 import { billingConfig } from './_lib/billing';
 import { json } from './_lib/http';
-import { ledger } from './_lib/ledger';
+import { ledger, ledgerConfigured } from './_lib/ledger';
 import { paidPack, verifyWebhook, type CheckoutSession } from './_lib/stripe';
 
 const PAID_EVENTS = new Set(['checkout.session.completed', 'checkout.session.async_payment_succeeded']);
@@ -19,6 +19,11 @@ export async function POST(request: Request): Promise<Response> {
   if (!config.stripeWebhookSecret) {
     console.error('[api/stripe] STRIPE_WEBHOOK_SECRET is not set');
     return json({ error: 'not configured' }, 503);
+  }
+  // No shared ledger (KV variables missing): crediting per-instance memory would lose the purchase. 503 makes Stripe retry.
+  if (!ledgerConfigured()) {
+    console.error('[api/stripe] no ledger (KV_REST_API_URL / KV_REST_API_TOKEN): not crediting, Stripe will retry');
+    return json({ error: 'ledger not configured' }, 503);
   }
   const payload = await request.text();
   const event = verifyWebhook(payload, request.headers.get('stripe-signature'), config.stripeWebhookSecret) as StripeEvent | null;

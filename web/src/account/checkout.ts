@@ -7,6 +7,19 @@ import { confirmCheckoutSession, startCheckoutSession } from './api';
 import { loadAccount, useAccount } from './store';
 
 const CHANNEL = 'fitroom-account';
+/** Set when Checkout had to open in this tab (pop-ups blocked): the photos are gone when Stripe sends it back. */
+const SAME_TAB_KEY = 'fitroom.checkout.sameTab';
+
+function sessionFlag(set?: boolean): boolean {
+  try {
+    if (set === true) window.sessionStorage.setItem(SAME_TAB_KEY, '1');
+    const was = window.sessionStorage.getItem(SAME_TAB_KEY) === '1';
+    if (set === false) window.sessionStorage.removeItem(SAME_TAB_KEY);
+    return was;
+  } catch {
+    return false;
+  }
+}
 const POLL_MS = 4000;
 const POLL_FOR_MS = 15 * 60 * 1000;
 
@@ -43,6 +56,7 @@ export async function startCheckout(): Promise<void> {
   trackAccount('checkout');
   if (!tab) {
     // pop-ups blocked: pay in this tab (the leave warning tells the shopper their photos will go)
+    sessionFlag(true);
     window.location.assign(answer.data.url);
     return;
   }
@@ -97,23 +111,21 @@ export async function handleCheckoutReturn(): Promise<void> {
   window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
 
   const store = useAccount.getState();
+  // Paid in this same tab (pop-ups were blocked): there is no other tab to go back to.
+  const returnTab = !sessionFlag(false);
   if (result !== 'done' || !sessionId) {
-    store.openDialog({ kind: 'cancelled', returnTab: true });
+    store.openDialog({ kind: 'cancelled', returnTab });
     return;
   }
   const answer = await confirmCheckoutSession(sessionId);
   if (answer.ok) {
     store.setView(answer.data.account);
-    store.openDialog({ kind: 'thanks', added: answer.data.added, returnTab: true });
+    store.openDialog({ kind: 'thanks', added: answer.data.added, returnTab, photosLost: !returnTab });
     trackAccount('paid');
   } else {
     // The webhook still credits a payment that went through; this tab just couldn't confirm it.
     if (answer.account) store.setView(answer.account);
-    store.openDialog({
-      kind: 'thanks',
-      returnTab: true,
-      message: `Stripe has your payment; your try-ons may take a minute to show up. (${answer.error})`,
-    });
+    store.openDialog({ kind: 'thanks', returnTab, photosLost: !returnTab, message: answer.error });
   }
   const bc = channel();
   bc?.postMessage('account');

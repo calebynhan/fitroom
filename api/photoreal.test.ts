@@ -242,14 +242,17 @@ describe('POST /api/photoreal with paid try-ons on', () => {
     expect(captured.form).toBeNull();
   });
 
-  it("charges one of the person's looks for the front (not the cookie), once per look", async () => {
+  it("charges one of the person's looks per front shot (not the cookie); its angles are free", async () => {
     mockUpstream(okImage, captured);
     const res = await call(look(), signedIn);
     expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({ account: { user: { freeUsed: 1, left: 4 } } });
+    const data = await res.json();
+    expect(data).toMatchObject({ account: { user: { freeUsed: 1, left: 4 } } });
     expect(res.headers.get('set-cookie')).toBeNull();
-    await call(look(), signedIn); // the same look again
+    await call(look({ view: 'side', lookToken: data.lookToken, reference: PHOTO }), signedIn);
     expect(await ledger().balance(ME.sub)).toEqual({ freeUsed: 1, credits: 0 });
+    await call(look(), signedIn); // shooting the same look again is a new paid image: it costs a look again
+    expect(await ledger().balance(ME.sub)).toEqual({ freeUsed: 2, credits: 0 });
   });
 
   it('gives the look back when the shot fails', async () => {

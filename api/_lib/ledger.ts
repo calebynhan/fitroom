@@ -20,8 +20,8 @@ export interface Ledger {
   credit(sub: string, email: string, payment: string, looks: number): Promise<{ credited: boolean; balance: Balance }>;
 }
 
-/** A look can be given back this long after it was charged (a try-on gives up after 10 minutes). */
-export const REFUND_WINDOW_MS = 15 * 60 * 1000;
+/** A look can be given back this long after it was charged (a try-on of two photos can take ~23 minutes to fail). */
+export const REFUND_WINDOW_MS = 30 * 60 * 1000;
 /** Charged looks are remembered this long (re-shooting one within it is free). */
 export const LOOK_MEMORY_S = 60 * 60 * 24 * 90;
 const PAYMENT_MEMORY_S = 60 * 60 * 24 * 400;

@@ -31,7 +31,8 @@ export async function viewFor({ config, user }: Asker): Promise<AccountView> {
 
 export type Admission =
   | { ok: true; view: AccountView; /** True when this request charged the look (so a failure can give it back). */ charged: boolean }
-  | { ok: false; status: 401 | 402 | 503; error: string; code: 'signin' | 'payment' | 'unavailable'; view: AccountView };
+  /** `view` is left out when the ledger is down: an empty one would make a signed-in shopper look signed out. */
+  | { ok: false; status: 401 | 402 | 503; error: string; code: 'signin' | 'payment' | 'unavailable'; view?: AccountView };
 
 /** Charges `look` to the asker unless billing is off, they never pay, or the look was charged before. */
 export async function admit(who: Asker, look: string): Promise<Admission> {
@@ -46,7 +47,7 @@ export async function admit(who: Asker, look: string): Promise<Admission> {
     return { ok: true, view, charged: result.source !== 'repeat' };
   } catch (err: unknown) {
     console.error('[billing] charge failed', err instanceof Error ? err.message : err);
-    return { ok: false, status: 503, error: "Couldn't check your try-ons. Try again in a moment.", code: 'unavailable', view: accountView(config, null) };
+    return { ok: false, status: 503, error: "Couldn't check your try-ons. Try again in a moment.", code: 'unavailable' };
   }
 }
 

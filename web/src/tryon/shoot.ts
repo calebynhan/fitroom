@@ -253,6 +253,16 @@ async function ticketFor(input: Ready, views: View[]): Promise<Ticket | 'free' |
   return admit(await tryOnLookId(input));
 }
 
+/**
+ * The account check awaits the server, and the shopper may replace or remove a photo meanwhile: then nothing may be
+ * sent (removed photos are never sent again) and the look is given back. True when the run can go ahead.
+ */
+async function stillCurrent(input: Ready, ticket: Ticket | 'free'): Promise<boolean> {
+  if (input.version === useApp.getState().photoVersion) return true;
+  if (ticket !== 'free') await release(ticket);
+  return false;
+}
+
 /** Gives the look back if the try-on made no photo at all (failed, cancelled, out of GPU time). */
 async function settle(ticket: Ticket | 'free', key: string): Promise<void> {
   if (ticket !== 'free' && doneCount(useLooks.getState().looks[key]) === 0) await release(ticket);
@@ -268,7 +278,7 @@ export function makeTryOnLook(run: TryOnRunner = runSpace): Promise<void> {
     // a reshoot keeps the side photo if the shopper had asked for it (finished passes make it free)
     const order: View[] = previous?.order.includes('side') && input.photos.side ? [...input.order, 'side'] : input.order;
     const ticket = await ticketFor(input, order);
-    if (!ticket) return;
+    if (!ticket || !(await stillCurrent(input, ticket))) return;
     inputs.set(key, input);
     useLooks.getState().start(key, input.caption, order);
     await shootViews(key, order, input, run);
@@ -289,7 +299,7 @@ export function retryTryOnView(key: string, view: View, run: TryOnRunner = runSp
   if (!input || !canRetryTryOn(key)) return Promise.resolve();
   return exclusive(key, async () => {
     const ticket = await ticketFor(input, [view]);
-    if (!ticket) return;
+    if (!ticket || !(await stillCurrent(input, ticket))) return;
     await shootViews(key, [view], input, run);
     await settle(ticket, key);
   });

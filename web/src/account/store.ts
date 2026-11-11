@@ -16,6 +16,8 @@ export interface AccountDialog {
   added?: number;
   /** This tab was opened by Stripe's return link (the shopper's photos are in the other tab). */
   returnTab?: boolean;
+  /** Paid in this same tab: the photos (memory only) are gone, so the shopper adds them again. */
+  photosLost?: boolean;
 }
 
 interface AccountStore {

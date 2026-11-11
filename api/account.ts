@@ -5,7 +5,7 @@
 import { asker, viewFor } from './_lib/account';
 import { accountView, billingConfig } from './_lib/billing';
 import { verifyGoogleIdToken } from './_lib/googleToken';
-import { json, readJson } from './_lib/http';
+import { fromThisSite, json, readJson } from './_lib/http';
 import { clientIp } from './_lib/rateLimit';
 import { clearSessionCookie, sessionCookie } from './_lib/session';
 import { createWindowLimiter } from './_lib/windowLimit';
@@ -22,7 +22,8 @@ async function answer(who: ReturnType<typeof asker>, headers: Record<string, str
     return json(await viewFor(who), 200, headers);
   } catch (err: unknown) {
     console.error('[api/account] ledger failed', err instanceof Error ? err.message : err);
-    return json({ error: "Couldn't load your try-ons. Try again in a moment.", code: 'unavailable', account: accountView(who.config, null) }, 503, headers);
+    // no account in the answer: an empty one would make a signed-in shopper look signed out
+    return json({ error: "Couldn't load your try-ons. Try again in a moment.", code: 'unavailable' }, 503, headers);
   }
 }
 
@@ -34,6 +35,8 @@ export async function GET(request: Request): Promise<Response> {
 
 export async function POST(request: Request): Promise<Response> {
   const config = billingConfig();
+  // a cross-site form could otherwise sign the shopper in as someone else (login CSRF)
+  if (!fromThisSite(request)) return json({ error: 'Bad request.', code: 'bad_input' }, 403);
   const body = await readJson(request);
   const action = body?.action;
 

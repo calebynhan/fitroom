@@ -97,7 +97,11 @@ function Body({ dialog }: { dialog: Dialog }) {
           <p className="dialog-copy">
             {dialog.added ? `${tryOns(dialog.added)} added. ` : ''}
             {user ? `${leftText(user, freeLooks)}.` : ''}
-            {dialog.returnTab ? ' You can close this tab and go back to FitRoom: your photos are in the other tab.' : ' Press Try It On to carry on.'}
+            {dialog.returnTab
+              ? ' You can close this tab and go back to FitRoom: your photos are in the other tab.'
+              : dialog.photosLost
+                ? ' Photos never leave the page they were added on, so add yours again to carry on.'
+                : ' Press Try It On to carry on.'}
           </p>
           <button type="button" className="btn btn-dark dialog-cta" onClick={close}>
             {dialog.returnTab ? 'Done' : 'Carry On'}

@@ -7,6 +7,7 @@
 // Photos are passed straight to the image model and never stored or logged.
 // Paid try-ons on (billing.ts): a new look needs a signed-in person with a look left (401 / 402 with `code` otherwise),
 // charged before the shot and given back if it fails; the per-visitor cookie limit is off. Responses carry `account`.
+import { randomUUID } from 'node:crypto';
 import { admit, asker, giveBack } from './_lib/account';
 import type { AccountView } from './_lib/billing';
 import { json, readJson } from './_lib/http';
@@ -120,15 +121,17 @@ export async function POST(request: Request): Promise<Response> {
     return json({ error: verdict.error, retryable: verdict.retryable, remaining: looksLeft(usage) }, verdict.status, headers);
   }
 
-  // A new look costs one of the person's looks (the same look again costs nothing); server-made ids carry a ':' so
-  // the browser's refund endpoint can't name them.
-  const chargedLook = newLook && billing ? `p:${lookDigest(req)}` : null;
+  // Every new front shot costs one of the person's looks (each is a paid OpenAI image, so shooting the same look again
+  // costs again, as it did under the cookie limit); its angles and size comparisons ride on its token. Server-made ids
+  // carry a ':' so the browser's refund endpoint can't name them.
+  const chargedLook = newLook && billing ? `p:${randomUUID()}` : null;
   let account: AccountView | undefined;
   let charged = false;
   if (chargedLook) {
     const admission = await admit(who, chargedLook);
     if (!admission.ok) {
-      return json({ error: admission.error, code: admission.code, retryable: admission.code === 'unavailable', account: admission.view, remaining: looksLeft(usage) }, admission.status);
+      const failure = { error: admission.error, code: admission.code, retryable: admission.code === 'unavailable', remaining: looksLeft(usage) };
+      return json({ ...failure, ...(admission.view ? { account: admission.view } : {}) }, admission.status);
     }
     account = admission.view;
     charged = admission.charged;

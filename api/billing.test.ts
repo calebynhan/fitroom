@@ -95,7 +95,44 @@ describe('POST /api/account', () => {
   });
 });
 
+describe('cross-site requests', () => {
+  it('refuses a cross-site form post (login CSRF) and non-JSON bodies on every billing POST', async () => {
+    const crossSite = { 'sec-fetch-site': 'cross-site' };
+    const signin = await postAccount(request('/api/account', { user: null, body: { action: 'signin', credential: 'x' }, headers: crossSite }));
+    expect(signin.status).toBe(403);
+    expect(signin.headers.get('set-cookie')).toBeNull();
+    const form = await postAccount(request('/api/account', { user: null, body: { action: 'signout' }, headers: { 'content-type': 'text/plain' } }));
+    expect(form.status).toBe(403);
+    expect((await postCredits(request('/api/credits', { body: { action: 'charge', look: LOOK }, headers: crossSite }))).status).toBe(403);
+    expect((await postCheckout(request('/api/checkout', { body: { action: 'start' }, headers: crossSite }))).status).toBe(403);
+    const sameOrigin = await postCredits(request('/api/credits', { body: { action: 'charge', look: LOOK }, headers: { 'sec-fetch-site': 'same-origin' } }));
+    expect(sameOrigin.status).toBe(200);
+  });
+});
+
 describe('POST /api/credits', () => {
+  it("doesn't make a signed-in shopper look signed out when the ledger is down", async () => {
+    process.env.VERCEL = '1';
+    process.env.KV_REST_API_URL = 'https://ledger.test';
+    process.env.KV_REST_API_TOKEN = 't';
+    vi.stubGlobal('fetch', async () => {
+      throw new TypeError('fetch failed');
+    });
+    try {
+      const res = await charge();
+      expect(res.status).toBe(503);
+      const body = await res.json();
+      expect(body).toMatchObject({ code: 'unavailable' });
+      expect(body.account).toBeUndefined();
+      const view = await getAccount(request('/api/account', { method: 'GET' }));
+      expect(view.status).toBe(503);
+      expect((await view.json()).account).toBeUndefined();
+    } finally {
+      for (const k of ['VERCEL', 'KV_REST_API_URL', 'KV_REST_API_TOKEN']) delete process.env[k];
+      resetLedger();
+    }
+  });
+
   it('asks to sign in first', async () => {
     const res = await charge(LOOK, null);
     expect(res.status).toBe(401);
@@ -189,6 +226,25 @@ describe('checkout', () => {
     const other = { sub: 'google-99', email: 'x@y.z' };
     expect((await postCheckout(request('/api/checkout', { user: other, body: { action: 'confirm', sessionId: SESSION_ID } }))).status).toBe(403);
     expect((await postCheckout(request('/api/checkout', { body: { action: 'confirm', sessionId: '../../evil' } }))).status).toBe(400);
+  });
+
+  it('makes Stripe retry rather than credit a throwaway ledger when Upstash is missing in a deployment', async () => {
+    process.env.VERCEL = '1';
+    try {
+      const res = await postStripe(request('/api/stripe', { user: null, body: '{}', headers: { 'stripe-signature': 't=1,v1=x' } }));
+      expect(res.status).toBe(503);
+    } finally {
+      delete process.env.VERCEL;
+    }
+  });
+
+  it('says a confirm that failed may still go through, never "nothing was charged"', async () => {
+    vi.stubGlobal('fetch', async () => {
+      throw new TypeError('fetch failed');
+    });
+    const res = await postCheckout(request('/api/checkout', { body: { action: 'confirm', sessionId: SESSION_ID } }));
+    expect(res.status).toBe(502);
+    expect((await res.json()).error).toMatch(/added automatically/);
   });
 
   it('credits a paid session from the webhook alone, and refuses a bad signature', async () => {

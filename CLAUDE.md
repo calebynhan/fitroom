@@ -213,20 +213,26 @@ dev and tests). Off = the app as before: no sign-in, no counts, /api/credits alw
 looks still count and the paywall says buying isn't open yet.
 **Enforcement**: the free try-on runs in the browser against a public Space, so the gate (web/src/account/gate.ts) is an
 honest shopper's gate, not a lock (devtools or the Space's own page get around it). /api/photoreal enforces it on the
-server (a new look needs a session and a look; charged before the OpenAI call, given back if it fails; the visitor cookie
-limit is off while billing is on). Paying does not buy GPU time: try-ons still run on the visitor's Hugging Face allowance
+server: every new front shot is a paid OpenAI image, so each one (Shoot Again included) costs a look, charged before the
+call and given back if it fails; its angles and size comparisons ride on its token; the visitor cookie limit is off while
+billing is on. Paying does not buy GPU time: try-ons still run on the visitor's Hugging Face allowance
 (a few a day), and the buy dialog says so. Real capacity for paying shoppers needs our own GPU (a paid Space or FASHN's
 API) before the price is worth it.
 **Ledger** (api/_lib/ledger.ts, Upstash REST + one Lua script per change; tested against a real redis-server when one is
 installed): per Google `sub`, hash `fr:{sub}:user` { free (used), credits (paid left), bought, email }, hash
 `fr:{sub}:looks` { look id -> "free|paid:<ms>" } (90 days), `fr:{sub}:paid:<checkout session id>` (one credit per
-payment, 400 days). Refunds only within 15 min of the charge. Browser look ids = base64url SHA-256 of the front photo +
+payment, 400 days). Refunds only within 30 min of the charge (a two-photo try-on can take ~23 min to fail). A look whose
+photo is replaced or removed while it is being charged is given back and nothing is sent. Browser look ids = base64url SHA-256 of the front photo +
 garment images (43 chars); /api/photoreal's are `p:<lookDigest>`, which /api/credits can't name.
 **Buying**: Checkout opens in a new tab (photos live only in this tab); Stripe returns that tab to
 `/?checkout=done&session_id=...`, which confirms the session (POST /api/checkout confirm) and tells the first tab over
 BroadcastChannel `fitroom-account`; the first tab also polls GET /api/account every 4 s while its dialog waits, and on
 focus. The webhook (/api/stripe) credits the same session if nobody comes back; a session counts once either way.
-Pop-ups blocked: Checkout opens in the same tab (the leave warning fires).
+Pop-ups blocked: Checkout opens in the same tab (the leave warning fires; on return the dialog says to add the photos
+again). The webhook answers 503 (Stripe retries) when no shared ledger is configured, rather than credit memory.
+**Same-site only**: POST /api/account, /api/credits and /api/checkout need `Content-Type: application/json` and no
+cross-site `Sec-Fetch-Site` (403 otherwise): a cross-site form could sign the shopper in as someone else. A 503 from the
+ledger carries no `account` (an empty one would make a signed-in shopper look signed out).
 Set up (owner): (1) Google Cloud console > APIs & Services > Credentials > OAuth client ID (Web); Authorized JavaScript
 origins: https://fitroom-woad.vercel.app, http://localhost:5173, http://localhost (preview URLs need adding to sign in
 there) -> GOOGLE_CLIENT_ID. (2) Vercel > Storage / Marketplace > Upstash for Redis, connect to the project (sets

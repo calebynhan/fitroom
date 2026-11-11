@@ -397,6 +397,17 @@ describe('paid try-ons', () => {
     expect(calls[1].look).not.toBe(calls[0].look);
   });
 
+  it('sends nothing and gives the look back when the photo changes while the look is being charged', async () => {
+    answer = () => {
+      useApp.getState().setPhoto('front', { ...PHOTO, dataUrl: 'data:image/jpeg;base64,bmV3' }); // replaced mid-check
+      return Response.json({ ok: true, charged: true, account: PAID });
+    };
+    const space = fakeSpace();
+    await makeTryOnLook(space.run);
+    expect(space.passes).toHaveLength(0);
+    expect(calls.map((c) => c.action)).toEqual(['charge', 'refund']);
+  });
+
   it("still tries on when it can't tell whether try-ons are paid and the server is unreachable", async () => {
     useAccount.setState({ view: null });
     answer = () => {
