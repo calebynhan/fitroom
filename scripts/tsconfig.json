@@ -14,5 +14,5 @@
     "isolatedModules": true,
     "types": ["node"]
   },
-  "include": ["./**/*.ts", "../api/product*.ts", "../api/_lib/windowLimit*.ts", "../api/_lib/uniqlo*.ts", "../api/_lib/sizeChart*.ts", "../api/_lib/chipColor.ts", "../api/_lib/http.ts", "../api/photoreal*.ts", "../api/_lib/look*.ts", "../api/_lib/images.ts", "../api/_lib/photoreal*.ts", "../api/_lib/rateLimit.ts", "../api/_lib/upstreamError*.ts", "../api/account*.ts", "../api/credits*.ts", "../api/checkout*.ts", "../api/stripe*.ts", "../api/_lib/account*.ts", "../api/_lib/billing*.ts", "../api/_lib/session*.ts", "../api/_lib/googleToken*.ts", "../api/_lib/ledger*.ts", "../api/_lib/stripe*.ts"]
+  "include": ["./**/*.ts", "../api/product*.ts", "../api/_lib/windowLimit*.ts", "../api/_lib/uniqlo*.ts", "../api/_lib/sizeChart*.ts", "../api/_lib/chipColor.ts", "../api/_lib/http.ts", "../api/photoreal*.ts", "../api/_lib/look*.ts", "../api/_lib/images.ts", "../api/_lib/photoreal*.ts", "../api/_lib/rateLimit.ts", "../api/_lib/upstreamError*.ts", "../api/account*.ts", "../api/credits*.ts", "../api/checkout*.ts", "../api/stripe*.ts", "../api/_lib/account*.ts", "../api/_lib/billing*.ts", "../api/_lib/session*.ts", "../api/_lib/googleToken*.ts", "../api/_lib/ledger*.ts", "../api/_lib/stripe*.ts", "../api/mcp*.ts", "../api/oauth*.ts", "../api/_lib/mcpServer*.ts", "../api/_lib/oauth*.ts"]
 }

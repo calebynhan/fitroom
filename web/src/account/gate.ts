@@ -14,13 +14,7 @@ export function forgetAdmitted(): void {
   admitted.clear();
 }
 
-/** A look's id: SHA-256 of what makes it (the photo and the garments), base64url. Never leaves the browser otherwise. */
-export async function lookId(parts: string[]): Promise<string> {
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(parts.join('\u0000')));
-  let binary = '';
-  for (const byte of new Uint8Array(digest)) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
+export { lookId } from './lookId';
 
 export interface Ticket {
   look: string;

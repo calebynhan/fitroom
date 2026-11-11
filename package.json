@@ -8,7 +8,9 @@
     "typecheck": "tsc -p scripts"
   },
   "dependencies": {
-    "jpeg-js": "^0.4.4"
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "jpeg-js": "^0.4.4",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

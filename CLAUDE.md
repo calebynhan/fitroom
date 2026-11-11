@@ -69,6 +69,12 @@ the last step for every item is the same check on the live URL, on desktop and a
       and BILLING_EXEMPT_EMAILS never pay. Built and checked in a browser on a local build (in-memory ledger, Stripe and
       Google faked); not yet configured on Vercel, so not checked on the live URL.
 
+**ChatGPT plugin** (2026-11-11; see ChatGPT plugin below)
+- [x] FitRoom as a ChatGPT plugin (MCP server at /mcp): find clothes, try them on the shopper's attached photo in a
+      FitRoom panel, the size to buy; the same account and try-ons as the website (OAuth sign-in with Google). Built and
+      checked locally (MCP + OAuth tests, the built panel in a browser harness playing ChatGPT's bridge, Space blocked);
+      not yet deployed or connected in ChatGPT.
+
 **Paid generator only** (VITE_PHOTO_ENGINE=openai): four shots per look (front, three-quarter, side, back) with settings
 (Studio / City / Night) and a free size-comparison front shot; /api/photoreal rate-limited (3 looks per visitor cookie, 48
 photos per IP and 200 per instance per day, in memory per warm instance, so best effort; shared counters and a hard
@@ -134,9 +140,14 @@ Jeans E479000-000 (22-34 inch) came in through the men's listing; removed from c
                           Photo/Measure/Fit/Outfit/Scene/About sections, SavedOutfits,
                           TryOnBudget (allowance note, credit note, "Try your side photo too"), AccountSection (rail),
                           AccountDialog (sign in / buy / waiting / thanks), GoogleButton
+      widget/             the ChatGPT panel (own bundle, vite.widget.config.ts -> dist/widget/fitroom-tryon.js): bridge.ts
+                          (MCP Apps App + window.openai extras), run.ts (photo -> charge_look -> Space passes -> sharpen;
+                          refund if nothing made), Panel.tsx, styles.ts (system fonts and host colours)
     api/       Vercel functions: /api/product, /api/photoreal (shared contract: api/_lib/look.ts), /api/account,
                /api/credits, /api/checkout, /api/stripe (paid try-ons: api/_lib/billing.ts, account.ts, ledger.ts,
-               session.ts, googleToken.ts, stripe.ts; browser-facing types in accountTypes.ts)
+               session.ts, googleToken.ts, stripe.ts; browser-facing types in accountTypes.ts), /api/mcp (ChatGPT
+               plugin: api/_lib/mcpServer.ts), /api/oauth (OAuth for the plugin: api/_lib/oauth.ts)
+    web/public/try-ons.html, privacy.html   informational page the plugin links to; privacy policy (plugin submission)
     scripts/   Node/TS data scripts: catalog ingest, size-chart parsing -> web/public/catalog.json
     pipeline/  LEGACY (unused by the app): Python + bpy 3D mannequin and garments. See Legacy below.
 
@@ -148,7 +159,8 @@ PHOTOREAL_DISABLED=1 (kill switch). Paid try-ons (server, runtime; .env.example)
 chars), KV_REST_API_URL + KV_REST_API_TOKEN (or UPSTASH_REDIS_REST_URL/_TOKEN), STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET,
 FREE_LOOKS (5), PACK_LOOKS (20), PACK_PRICE_CENTS (499), PACK_CURRENCY (usd), STRIPE_PRICE_ID (optional),
 BILLING_EXEMPT_EMAILS (comma-separated), APP_URL (Stripe return links; default the request's host), BILLING_DISABLED=1
-(kill switch). vite dev reads these from ../.env.local.
+(kill switch). vite dev reads these from ../.env.local. ChatGPT plugin: APP_URL (set it in production: the OAuth issuer
+and MCP resource must be one exact origin), OAUTH_CLIENT_HOSTS (CIMD client hosts, default chatgpt.com,openai.com).
 
 ## Photo engines
 **Try-on (default, free)**: FASHN VTON v1.5 (Apache-2.0) on https://huggingface.co/spaces/fashn-ai/fashn-vton-1.5,
@@ -242,6 +254,53 @@ checkout.session.async_payment_succeeded -> STRIPE_WEBHOOK_SECRET. (5) Set them 
 then check sign-in, a free look, the paywall and a test-card purchase (4242 4242 4242 4242) on the live URL, desktop
 and phone. UNIQLO's content is used for a non-commercial demo (Conventions): charging makes it commercial, so settle that
 first (the About section drops "non-commercial demo" while billing is on).
+
+## ChatGPT plugin
+FitRoom is an MCP server for ChatGPT plugins (developers.openai.com/plugins; "plugins" here are the 2025+ MCP-based
+ones, not the 2023 plugins, which OpenAI shut down in 2024). **Plugin rules, Commerce** (plugin-guidelines): no selling
+digital goods, credits or subscriptions in ChatGPT, directly or through freemium upsells; no checkout links, no plans,
+no upgrade prompts. Allowed: sign in to an existing account and use what it has; say a feature needs more credits and
+link to an informational page. So in ChatGPT: the same account and try-ons as the website (linked with OAuth), and
+with none left the panel says so and links /try-ons.html (which describes the packs; the buying happens on the site).
+**Tools** (api/_lib/mcpServer.ts; every tool has explicit readOnly/destructive/openWorld annotations):
+`find_clothes` (anonymous; catalog.json fetched from the site, cached 10 min: ids, colours with codes, sizes, size-chart
+body ranges), `try_on` (needs the account when billing is on; `photo` is a ChatGPT file param `{download_url, file_id,
+mime_type?, file_name?}`, `top`/`bottom` `{id, color?}`, `height_cm`/`weight_kg` optional; renders the panel; the model
+sees the outfit and try-ons left, the panel gets `_meta.fitroom` = full catalog items, proxied garment URLs, the photo,
+body, account), panel-only (`ui.visibility: ["app"]`): `charge_look` / `refund_look` (same ledger and look ids as
+/api/credits) and `fetch_photo` (server fetch of the download URL when the panel can't; https only, no IP literals,
+<= 15 MB, image/*, returned in `_meta` only, never stored or logged); with billing on also `my_try_ons` and
+`get_profile` (`openai/profile`, opaque id `fr_` + SHA-256 of the Google sub). Billing off: no sign-in anywhere, all
+tools `noauth`, charge_look always ok. A tool that needs the account and has none answers isError with
+`_meta["mcp/www_authenticate"]`, which makes ChatGPT offer to link FitRoom.
+**Panel** (`ui://fitroom/try-on-v1.html`, mime `text/html;profile=mcp-app`; change the URI on a breaking change): HTML
+that loads `${APP_URL}/widget/fitroom-tryon.js` (classic script, no CORS needed; vercel.json serves /widget/ with
+must-revalidate). `_meta.ui.domain` = the site origin; CSP connect = site, try-on Space(s) (VITE_TRYON_SPACE's and
+FASHN's), huggingface.co; resources = site. It reuses the website's try-on code (tryon/space.ts, garment.ts,
+composite.ts, photos/prepare.ts, fit/sizing.ts) in the shopper's browser, so GPU time is still the visitor's Hugging
+Face allowance. Garment photos load through the site's /uniqlo/ proxy, which now sends `Access-Control-Allow-Origin: *`.
+Runs once per try_on render; the finished photo is uploaded to the chat (`window.openai.uploadFile`, feature-detected)
+and kept in widget state (`imageIds`, so the model sees it; reopened chats show it without running again). Sizes and
+the outcome go to the model with `ui/update-model-context`. ChatGPT UI rules: system fonts, host colours (CSS variables),
+no logo (ChatGPT adds it); FitRoom ink only on the main button; light and dark.
+**OAuth** (api/oauth.ts + api/_lib/oauth.ts): FitRoom is the authorization server. `/.well-known/oauth-protected-resource`
+(+ `/mcp`) -> `{ resource: APP_URL/mcp, authorization_servers: [APP_URL] }`; `/.well-known/oauth-authorization-server` ->
+issuer APP_URL, `/api/oauth/authorize`, `/api/oauth/token`, S256 only, `token_endpoint_auth_methods_supported:
+["none"]`, `client_id_metadata_document_supported: true` (CIMD: client_id = an https URL on OAUTH_CLIENT_HOSTS whose JSON
+lists redirect_uris), `authorization_response_iss_parameter_supported: true` (every authorization response carries
+`iss`, so ChatGPT uses its stable redirect https://chatgpt.com/connector_platform_oauth_redirect). The authorize page
+(under /api so the site's session cookie works) offers "Continue as <email>" (POST + signed CSRF token bound to the
+request) or Google sign-in (also signs in on the site); framing denied; approvals only from our own page (Origin /
+Sec-Fetch-Site). Codes (5 min, single use via the ledger), access tokens (1 h, aud = APP_URL/mcp) and refresh tokens
+(60 days) are HMAC-signed with SESSION_SECRET, not stored (rotating SESSION_SECRET signs everyone out of ChatGPT too).
+A present-but-invalid bearer token on /mcp gets 401 + WWW-Authenticate. Off (404) when billing is off.
+**Connect (owner)**: deploy with billing configured and APP_URL=https://fitroom-woad.vercel.app; add that origin to the
+Google OAuth client's authorized JavaScript origins (already needed for the site); then chatgpt.com/plugins > + > Add
+custom MCP server > `https://fitroom-woad.vercel.app/mcp`, authentication OAuth (it discovers the rest); install, open a
+chat, `@FitRoom`, attach a full-body photo and ask to try something on. To publish in the directory: verify the
+organisation on platform.openai.com, fill in the privacy page's contact address, then submit at
+platform.openai.com/plugins (Scan Tools reads the tools, annotations and CSP from /mcp). Test prompts: "Find me a navy
+crew neck tee", "Try the Milano ribbed sweater in blue with black ultra stretch pants on my photo (I'm 178 cm, 65 kg)".
 
 ## Contracts
 **Catalog item** (web/public/catalog.json `{ source, generatedAt, items }` and the /api/product response):
@@ -365,10 +424,14 @@ every value they offer is accepted. (5) Colourways sharing a name show UNIQLO's 
 | UNIQLO API: HTTP/2 INTERNAL_ERROR / timeouts from a cloud session | UNIQLO blocks those IPs (it answers Vercel and home connections) | run `npm run catalog` locally |
 | Every deploy uploads 57 MB of unused 3D assets | web/public is copied into dist | .vercelignore excludes web/public/{hdri,models,garments} |
 | Test files in api/ deployed as functions (Hobby allows 12 per deployment) | Vercel makes every file in api/ a function | .vercelignore excludes api/**/*.test.ts |
+| ChatGPT panel stuck on "Opening the fitting room" | the tool result arrived between the first render and the listener's subscription | subscribe, then catch up on bridge.lastResult (widget/Panel.tsx) |
+| Panel: "Cannot read properties of undefined (reading 'digest')" | crypto.subtle exists only in secure contexts (a test page on about:blank) | ChatGPT serves panels over HTTPS; local harnesses must too |
+| Local panel harness can't load http://localhost from an https page | Chrome Local Network Access | launch Chromium with --disable-features=LocalNetworkAccessChecks (tests only) |
 
 ## Commands
     cd web && npm run dev          # frontend + /api (vite serves api/*.ts; reads OPENAI_API_KEY from ../.env.local)
-    cd web && npm test && npm run typecheck && npm run build
+    cd web && npm test && npm run typecheck && npm run build   # build = app + the ChatGPT panel (dist/widget)
+    cd web && npm run build:widget # the panel alone; vite dev serves it at /widget/ and /mcp + OAuth like Vercel
     npm test && npm run typecheck  # api/ + scripts/ tests and types (root)
     vercel dev                     # Vercel's own dev server (needs .env.local loaded, see Pitfalls)
     vercel --prod                  # deploy from the REPO ROOT, never from web/

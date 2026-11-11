@@ -34,7 +34,8 @@ export function AboutSection() {
       <p className="note">
         <strong>Your data.</strong> Photos stay in this tab and FitRoom never stores them. Measurements and saved outfits stay in
         this browser. Share links carry the outfit only. Page counts are anonymous, without cookies.
-        {paid && ' Signing in with Google keeps your email and how many try-ons you have used and bought; payments are handled by Stripe.'}
+        {paid && ' Signing in with Google keeps your email and how many try-ons you have used and bought; payments are handled by Stripe.'}{' '}
+        <a href="/privacy.html">Privacy policy</a>.
       </p>
       <p className="note fine">
         {TRY_ON && (

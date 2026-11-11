@@ -61,6 +61,14 @@ function rules(name: string, make: () => Ledger | Promise<Ledger>) {
       expect(await l.balance(b)).toEqual({ freeUsed: 1, credits: 0 });
     });
 
+    it('lets a key through once (single-use codes)', async () => {
+      const l = await make();
+      const key = `code-${person()}`;
+      expect(await l.once(key, 60)).toBe(true);
+      expect(await l.once(key, 60)).toBe(false);
+      expect(await l.once(`${key}-other`, 60)).toBe(true);
+    });
+
     it('lets nothing through with zero free looks and no credits', async () => {
       const l = await make();
       expect(await l.charge(person(), 'a@b.c', 'look', 0)).toEqual({ ok: false, balance: { freeUsed: 0, credits: 0 } });

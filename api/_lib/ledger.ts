@@ -18,6 +18,8 @@ export interface Ledger {
   refund(sub: string, look: string, now?: number): Promise<RefundResult>;
   /** Adds `looks` paid looks once per `payment` (a Stripe Checkout session id), however often it is reported. */
   credit(sub: string, email: string, payment: string, looks: number): Promise<{ credited: boolean; balance: Balance }>;
+  /** True the first time `key` is used within `ttlS` seconds, false after (single-use OAuth authorization codes). */
+  once(key: string, ttlS: number): Promise<boolean>;
 }
 
 /** A look can be given back this long after it was charged (a try-on of two photos can take ~23 minutes to fail). */
@@ -131,6 +133,9 @@ export function upstashLedger(url: string, token: string): Ledger {
       const [credited, free, credits] = await script(CREDIT_LUA, [userKey(sub), paymentKey(sub, payment)], [looks, email, PAYMENT_MEMORY_S]);
       return { credited: num(credited) === 1, balance: toBalance(free, credits) };
     },
+    async once(key, ttlS) {
+      return (await command(['SET', `fr:once:${key}`, '1', 'NX', 'EX', Math.max(1, Math.ceil(ttlS))])) === 'OK';
+    },
   };
 }
 
@@ -139,6 +144,7 @@ export function memoryLedger(): Ledger {
   const users = new Map<string, { free: number; credits: number; email?: string }>();
   const looks = new Map<string, { source: 'free' | 'paid'; at: number }>();
   const payments = new Set<string>();
+  const used = new Map<string, number>();
   const user = (sub: string) => {
     let u = users.get(sub);
     if (!u) users.set(sub, (u = { free: 0, credits: 0 }));
@@ -185,6 +191,13 @@ export function memoryLedger(): Ledger {
       u.credits += n;
       u.email = email;
       return { credited: true, balance: balanceOf(sub) };
+    },
+    async once(key, ttlS) {
+      const now = Date.now();
+      const until = used.get(key);
+      if (until !== undefined && until > now) return false;
+      used.set(key, now + ttlS * 1000);
+      return true;
     },
   };
 }

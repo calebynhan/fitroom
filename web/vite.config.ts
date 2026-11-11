@@ -1,3 +1,4 @@
+import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import type { IncomingMessage } from 'node:http';
 import react from '@vitejs/plugin-react';
@@ -5,6 +6,7 @@ import { defineConfig, loadEnv, type Plugin } from 'vite';
 
 const API_DIR = fileURLToPath(new URL('../api', import.meta.url));
 const REPO_ROOT = fileURLToPath(new URL('..', import.meta.url));
+const WEB_DIR = fileURLToPath(new URL('.', import.meta.url)).replace(/\/$/, '');
 
 async function readBody(req: IncomingMessage): Promise<Buffer> {
   const chunks: Buffer[] = [];
@@ -19,10 +21,33 @@ function devApi(): Plugin {
     configureServer(server) {
       const env = loadEnv('development', REPO_ROOT, '');
       // Server-side settings from ../.env.local for the functions (the shell's own environment wins).
-      const SERVER_ENV = /^(OPENAI_API_KEY|GOOGLE_CLIENT_ID|SESSION_SECRET|STRIPE_\w+|FREE_LOOKS|PACK_\w+|BILLING_\w+|KV_REST_API_\w+|UPSTASH_REDIS_REST_\w+|APP_URL)$/;
+      const SERVER_ENV = /^(OPENAI_API_KEY|GOOGLE_CLIENT_ID|SESSION_SECRET|STRIPE_\w+|FREE_LOOKS|PACK_\w+|BILLING_\w+|KV_REST_API_\w+|UPSTASH_REDIS_REST_\w+|APP_URL|OAUTH_\w+|VITE_TRYON_SPACE)$/;
       for (const [k, v] of Object.entries(env)) if (SERVER_ENV.test(k) && v && !process.env[k]) process.env[k] = v;
 
+      // The ChatGPT panel bundle (npm run build:widget), served like the deployed /widget/ files.
+      server.middlewares.use('/widget', (req, res, next) => {
+        const file = `${WEB_DIR}/dist/widget${(req.url ?? '').split('?')[0]}`;
+        if (!/^\/[\w.-]+\.js$/.test((req.url ?? '').split('?')[0]) || !existsSync(file)) return next();
+        res.setHeader('Content-Type', 'text/javascript');
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.end(readFileSync(file));
+      });
+
       server.middlewares.use(async (req, res, next) => {
+        // Same rewrites as vercel.json: the MCP server and its OAuth discovery / endpoints.
+        const url = req.url ?? '';
+        const [path, query = ''] = url.split('?');
+        const rewritten =
+          path === '/mcp'
+            ? `/api/mcp${query ? `?${query}` : ''}`
+            : path.startsWith('/.well-known/oauth-protected-resource')
+              ? '/api/oauth?step=resource'
+              : path.startsWith('/.well-known/oauth-authorization-server')
+                ? '/api/oauth?step=server'
+                : /^\/api\/oauth\/[a-z]+$/.test(path)
+                  ? `/api/oauth?step=${path.split('/').pop()}${query ? `&${query}` : ''}`
+                  : url;
+        if (rewritten !== url) req.url = rewritten;
         const match = req.url?.match(/^\/api\/([a-z]+)(?:\?|$)/);
         if (!match) return next();
         try {
