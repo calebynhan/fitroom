@@ -345,7 +345,7 @@ function Shots({ look, stale }: { look: Look; stale: boolean }) {
                 Hugging Face
               </a>
               . It shows the garment as UNIQLO photographed it, not in your size: the fit numbers under each item show how your size
-              sits. Photos are not saved: download the ones you want to keep.
+              sits. Open a photo to compare it with yours. Photos are not saved: download the ones you want to keep.
             </p>
           ) : (
             <p className="note">

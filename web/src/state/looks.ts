@@ -10,8 +10,11 @@ export type ViewState =
   | { kind: 'waiting' }
   /** `status`: what is happening now ("Third in line"); `expectedMs`: drives the estimated progress bar. */
   | { kind: 'working'; startedAt: number; status?: string; expectedMs?: number }
-  /** `note`: the photo is usable but incomplete (e.g. the top went on, the bottoms could not). */
-  | { kind: 'done'; image: string; note?: string }
+  /**
+   * `note`: the photo is usable but incomplete (e.g. the top went on, the bottoms could not). `before`: the shopper's own
+   * photo it was made from (try-on), for the before / after comparison.
+   */
+  | { kind: 'done'; image: string; note?: string; before?: string }
   | { kind: 'error'; message: string; detail: string | null; retryable: boolean };
 
 /** The front shot again with one item in another size (costs no look). */

@@ -122,6 +122,7 @@ Jeans E479000-000 (22-34 inch) came in through the men's listing; removed from c
                           busy flag, looks left
       analytics.ts        Vercel Web Analytics (production builds only) + try-on outcome events; never photos or outfits
       ui/                 Header (Make my shots, How it works), Lookbook (4 frames + Lightbox + Compare sizes), FitTable,
+                          BeforeAfter (lightbox: drag between the shopper's photo and the try-on; done.before),
                           Photo/Measure/Fit/Outfit/Scene/About sections, SavedOutfits,
                           TryOnBudget (allowance note, "Try your side photo too")
     api/       Vercel functions: /api/product, /api/photoreal (shared contract: api/_lib/look.ts)

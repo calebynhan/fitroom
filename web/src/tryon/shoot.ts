@@ -187,7 +187,7 @@ async function shootView(key: string, view: View, input: Ready, run: TryOnRunner
       keepPass(passKey(input.version, view, input.garments.slice(0, i + 1)), current);
       worn = [...worn, garment.slot];
     }
-    looks.setView(key, view, { kind: 'done', image: await finish(current) });
+    looks.setView(key, view, { kind: 'done', image: await finish(current), before: photo });
     trackTryOn('ok', view, input.garments.length, startedAt, undefined, reused);
     return { quota: false, cancelled: false };
   } catch (err: unknown) {
@@ -203,7 +203,7 @@ async function shootView(key: string, view: View, input: Ready, run: TryOnRunner
     }
     if (worn.length > 0 && current) {
       const missingNames = input.garments.filter((g) => !worn.includes(g.slot)).map((g) => g.name.split(' in ')[0]);
-      looks.setView(key, view, { kind: 'done', image: await finish(current), note: `Without the ${missingNames.join(' and ')}: ${e.message}` });
+      looks.setView(key, view, { kind: 'done', image: await finish(current), before: photo, note: `Without the ${missingNames.join(' and ')}: ${e.message}` });
     } else if (previous?.kind === 'done') {
       // a retry that made nothing must not cost the photo already there
       looks.setView(key, view, { ...previous, note: `${e.message} Your earlier photo is kept.` });
