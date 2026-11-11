@@ -5,7 +5,7 @@ import { parseCatalog } from '../catalog/types';
 import { useLooks } from '../state/looks';
 import { useApp } from '../state/store';
 import { useAllowance } from './allowance';
-import { addSideView, canAddSide, canRetryTryOn, cancelTryOn, forgetPasses, makeTryOnLook, passesNeeded, retryTryOnView, tryOnInput } from './shoot';
+import { addSideView, canAddSide, canRetryTryOn, cancelTryOn, forgetPasses, makeTryOnLook, passesNeeded, reachableLooks, retryTryOnView, tryOnInput } from './shoot';
 import { SpaceError, type GarmentPhotoType, type TryOnCategory, type TryOnRunner } from './space';
 
 const PHOTO = { dataUrl: 'data:image/jpeg;base64,/9j/4AAQSkZJRg==', width: 600, height: 900 };
@@ -202,6 +202,23 @@ describe('reusing finished passes', () => {
     expect(later.passes.map((p) => `${p.person}:${p.category}`)).toEqual(['me+tops:bottoms']);
     const front = useLooks.getState().looks[key].views.front;
     expect(front.kind === 'done' && decode(front.image)).toBe('me+tops+bottoms');
+  });
+
+  it('lists the outfits tried on these photos, newest first, and can go back to one', async () => {
+    const space = fakeSpace();
+    await makeTryOnLook(space.run);
+    const firstOutfit = useApp.getState().outfit;
+    useApp.getState().setColor('bottom', otherBottomColour());
+    await new Promise((r) => setTimeout(r, 2)); // a later start time
+    await makeTryOnLook(space.run);
+    const list = reachableLooks(useLooks.getState().looks);
+    expect(list).toHaveLength(2);
+    expect(list[1].outfit?.bottom?.colorCode).toBe(firstOutfit.bottom?.colorCode);
+    useApp.getState().applyOutfit(list[1].outfit!);
+    const input = tryOnInput(useApp.getState());
+    expect(input.ready && input.key).toBe(list[1].key); // the earlier look is on screen again, at no cost
+    useApp.getState().setPhoto('front', PHOTO);
+    expect(reachableLooks(useLooks.getState().looks)).toHaveLength(0); // made from the old photo
   });
 
   it('a new photo starts from scratch', async () => {

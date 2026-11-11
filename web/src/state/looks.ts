@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { VIEWS, type View } from '@api/look';
-import type { Slot } from '../catalog/types';
+import type { Selection, Slot } from '../catalog/types';
 import type { LookCaption } from '../look/request';
 
 /** About how long one photo takes; drives the estimated progress bars. */
@@ -10,8 +10,11 @@ export type ViewState =
   | { kind: 'waiting' }
   /** `status`: what is happening now ("Third in line"); `expectedMs`: drives the estimated progress bar. */
   | { kind: 'working'; startedAt: number; status?: string; expectedMs?: number }
-  /** `note`: the photo is usable but incomplete (e.g. the top went on, the bottoms could not). */
-  | { kind: 'done'; image: string; note?: string }
+  /**
+   * `note`: the photo is usable but incomplete (e.g. the top went on, the bottoms could not). `before`: the shopper's own
+   * photo it was made from (try-on), for the before / after comparison.
+   */
+  | { kind: 'done'; image: string; note?: string; before?: string }
   | { kind: 'error'; message: string; detail: string | null; retryable: boolean };
 
 /** The front shot again with one item in another size (costs no look). */
@@ -30,6 +33,10 @@ export interface Look {
   compares?: Partial<Record<Slot, CompareShot>>;
   /** Shown above the photos, e.g. why a reshoot was abandoned. */
   notice?: string;
+  /** The outfit it shows (try-on looks), so the shopper can go back to it. */
+  outfit?: Partial<Record<Slot, Selection>>;
+  /** When it was started (newest first in "Your try-ons"). */
+  startedAt?: number;
 }
 
 interface LooksStore {
@@ -41,7 +48,7 @@ interface LooksStore {
   latest: string | null;
   /** Looks this visitor has left, as last reported by the server. */
   remaining: number | null;
-  start: (key: string, caption: LookCaption, order?: View[]) => void;
+  start: (key: string, caption: LookCaption, order?: View[], outfit?: Partial<Record<Slot, Selection>>) => void;
   setView: (key: string, view: View, state: ViewState) => void;
   /** Adds a view to a look (the try-on side photo, shot on request). */
   addView: (key: string, view: View) => void;
@@ -60,8 +67,8 @@ export const useLooks = create<LooksStore>()((set) => ({
   busy: null,
   latest: null,
   remaining: null,
-  start: (key, caption, order = [...VIEWS]) =>
-    set((s) => ({ latest: key, looks: { ...s.looks, [key]: { key, caption, order, views: allWaiting() } } })),
+  start: (key, caption, order = [...VIEWS], outfit) =>
+    set((s) => ({ latest: key, looks: { ...s.looks, [key]: { key, caption, order, views: allWaiting(), outfit, startedAt: Date.now() } } })),
   setView: (key, view, state) =>
     set((s) => {
       const look = s.looks[key];

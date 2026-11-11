@@ -1,7 +1,7 @@
 # FitRoom quality audit, 2026-11-10
 
-Status: Phases 0, 1, 2, 5 and 6 done (live-URL checks pending); Phase 4 code side done; Phase 3 waiting on GPU quota
-(retry scheduled 2026-11-12). Findings 1-7, 9-18 fixed; 8 and 19 open.
+Status: Phases 0, 1, 2, 5, 6 and 7 done (live-URL checks pending); Phase 4 code side done; Phase 3 waiting on GPU quota
+(experiments ready, run when it resets ~17:00 UTC 2026-11-11). Findings 1-7, 9-18 fixed; 8 and 19 open.
 
 What was tested, what is wrong, and a plan to improve it that can be measured. Covers the free try-on engine (the
 default), sizing and the fit card, the catalog and the UI, on branch `claude/focused-turing-yuhkiq` (PR #2).
@@ -161,6 +161,21 @@ today are shown before it runs. **Gate:** measured with the real code and a stan
 13): front 2 passes, side 2 on request, new pants on the same top 1; the estimate warns once fewer passes are left than
 needed; axe 0 violations, no overflow. So a shopper browsing pants on one top gets about 3 outfits a day (2 + 1 + 1 passes)
 instead of 2, or 1 if they had given a side photo (it used to be tried automatically).
+
+### Phase 7: sharper output, offline - done 2026-11-11
+The try-on returns ~486x864; the photo the shopper sees is 864x1536 or more. Worked on the owner's saved Space results
+(no GPU needed), judged by eye on zoomed crops plus the share of the image taken from the model:
+- **Compositor:** the model's output only where the clothes changed (solid per-row region, feathered), the shopper's own
+  photo elsewhere at full resolution. Before: everything below the collar came from the model. Now the model covers 13-31%
+  of the image (sweater 19%, sweater + pants 31%, tee 17%, jeans 23%, beach 13%): legs under a new top, shoes, floor, the
+  wall beside the person and the beach behind them are as sharp as the original. Threshold 24 chosen over 40 (holes in the
+  garment) and 16 (sand and wall texture caught).
+- **Sharpening:** unsharp mask 0.5 on the enlarged output (1.0 haloed at the shoulders).
+- **Skin kept:** inside the region, skin in both images in the same place comes from the photo (YCbCr box, all skin
+  tones; off for skin-coloured garments, 54/237 colourways): sharper neck, forearms and hands.
+- **Before / after** divider in the lightbox; **Your try-ons** strip to go back to an outfit for free; upload warnings for
+  photos under 1000 px tall (soft results; the selfie case) or dark (mean luma < 60).
+Cost: ~0.3-0.6 s per photo in desktop Chromium.
 
 ## How to rerun
 

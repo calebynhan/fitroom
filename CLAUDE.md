@@ -103,7 +103,8 @@ Jeans E479000-000 (22-34 inch) came in through the men's listing; removed from c
 ## Architecture
     web/       Vite + React + TS + zustand. No 3D.
       photos/prepare.ts   decode (EXIF-aware), downscale (front 1536 px, side 1024 px, face 768 px), JPEG data URL;
-                          memory only; photoWarning flags landscape body photos (person too small)
+                          memory only; photoWarning flags body photos that make poor try-ons: landscape (person
+                          small), under 1000 px tall (soft: the model outputs 864), mean luma < 60 (dark)
       body/profile.ts     measurements, ANSUR estimates, units, fit preferences + reference garment, localStorage
       fit/sizing.ts       size pick (chart, preference or reference garment), ease/length, comparison size + deltas
       fit/fitCard.ts      the fit card: two sizes on this body in numbers (cm or in)
@@ -115,7 +116,8 @@ Jeans E479000-000 (22-34 inch) came in through the men's listing; removed from c
                           shopper words
       tryon/garment.ts    garment photo: UNIQLO's garment-only shot (goods_*) when it exists, else the catalogue photo;
                           flat-lay vs model judged from the top-centre backdrop
-      tryon/composite.ts  sharper results: the shopper's photo above the new garment's top edge, the model below
+      tryon/composite.ts  sharper results: the model's output only where the clothes changed (solid per-row region,
+                          feathered, lightly sharpened), the shopper's own photo everywhere else
       tryon/shoot.ts      the front: top, then bottoms on that result (side photo on request); finished passes reused;
                           partial photo kept; quota stops the rest
       tryon/allowance.ts  estimate of the free GPU allowance (passes today, used up, when it's back), localStorage
@@ -127,6 +129,8 @@ Jeans E479000-000 (22-34 inch) came in through the men's listing; removed from c
                           busy flag, looks left
       analytics.ts        Vercel Web Analytics (production builds only) + try-on outcome events; never photos or outfits
       ui/                 Header (Make my shots, How it works), Lookbook (4 frames + Lightbox + Compare sizes), FitTable,
+                          BeforeAfter (lightbox: drag between the shopper's photo and the try-on; done.before),
+                          LooksStrip ("Your try-ons": every outfit tried on these photos; one tap goes back, free),
                           Photo/Measure/Fit/Outfit/Scene/About sections, SavedOutfits,
                           TryOnBudget (allowance note, "Try your side photo too")
     api/       Vercel functions: /api/product, /api/photoreal (shared contract: api/_lib/look.ts), /api/mcp (ChatGPT plugin)
@@ -188,10 +192,18 @@ and colour right. Fixed since: (1) the catalogue photo (usgoods_*) is worn by a 
 `/UQ/ST3/WesternCommon/imagesgoods/<num>/item/goods_<code>_<num>_3x4.jpg` when it exists (some are model shots too:
 garment.ts: model = something in the top-centre band (> 5%) AND skin tones in the upper third (> 1%); coverage alone
 misread tall flat pants whose waistband reaches the band; 68/68 on the catalog's photos), which also gave
-truer colour; (2) output is ~486x864 -> composite.ts takes everything above the first strongly changed rows (the
-collar, or the waistband for bottoms) from the shopper's photo at its own resolution (864x1536 for the front), feathered,
-and the model's result below; a per-pixel blend was tried and mixed old and new garments (dark pants over dark jeans
-barely differ). Not fixable in the model, handled in the UI: no size (the "Your size" panel under the photos shows
+truer colour; (2) output is ~486x864 -> composite.ts uses the model's output only in the region the try-on changed and
+the shopper's photo (at its own resolution, 864x1536 for the front) everywhere else: changed = 3x3 mean of the largest
+channel difference > 24 (40 left holes in the garment, 16 caught sand and wall texture); per row, leftmost to rightmost
+dense change, smoothed over 3% of the height (widest wins, which also fills rows inside the garment), widened 3% of the
+width, between the first and last garment rows +-1.2%, feathered 1.2%; unsharp mask 0.5 (radius 2 px) on the enlarged
+output inside that box (1.0 haloed). Inside the region, where both images show skin in the same place (YCbCr skin box,
+light to very dark tones alike; largest channel difference < 48; eroded 1 px, softened) the shopper's own skin is kept:
+sharper hands, forearms and neck. Off when a new garment's colour is itself skin-like (catalog hex; 54/237 colourways),
+so an old beige garment can never pass for skin under a new beige one. On the owner's photos the model's output now covers 13-31% of the image (was
+everything below the collar): legs under a new top, shoes, floor and the wall beside the person stay sharp. Per-pixel
+blending was tried and mixed old and new garments (dark pants over dark jeans barely differ); a solid per-row region
+can't leave holes in the garment. Not fixable in the model, handled in the UI: no size (the "Your size" panel under the photos shows
 UNIQLO's photo for colour, the size and the fit card); blurry hands get redrawn and bags/straps removed, and dark pants
 over dark jeans barely show (photo tips). A blur detector (Laplacian variance) couldn't tell a motion-blurred selfie
 (472) from a sharp photo (530), so there is none.

@@ -11,11 +11,11 @@ import { recordPass, recordQuota } from './allowance';
 import { colorLabel, productImage, type Slot } from '../catalog/types';
 import type { LookCaption } from '../look/request';
 import { exclusive } from '../look/shoot';
-import { doneCount, useLooks } from '../state/looks';
+import { doneCount, useLooks, type Look } from '../state/looks';
 import { useApp } from '../state/store';
-import { sharpenResult } from './composite';
+import { sharpenResult, skinColouredHex } from './composite';
 import { loadGarmentPhoto, type GarmentPhoto } from './garment';
-import { describeStatus, garmentUrl, PASS_MS, runSpace, SpaceError, within, type TryOnCategory, type TryOnRunner } from './space';
+import { describeStatus, garmentUrl, PASS_MS, runSpace, SpaceError, warmUp, within, type TryOnCategory, type TryOnRunner } from './space';
 
 type AppSnapshot = Pick<ReturnType<typeof useApp.getState>, 'catalog' | 'outfit' | 'photos' | 'photoVersion'>;
 
@@ -25,6 +25,8 @@ export interface TryOnGarment {
   category: TryOnCategory;
   /** Same-site URL of the UNIQLO product photo in the chosen colour. */
   image: string;
+  /** The colour reads as skin (beige, tan, pink...): the compositor then doesn't keep the shopper's skin. */
+  skinTone?: boolean;
 }
 
 export type TryOnInput =
@@ -55,6 +57,7 @@ export function tryOnInput(state: AppSnapshot): TryOnInput {
       name: `${item.name} in ${colorLabel(item, selection.colorCode)}`,
       category: slot === 'top' ? 'tops' : 'bottoms',
       image: garmentUrl(image),
+      skinTone: skinColouredHex(item.colors.find((c) => c.code === selection.colorCode)?.hex),
     });
   }
   const missing: string[] = [];
@@ -115,6 +118,9 @@ export function cancelTryOn(): void {
 // Photos removed or replaced: forget every input holding the old ones and stop a run that is still sending them.
 useApp.subscribe((state, prev) => {
   if (state.photoVersion === prev.photoVersion) return;
+  // a front photo means a try-on is coming: open the connection now (config only, no photo is sent), saving seconds later
+  const freeEngine = import.meta.env.VITE_PHOTO_ENGINE !== 'openai';
+  if (freeEngine && state.photos.front && !prev.photos.front && typeof window !== 'undefined' && !import.meta.env.VITEST) void warmUp();
   for (const [key, input] of inputs) if (input.version !== state.photoVersion) inputs.delete(key);
   for (const key of passes.keys()) if (!key.startsWith(`${state.photoVersion}|`)) passes.delete(key);
   if (running && running.version !== state.photoVersion) running.controller.abort();
@@ -176,7 +182,8 @@ async function shootView(key: string, view: View, input: Ready, run: TryOnRunner
   let current: Blob | null = null;
   let worn: string[] = input.garments.slice(0, reused).map((g) => g.slot);
   // The shopper's own photo above the new garment, the model's result below it (composite.ts).
-  const finish = async (result: Blob) => sharpenResult(photo, result, await blobToDataUrl(result));
+  const keepSkin = !input.garments.some((g) => g.skinTone);
+  const finish = async (result: Blob) => sharpenResult(photo, result, await blobToDataUrl(result), { keepSkin });
   try {
     current = reused ? passes.get(passKey(input.version, view, input.garments.slice(0, reused)))! : await (await fetch(photo)).blob();
     for (const [i, garment] of input.garments.entries()) {
@@ -187,7 +194,7 @@ async function shootView(key: string, view: View, input: Ready, run: TryOnRunner
       keepPass(passKey(input.version, view, input.garments.slice(0, i + 1)), current);
       worn = [...worn, garment.slot];
     }
-    looks.setView(key, view, { kind: 'done', image: await finish(current) });
+    looks.setView(key, view, { kind: 'done', image: await finish(current), before: photo });
     trackTryOn('ok', view, input.garments.length, startedAt, undefined, reused);
     return { quota: false, cancelled: false };
   } catch (err: unknown) {
@@ -203,7 +210,7 @@ async function shootView(key: string, view: View, input: Ready, run: TryOnRunner
     }
     if (worn.length > 0 && current) {
       const missingNames = input.garments.filter((g) => !worn.includes(g.slot)).map((g) => g.name.split(' in ')[0]);
-      looks.setView(key, view, { kind: 'done', image: await finish(current), note: `Without the ${missingNames.join(' and ')}: ${e.message}` });
+      looks.setView(key, view, { kind: 'done', image: await finish(current), before: photo, note: `Without the ${missingNames.join(' and ')}: ${e.message}` });
     } else if (previous?.kind === 'done') {
       // a retry that made nothing must not cost the photo already there
       looks.setView(key, view, { ...previous, note: `${e.message} Your earlier photo is kept.` });
@@ -247,7 +254,8 @@ export function makeTryOnLook(run: TryOnRunner = runSpace): Promise<void> {
     inputs.set(key, input);
     // a reshoot keeps the side photo if the shopper had asked for it (finished passes make it free)
     const order: View[] = previous?.order.includes('side') && input.photos.side ? [...input.order, 'side'] : input.order;
-    useLooks.getState().start(key, input.caption, order);
+    const { top, bottom } = useApp.getState().outfit;
+    useLooks.getState().start(key, input.caption, order, { ...(top ? { top } : {}), ...(bottom ? { bottom } : {}) });
     await shootViews(key, order, input, run);
     // A reshoot that produced nothing: keep the earlier photos rather than a failed, empty look.
     const look = useLooks.getState().looks[key];
@@ -285,4 +293,11 @@ export function addSideView(key: string, run: TryOnRunner = runSpace): Promise<v
   if (!input || !canAddSide(key)) return Promise.resolve();
   useLooks.getState().addView(key, 'side');
   return exclusive(key, () => shootViews(key, ['side'], input, run));
+}
+
+/** Looks made from the photos on screen, with at least one finished photo: the ones the shopper can go back to. */
+export function reachableLooks(looks: Record<string, Look>): Look[] {
+  return Object.values(looks)
+    .filter((l) => l.outfit && doneCount(l) > 0 && canRetryTryOn(l.key))
+    .sort((a, b) => (b.startedAt ?? 0) - (a.startedAt ?? 0));
 }

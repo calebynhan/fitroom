@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fitWithin, PHOTO_GUIDE, photoWarning } from './prepare';
+import { fitWithin, meanLuma, PHOTO_GUIDE, photoWarning } from './prepare';
 
 describe('fitWithin', () => {
   it('scales the long side down to the cap', () => {
@@ -25,5 +25,18 @@ describe('photo budgets and warnings', () => {
     expect(photoWarning('side', { width: 2000, height: 1500 })).toMatch(/landscape/);
     expect(photoWarning('front', { width: 864, height: 1536 })).toBeNull();
     expect(photoWarning('face', { width: 1200, height: 900 })).toBeNull();
+  });
+
+  it('warns about small and dark body photos, which make soft or wrong-coloured try-ons', () => {
+    expect(photoWarning('front', { width: 533, height: 662 })).toMatch(/small \(662 px tall\)/);
+    expect(photoWarning('front', { width: 864, height: 1536, luma: 40 })).toMatch(/dark/);
+    expect(photoWarning('front', { width: 864, height: 1536, luma: 120 })).toBeNull();
+    expect(photoWarning('face', { width: 300, height: 400, luma: 20 })).toBeNull();
+    // shrunk by us to fit the upload budget, but taken at full resolution: no warning
+    expect(photoWarning('side', { width: 614, height: 819, sourceHeight: 4000 })).toBeNull();
+  });
+
+  it('measures brightness', () => {
+    expect(meanLuma(new Uint8ClampedArray([0, 0, 0, 255, 255, 255, 255, 255]))).toBeCloseTo(127.5, 1);
   });
 });

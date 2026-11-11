@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { VIEW_LABEL, type View } from '@api/look';
 import type { Look } from '../state/looks';
+import { BeforeAfter } from './BeforeAfter';
 import { downloadName } from './download';
 
 interface LightboxProps {
@@ -14,7 +15,7 @@ interface LightboxProps {
 /** Keeps Tab / Shift+Tab cycling inside the open dialog. */
 function trapFocus(e: KeyboardEvent): void {
   const dialog = document.querySelector('.lightbox');
-  const items = Array.from(dialog?.querySelectorAll<HTMLElement>('button, a[href]') ?? []);
+  const items = Array.from(dialog?.querySelectorAll<HTMLElement>('button, a[href], input') ?? []);
   if (items.length === 0) return;
   const first = items[0];
   const last = items[items.length - 1];
@@ -53,6 +54,7 @@ export function Lightbox({ look, view, onClose, onNavigate }: LightboxProps) {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Tab') return trapFocus(e);
       if (e.key === 'Escape') onClose();
+      if ((e.target as HTMLElement | null)?.tagName === 'INPUT') return; // the compare slider uses the arrow keys
       if (e.key === 'ArrowRight' && next !== view) onNavigate(next);
       if (e.key === 'ArrowLeft' && prev !== view) onNavigate(prev);
     };
@@ -64,7 +66,11 @@ export function Lightbox({ look, view, onClose, onNavigate }: LightboxProps) {
   return createPortal(
     <div className="lightbox" role="dialog" aria-modal="true" aria-label={`${VIEW_LABEL[view]} photo`} onClick={onClose}>
       <div className="lightbox-inner" onClick={(e) => e.stopPropagation()}>
-        <img src={state.image} alt={`You, ${VIEW_LABEL[view].toLowerCase()} view`} width={1024} height={1536} />
+        {state.before ? (
+          <BeforeAfter key={view} before={state.before} after={state.image} alt={`You, ${VIEW_LABEL[view].toLowerCase()} view`} />
+        ) : (
+          <img src={state.image} alt={`You, ${VIEW_LABEL[view].toLowerCase()} view`} width={1024} height={1536} />
+        )}
         <div className="lightbox-bar">
           <span className="eyebrow">
             {VIEW_LABEL[view]} · {index + 1} / {done.length}
