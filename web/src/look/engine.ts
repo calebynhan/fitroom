@@ -13,10 +13,9 @@ export type Engine = 'space' | 'openai';
 export const ENGINE: Engine = import.meta.env.VITE_PHOTO_ENGINE === 'openai' ? 'openai' : 'space';
 export const TRY_ON = ENGINE === 'space';
 
-/** The views a new look will have, before it is shot. */
-export function engineViews(sideGiven: boolean): View[] {
-  if (!TRY_ON) return ['front', 'three_quarter', 'side', 'back'];
-  return sideGiven ? ['front', 'side'] : ['front'];
+/** The views a new look will have, before it is shot (a try-on look adds the side photo on request). */
+export function engineViews(): View[] {
+  return TRY_ON ? ['front'] : ['front', 'three_quarter', 'side', 'back'];
 }
 
 export type ShotInput = { ready: true; key: string; caption: LookCaption; order: View[] } | { ready: false; missing: string[] };
@@ -31,7 +30,7 @@ function useTryOnInput(): ShotInput {
 
 function useGeneratedInput(): ShotInput {
   const input = useLookInput();
-  return useMemo(() => (input.ready ? { ready: true, key: input.key, caption: input.caption, order: engineViews(true) } : input), [input]);
+  return useMemo(() => (input.ready ? { ready: true, key: input.key, caption: input.caption, order: engineViews() } : input), [input]);
 }
 
 /** The look on screen right now, for whichever engine is in use. */

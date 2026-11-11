@@ -43,6 +43,8 @@ interface LooksStore {
   remaining: number | null;
   start: (key: string, caption: LookCaption, order?: View[]) => void;
   setView: (key: string, view: View, state: ViewState) => void;
+  /** Adds a view to a look (the try-on side photo, shot on request). */
+  addView: (key: string, view: View) => void;
   setCompare: (key: string, slot: Slot, shot: CompareShot) => void;
   setBusy: (key: string | null) => void;
   setRemaining: (remaining: number | null) => void;
@@ -64,6 +66,12 @@ export const useLooks = create<LooksStore>()((set) => ({
     set((s) => {
       const look = s.looks[key];
       return look ? { looks: { ...s.looks, [key]: { ...look, views: { ...look.views, [view]: state } } } } : {};
+    }),
+  addView: (key, view) =>
+    set((s) => {
+      const look = s.looks[key];
+      if (!look || look.order.includes(view)) return {};
+      return { looks: { ...s.looks, [key]: { ...look, order: [...look.order, view], views: { ...look.views, [view]: { kind: 'waiting' } } } } };
     }),
   setCompare: (key, slot, shot) =>
     set((s) => {
