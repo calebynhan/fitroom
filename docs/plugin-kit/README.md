@@ -55,7 +55,8 @@ FASHN result, so take one once the key is set.
   - Show me black UNIQLO T-shirts under $25.
   - Do UNIQLO Slim Chino Pants run small?
 - **Category:** Shopping
-- **MCP server:** https://fitroom-woad.vercel.app/api/mcp (Streamable HTTP, no authentication)
+- **MCP server:** https://fitroom-woad.vercel.app/api/mcp (Streamable HTTP; no authentication while paid try-ons are
+  off, OAuth to the shopper's FitRoom account while they are on: see CLAUDE.md, "Accounts in the ChatGPT plugin")
 - **Privacy:** https://fitroom-woad.vercel.app/privacy · **Terms:** https://fitroom-woad.vercel.app/terms
 - **Support:** https://github.com/calebynhan/fitroom/issues · **Website:** https://fitroom-woad.vercel.app
 - **Language:** English (US). Imperial units by default, metric when asked.
@@ -117,7 +118,8 @@ a **temporary chat** (or with memory off): ChatGPT's memory carried earlier answ
 1. developers.openai.com/plugins > Submit (the Plugin Directory form; "app review" docs list the fields).
 2. Fill in section 2's copy, upload logo-512.png and the screenshots, and paste section 3's cases 1-10 as test prompts
    with expected responses. Be exact, since unclear expected responses are the most common reason for resubmission.
-3. Reviewer notes to include: no account or sign-in; FitRoom stores no measurements or photos (see Privacy);
+3. Reviewer notes to include: no account or sign-in for sizing (with paid try-ons on, try_on asks to link a FitRoom
+   account and spends try-ons bought on the website; nothing is sold in ChatGPT); FitRoom stores no measurements or photos (see Privacy);
    try_on is offered only when enabled and never mentions payment; purchases link out to uniqlo.com.
 4. After approval: set `VITE_CHATGPT_PLUGIN_URL` to the listing URL in Vercel (Production) and redeploy. The About
    section then shows "Use FitRoom in ChatGPT".

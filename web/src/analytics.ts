@@ -1,6 +1,6 @@
-// Vercel Web Analytics: anonymous page views, no cookies. Plus one custom event, the outcome of each try-on photo, so
-// failure rates (quota, busy, timeouts) are known (quality audit Phase 4). Never photos, names, measurements or URLs
-// with an outfit in them. Custom events need a Vercel Pro plan; on Hobby they are dropped and only page views count.
+// Vercel Web Analytics: anonymous page views, no cookies. Plus custom events: the outcome of each try-on photo, so
+// failure rates (quota, busy, timeouts) are known (quality audit Phase 4), and the steps of paid try-ons (sign-in,
+// paywall, checkout, paid). Never photos, names, emails, measurements or URLs with an outfit in them. Custom events need a Vercel Pro plan; on Hobby they are dropped and only page views count.
 import { inject, track } from '@vercel/analytics';
 import { SpaceError } from './tryon/space';
 
@@ -40,5 +40,17 @@ export function trackTryOn(
     track('tryon', { outcome, reason, view, garments, reused, seconds: Math.round((Date.now() - startedAt) / 1000) });
   } catch {
     // analytics must never break a try-on
+  }
+}
+
+export type AccountStep = 'signin' | 'paywall' | 'checkout' | 'paid';
+
+/** One event per paid try-on step; `reason` says which paywall (sign in or buy). Never the email. */
+export function trackAccount(step: AccountStep, reason?: string): void {
+  if (!import.meta.env.PROD) return;
+  try {
+    track('account', { step, reason });
+  } catch {
+    // analytics must never break a purchase
   }
 }

@@ -9,3 +9,5 @@ web/dist
 web/public/hdri
 web/public/models
 web/public/garments
+# Tests are not functions (Vercel turns every file in api/ into one; Hobby allows 12 per deployment).
+api/**/*.test.ts

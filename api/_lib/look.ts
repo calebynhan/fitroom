@@ -1,5 +1,6 @@
 // Contract for POST /api/photoreal: one photograph (one view) of a personalised look.
 // Pure and dependency-free: the web app imports these types and constants through the @api alias.
+import type { AccountView, BillingCode } from './accountTypes';
 
 export const VIEWS = ['front', 'three_quarter', 'side', 'back'] as const;
 export type View = (typeof VIEWS)[number];
@@ -90,8 +91,10 @@ export interface LookSuccess {
   compare?: { slot: 'top' | 'bottom'; size: string };
   /** Only on the front shot. */
   lookToken?: string;
-  /** Looks this visitor has left. */
+  /** Looks this visitor has left (the cookie limit; ignore it when `account` says paid try-ons are on). */
   remaining: number;
+  /** Paid try-ons on: the person's looks after this one. */
+  account?: AccountView;
 }
 
 export interface LookFailure {
@@ -99,6 +102,9 @@ export interface LookFailure {
   detail?: string;
   retryable: boolean;
   remaining?: number;
+  /** Paid try-ons: sign in first, or out of looks. */
+  code?: BillingCode;
+  account?: AccountView;
 }
 
 export const PHOTO_DATA_URL_RE = /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+=*$/;

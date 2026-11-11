@@ -1,9 +1,10 @@
 // FitRoom as a ChatGPT plugin: an MCP server (tools + one widget) built per request (stateless, so it runs on Vercel
 // functions). Tools: recommend_size (the size to buy and a fit card, from UNIQLO's chart and the web app's sizing
-// code, plus what earlier buyers reported), find_clothes (the catalog), try_on (the outfit on the shopper's own photo;
-// FASHN API; free photos capped per ChatGPT user), report_fit (how a bought item fits: anonymous tallies). The widget
-// (widget.html) renders the first three in the FitRoom design system. Every call is counted without personal data
-// (metrics.ts). Contract: CLAUDE.md, ChatGPT plugin.
+// code, plus what earlier buyers reported), size_chart (UNIQLO's chart without the shopper's body), find_clothes (the
+// catalog), try_on (the outfit on the shopper's own photo; FASHN API; free photos capped per ChatGPT user, or the
+// linked FitRoom account's try-ons while paid try-ons are on: accounts.ts), report_fit (how a bought item fits:
+// anonymous tallies). The widget (widget.html) renders them in the FitRoom design system. Every call is counted
+// without personal data (metrics.ts). Contract: CLAUDE.md, ChatGPT plugin.
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
@@ -17,12 +18,14 @@ import {
   type Tool,
 } from '@modelcontextprotocol/sdk/types.js';
 import { colorLabel } from '../fit/catalogItem';
+import { createHash } from 'node:crypto';
 import { chartSizes, formatSize, shortSize } from '../fit/sizing';
 import { fromDisplay, LIMITS, type Units } from '../fit/profile';
+import { callAccountTool, chargeTryOn, leftText, linkAccountResult, paid, withAccounts, type PluginAccount } from './accounts';
 import { catalogItems, colorFromLink, COVERAGE, notCoveredMessage, productCard, resolveColor, resolveProduct, searchCatalog, type Kind, type ProductCard } from './catalog';
 import { addReport, MIN_REPORTS, readReports, reportLine, VERDICTS, WHERE, type SizeReports, type Verdict, type Where } from './fitReports';
 import { recordCall } from './metrics';
-import { limitsFromEnv, reserve, userKey } from './quota';
+import { limitsFromEnv, reserve, reserveDaily, userKey } from './quota';
 import { adviseSize, cardLines, chartLines, generalChartItem, matchSize, parseBody, sizeChartFor, type BodyInput } from './sizing';
 import { storeFromEnv, type Store } from './store';
 import { defaultDeps, fetchShopperPhoto, tryOnOutfit, tryOnStatus, type Garment, type TryOnDeps } from './tryOn';
@@ -262,6 +265,8 @@ export const TOOLS: Tool[] = [
 
 export interface ServerContext {
   ip: string;
+  /** Paid try-ons (billing.ts) and the linked FitRoom account; absent or off = the monthly allowance per ChatGPT user. */
+  account?: PluginAccount;
   env?: Record<string, string | undefined>;
   store?: Store;
   deps?: TryOnDeps;
@@ -478,6 +483,16 @@ function findClothes(args: Record<string, unknown>): CallToolResult {
 
 const inFlightTryOns = new Set<string>();
 
+/** One try-on photo's allowance: the month's free photos per ChatGPT user, or the linked account's try-ons. */
+interface Ticket {
+  /** Left after this photo; null = unlimited (accounts that never pay). */
+  remaining: number | null;
+  resetsAt: string | null;
+  /** How `n` left reads to the shopper (null: say nothing). */
+  textFor: (n: number | null) => string | null;
+  release: () => Promise<void>;
+}
+
 async function tryOn(args: Record<string, unknown>, ctx: ServerContext, user: string, store: Store): Promise<CallToolResult> {
   const env = ctx.env ?? process.env;
   const deps = ctx.deps ?? defaultDeps;
@@ -485,6 +500,7 @@ async function tryOn(args: Record<string, unknown>, ctx: ServerContext, user: st
   const tryOnFailure = (state: string, message: string, extra: Record<string, unknown> = {}) =>
     result(message, { kind: 'tryon', status: state, message, items: [], ...extra }, undefined, true);
   if (!status.on) return tryOnFailure('unavailable', status.message);
+  if (paid(ctx.account) && !ctx.account.user) return linkAccountResult(ctx.account.origin);
 
   const garments: Garment[] = [];
   for (const slot of ['top', 'bottom'] as const) {
@@ -504,28 +520,63 @@ async function tryOn(args: Record<string, unknown>, ctx: ServerContext, user: st
   inFlightTryOns.add(user);
   try {
     const limits = limitsFromEnv(env);
-    const ticket = await reserve(store, user, limits, deps.now());
-    if (!ticket.ok) {
-      const when = new Date(ticket.resetsAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', timeZone: 'UTC' });
-      const message =
-        ticket.reason === 'user'
-          ? `You've used your ${limits.perMonth} free try-on photos this month. They come back on ${when}. Size advice is unlimited.`
-          : ticket.reason === 'everyone'
-            ? "FitRoom has made all of today's free try-on photos. Try again tomorrow; size advice still works."
-            : "Try-on photos can't start right now. Try again in a minute.";
-      return tryOnFailure(ticket.reason === 'user' ? 'limit' : 'unavailable', message, { remaining: ticket.remaining, resetsAt: ticket.resetsAt });
+    let ticket: Ticket;
+    if (paid(ctx.account)) {
+      // The person's count is their FitRoom account (ledger); today's shared cap still bounds the spend.
+      const day = await reserveDaily(store, limits, deps.now());
+      if (!day.ok) {
+        const message =
+          day.reason === 'everyone' ? "FitRoom has made all of today's try-on photos. Try again tomorrow; size advice still works." : "Try-on photos can't start right now. Try again in a minute.";
+        return tryOnFailure('unavailable', message);
+      }
+      const charge = await chargeTryOn(ctx.account);
+      if (!charge.ok) {
+        await day.release();
+        return charge.result;
+      }
+      ticket = {
+        remaining: charge.view.user?.left ?? null,
+        resetsAt: null,
+        textFor: (n) => (n === null ? null : leftText({ ...charge.view, user: charge.view.user ? { ...charge.view.user, left: n } : null })),
+        release: async () => {
+          await Promise.all([charge.release(), day.release()]);
+        },
+      };
+    } else {
+      const reservation = await reserve(store, user, limits, deps.now());
+      if (!reservation.ok) {
+        const when = new Date(reservation.resetsAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', timeZone: 'UTC' });
+        const message =
+          reservation.reason === 'user'
+            ? `You've used your ${limits.perMonth} free try-on photos this month. They come back on ${when}. Size advice is unlimited.`
+            : reservation.reason === 'everyone'
+              ? "FitRoom has made all of today's free try-on photos. Try again tomorrow; size advice still works."
+              : "Try-on photos can't start right now. Try again in a minute.";
+        return tryOnFailure(reservation.reason === 'user' ? 'limit' : 'unavailable', message, { remaining: reservation.remaining, resetsAt: reservation.resetsAt });
+      }
+      ticket = {
+        remaining: reservation.remaining,
+        resetsAt: reservation.resetsAt,
+        textFor: (n) => (n === null ? null : `${n} free try-on photo${n === 1 ? '' : 's'} left this month.`),
+        release: reservation.release,
+      };
     }
+    /** What the shopper has left once a failed photo is given back. */
+    const afterRelease = () => {
+      const n = ticket.remaining === null ? null : ticket.remaining + 1;
+      return { remaining: n, remainingText: ticket.textFor(n), resetsAt: ticket.resetsAt };
+    };
 
     const deadline = deps.now() + TRY_ON_BUDGET_MS;
     const photo = await fetchShopperPhoto(args.photo, deps);
     if (!photo.ok) {
       await ticket.release();
-      return tryOnFailure('photo', photo.message, { remaining: ticket.remaining + 1 });
+      return tryOnFailure('photo', photo.message, afterRelease());
     }
     const outcome = await tryOnOutfit(photo.dataUrl, garments, status.key, deps, deadline);
     if (!outcome.ok) {
       await ticket.release();
-      return tryOnFailure(outcome.kind === 'photo' ? 'photo' : outcome.kind, outcome.message, { remaining: ticket.remaining + 1 });
+      return tryOnFailure(outcome.kind === 'photo' ? 'photo' : outcome.kind, outcome.message, afterRelease());
     }
     const items = outcome.done.map((g) => productCard(g.item, g.colorCode));
     const names = outcome.done.map((g: Garment) => `${g.item.name} in ${colorLabel(g.item, g.colorCode)}`);
@@ -534,13 +585,21 @@ async function tryOn(args: Record<string, unknown>, ctx: ServerContext, user: st
       `The photo of you in the ${names.join(' and ')} is in the card above.`,
       'It shows the clothes as UNIQLO photographed them, not in your size; recommend_size gives the size and how it fits.',
       note,
-      `${ticket.remaining} free try-on photo${ticket.remaining === 1 ? '' : 's'} left this month.`,
+      ticket.textFor(ticket.remaining),
     ]
       .filter(Boolean)
       .join(' ');
     return result(
       text,
-      { kind: 'tryon', status: outcome.failed ? 'partial' : 'ok', message: note, items, remaining: ticket.remaining, resetsAt: ticket.resetsAt },
+      {
+        kind: 'tryon',
+        status: outcome.failed ? 'partial' : 'ok',
+        message: note,
+        items,
+        remaining: ticket.remaining,
+        remainingText: ticket.textFor(ticket.remaining),
+        resetsAt: ticket.resetsAt,
+      },
       { [PHOTO_META_KEY]: outcome.image },
     );
   } finally {
@@ -596,7 +655,7 @@ export function createServer(ctx: ServerContext): Server {
     { capabilities: { tools: {}, resources: {} }, instructions: instructionsFor(toolsFor(ctx)) },
   );
 
-  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: toolsFor(ctx) }));
+  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: withAccounts(toolsFor(ctx), ctx.account) }));
 
   server.setRequestHandler(ListResourcesRequestSchema, async () => ({
     resources: [{ uri: WIDGET_URI, name: 'FitRoom fitting room', mimeType: WIDGET_MIME, _meta: widgetResourceMeta() }],
@@ -609,13 +668,19 @@ export function createServer(ctx: ServerContext): Server {
 
   server.setRequestHandler(CallToolRequestSchema, async (request): Promise<CallToolResult> => {
     const args = (request.params.arguments ?? {}) as Record<string, unknown>;
-    const user = userKey(request.params._meta as Record<string, unknown> | undefined, ctx.ip);
+    const linked = paid(ctx.account) ? ctx.account.user : null;
+    // a linked FitRoom account is the person; hashed like ChatGPT's id, so no stored key carries the Google id
+    const user = linked
+      ? `acct:${createHash('sha256').update(`fitroom-acct:${linked.sub}`).digest('base64url').slice(0, 22)}`
+      : userKey(request.params._meta as Record<string, unknown> | undefined, ctx.ip);
     const store = ctx.store ?? storeFromEnv(ctx.env ?? process.env);
     const tool = request.params.name;
     const started = Date.now();
     let res: CallToolResult;
     try {
-      switch (tool) {
+      const own = paid(ctx.account) ? await callAccountTool(tool, ctx.account) : null;
+      if (own) res = own;
+      else switch (tool) {
         case 'recommend_size':
           res = await recommendSize(args, ctx, store);
           break;

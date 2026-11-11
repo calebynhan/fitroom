@@ -8,6 +8,7 @@ import { cancelShots, engineViews, retryShot, TRY_ON, useShotInput, type ShotInp
 import { canCompare, shootCompare } from '../look/shoot';
 import { useLookInput } from '../look/useLookInput';
 import { SPACE_PAGE } from '../tryon/space';
+import { useAccount } from '../account/store';
 import { doneCount, useLooks, type Look, type ViewState } from '../state/looks';
 import { useApp } from '../state/store';
 import { compareDownloadName, downloadName } from './download';
@@ -15,7 +16,7 @@ import { FitTable } from './FitTable';
 import { MeasureLink } from './measureLink';
 import { Lightbox } from './Lightbox';
 import { useNow, viewProgress } from './progress';
-import { AddSideButton, AllowanceNote } from './TryOnBudget';
+import { AddSideButton, AllowanceNote, CreditNote } from './TryOnBudget';
 import { LooksStrip } from './LooksStrip';
 
 function Frame({ look, view, stale, onOpen }: { look: Look; view: View; stale: boolean; onOpen: () => void }) {
@@ -294,7 +295,9 @@ function downloadAll(look: Look) {
 }
 
 function Shots({ look, stale }: { look: Look; stale: boolean }) {
-  const remaining = useLooks((s) => s.remaining);
+  const cookieLooks = useLooks((s) => s.remaining);
+  const paid = useAccount((s) => s.view?.billing === true);
+  const remaining = paid ? null : cookieLooks; // paid try-ons count looks in the account instead
   const busy = useLooks((s) => s.busy === look.key);
   const [open, setOpen] = useState<View | null>(null);
   const { caption } = look;
@@ -355,6 +358,7 @@ function Shots({ look, stale }: { look: Look; stale: boolean }) {
             </p>
           )}
           {TRY_ON && stale && <AllowanceNote />}
+          {TRY_ON && stale && <CreditNote />}
           {!TRY_ON && done > 0 && remaining !== null && remaining > 0 && (
             <p className="note">
               Shooting again uses one of your {remaining} remaining {remaining === 1 ? 'look' : 'looks'}.
@@ -418,6 +422,7 @@ function Intro({ input }: { input: ShotInput }) {
           <>
             <p className="intro-ready">Ready. Press {TRY_ON ? 'Try It On' : 'Make My Shots'}.</p>
             {TRY_ON && <AllowanceNote />}
+            {TRY_ON && <CreditNote />}
           </>
         ) : (
           <a className="btn btn-dark intro-start" href="#you">

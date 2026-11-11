@@ -1,10 +1,14 @@
 import { useEffect, useState } from 'react';
+import { handleCheckoutReturn } from './account/checkout';
+import { loadAccount } from './account/store';
 import { TRY_ON } from './look/engine';
 import { parseCatalog } from './catalog/types';
 import { loadOutfitFromUrl } from './outfit/load';
 import { hasUnsavedPhotos, useLooks } from './state/looks';
 import { useApp } from './state/store';
 import { AboutSection } from './ui/AboutSection';
+import { AccountDialog } from './ui/AccountDialog';
+import { AccountSection } from './ui/AccountSection';
 import { Header } from './ui/Header';
 import { Lookbook } from './ui/Lookbook';
 import { FitSection, MeasureSection } from './ui/MeasureSection';
@@ -34,6 +38,23 @@ function useCatalogLoader(): string | null {
   return error;
 }
 
+const ACCOUNT_REFRESH_MS = 60_000;
+
+/** The shopper's account (paid try-ons): on start, after Stripe sends them back, and when the tab comes back into view. */
+function useAccountLoader(): void {
+  useEffect(() => {
+    let last = Date.now();
+    void loadAccount().then(() => handleCheckoutReturn());
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible' || Date.now() - last < ACCOUNT_REFRESH_MS) return;
+      last = Date.now();
+      void loadAccount();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, []);
+}
+
 /** Photos live only in this tab (never stored), so warn before a reload or close throws them away. */
 function useLeaveWarning(): void {
   const unsaved = useLooks(hasUnsavedPhotos);
@@ -50,6 +71,7 @@ function useLeaveWarning(): void {
 
 export function App() {
   const catalogError = useCatalogLoader();
+  useAccountLoader();
   useLeaveWarning();
   return (
     <div className="app">
@@ -68,9 +90,11 @@ export function App() {
           <FitSection />
           <OutfitSection loadError={catalogError} />
           {!TRY_ON && <SceneSection />}
+          <AccountSection />
           <AboutSection />
         </aside>
       </main>
+      <AccountDialog />
     </div>
   );
 }

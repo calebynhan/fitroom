@@ -56,8 +56,8 @@ const OTHER_PEOPLE = /\bwomen'?s?\b|\bwomens\b|\bladies\b|\bgirls?\b|\bkids?\b|\
  * else null. Tells the model not to fill the gap with a guess (seen in ChatGPT: "puffer jacket" got a made-up size).
  */
 export function notCoveredMessage(text: string): string | null {
-  const shirtless = text.replace(/\bt-?shirts?\b|\bsweatshirts?\b/gi, '');
-  const buttonUp = /\bshirts?\b/i.test(shirtless);
+  // a bare "shirt" usually means a T-shirt; only button-up words count ("oxford shirt", "flannel", "button-down")
+  const buttonUp = /\b(button[- ]?(up|down)s?|oxfords?|flannels?|dress shirts?|linen shirts?|denim shirts?|overshirts?|shirt jackets?)\b/i.test(text);
   if (OTHER_PEOPLE.test(text)) {
     return `${COVERAGE}; women's and kids' sizing isn't covered yet. Don't guess a size: UNIQLO's size guide on the product page has the chart.`;
   }
@@ -81,6 +81,8 @@ export async function resolveProduct(query: string): Promise<Resolved> {
     const res = await getProduct(id);
     if (res.ok) return { ok: true, item: res.item };
     if (res.body.code === 'blocked') return { ok: false, message: `UNIQLO didn't answer for ${id}. Try again in a minute.` };
+    // a jacket / women's link: the lookup's own words, plus what FitRoom covers and not to guess (ChatGPT test, case 10)
+    if (res.body.code === 'unsupported') return { ok: false, message: `${res.body.error} ${COVERAGE}; don't guess a size.`, notCovered: true };
     return { ok: false, message: res.body.error };
   }
   const wanted = words(text);

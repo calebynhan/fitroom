@@ -78,3 +78,34 @@ export async function reserve(
     return { ok: false, reason: 'store', remaining: 0, resetsAt };
   }
 }
+
+export type DailyReservation =
+  | { ok: true; release: () => Promise<void> }
+  | { ok: false; reason: 'everyone' | 'store' };
+
+/**
+ * Takes one photo from today's shared cap only (paid try-ons on: the person's own count is their FitRoom account, in
+ * the ledger). The cap still bounds what FitRoom spends on FASHN in a day.
+ */
+export async function reserveDaily(store: QuotaStore, limits: { perDay: number }, now: number = Date.now()): Promise<DailyReservation> {
+  const dayK = `fr:tryon:day:${new Date(now).toISOString().slice(0, 10)}`;
+  try {
+    const today = await store.incr(dayK, 1, 2 * 24 * 3600);
+    if (today > limits.perDay) {
+      await store.incr(dayK, -1, 2 * 24 * 3600);
+      return { ok: false, reason: 'everyone' };
+    }
+    let released = false;
+    return {
+      ok: true,
+      release: async () => {
+        if (released) return;
+        released = true;
+        await store.incr(dayK, -1, 2 * 24 * 3600).catch((err: unknown) => console.error('[mcp] daily cap release failed', err instanceof Error ? err.message : err));
+      },
+    };
+  } catch (err: unknown) {
+    console.error('[mcp] quota store failed', err instanceof Error ? err.message : err);
+    return { ok: false, reason: 'store' };
+  }
+}

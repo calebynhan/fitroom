@@ -43,6 +43,18 @@
     "../api/_lib/mcp/*.ts",
     "../api/_lib/productLookup*.ts",
     "../api/_lib/quota*.ts",
-    "../api/_lib/fit/*.ts"
+    "../api/_lib/fit/*.ts",
+    "../api/account*.ts",
+    "../api/credits*.ts",
+    "../api/checkout*.ts",
+    "../api/stripe*.ts",
+    "../api/oauth*.ts",
+    "../api/_lib/account*.ts",
+    "../api/_lib/billing*.ts",
+    "../api/_lib/session*.ts",
+    "../api/_lib/googleToken*.ts",
+    "../api/_lib/ledger*.ts",
+    "../api/_lib/stripe*.ts",
+    "../api/_lib/oauth*.ts"
   ]
 }

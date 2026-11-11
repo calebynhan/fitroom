@@ -203,6 +203,13 @@ put its own try-on in this exact spot. Candidates for a real moat:
 | 3. Ship | Affiliate links, privacy policy, submit to the Plugin Directory | Approved |
 | 4. Paid members | Website freemium (Stripe) + OAuth account linking in the plugin | Only once the website has paying users |
 
+**Phase 4, built 2026-11-11** (off until paid try-ons are configured; CLAUDE.md "Paid try-ons" and "Accounts in the
+ChatGPT plugin"): the website gives 5 free try-ons per FitRoom account (Google sign-in), then packs on Stripe; FitRoom is
+the plugin's OAuth server (CIMD clients, PKCE, RFC 9207 `iss`), and while paid try-ons are on, `try_on` needs the linked
+account and spends its try-ons (the daily cap stays; the monthly allowance per ChatGPT user is off). Nothing is sold in
+ChatGPT: an empty account gets the reason and a link to /try-ons.html. The guidelines page was read directly on
+2026-11-11 (Commerce section): it allows explaining that a feature needs more credits and linking an informational page.
+
 ## Not verified (check before building)
 
 developers.openai.com and techcrunch.com are blocked by this session's network settings, so the rules above come from

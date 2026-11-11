@@ -5,6 +5,11 @@
 // shot as `reference`, so all four photos show the same person, outfit, shoes and light. A size comparison (front
 // view + `compare`) sends it too: the same front shot with one item in another size, at no extra look.
 // Photos are passed straight to the image model and never stored or logged.
+// Paid try-ons on (billing.ts): a new look needs a signed-in person with a look left (401 / 402 with `code` otherwise),
+// charged before the shot and given back if it fails; the per-visitor cookie limit is off. Responses carry `account`.
+import { randomUUID } from 'node:crypto';
+import { admit, asker, giveBack } from './_lib/account';
+import type { AccountView } from './_lib/billing';
 import { json, readJson } from './_lib/http';
 import { extension, fetchProductImage, decodeDataUrl, type ImageInput } from './_lib/images';
 import { comparedItems, parseLookRequest, type LookRequest } from './_lib/look';
@@ -96,6 +101,8 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   const usage = currentUsage(request, key);
+  const who = asker(request);
+  const billing = who.config.enabled;
   const parsed = parseLookRequest(await readJson(request));
   if (!parsed.ok) return json({ error: parsed.error, retryable: false, remaining: looksLeft(usage) }, 400);
   const req = parsed.value;
@@ -108,10 +115,26 @@ export async function POST(request: Request): Promise<Response> {
     if (!lookId) return json({ error: 'This look has expired or changed. Shoot it again.', retryable: false, remaining: looksLeft(usage) }, 403);
   }
 
-  const verdict = check(usage, newLook);
+  const verdict = check(usage, newLook, !billing);
   if (!verdict.ok) {
     const headers: Record<string, string> = verdict.retryAfterS ? { 'Retry-After': String(verdict.retryAfterS) } : {};
     return json({ error: verdict.error, retryable: verdict.retryable, remaining: looksLeft(usage) }, verdict.status, headers);
+  }
+
+  // Every new front shot costs one of the person's looks (each is a paid OpenAI image, so shooting the same look again
+  // costs again, as it did under the cookie limit); its angles and size comparisons ride on its token. Server-made ids
+  // carry a ':' so the browser's refund endpoint can't name them.
+  const chargedLook = newLook && billing ? `p:${randomUUID()}` : null;
+  let account: AccountView | undefined;
+  let charged = false;
+  if (chargedLook) {
+    const admission = await admit(who, chargedLook);
+    if (!admission.ok) {
+      const failure = { error: admission.error, code: admission.code, retryable: admission.code === 'unavailable', remaining: looksLeft(usage) };
+      return json({ ...failure, ...(admission.view ? { account: admission.view } : {}) }, admission.status);
+    }
+    account = admission.view;
+    charged = admission.charged;
   }
   if (lookId) {
     const angle = claimAngle(lookId, shot);
@@ -137,7 +160,9 @@ export async function POST(request: Request): Promise<Response> {
         recordImage(usage.ip);
         outcome = 'billed';
       }
-      return json({ ...failure, remaining: looksLeft(usage) }, status);
+      if (charged && chargedLook) account = (await giveBack(who, chargedLook)) ?? account;
+      charged = false;
+      return json({ ...failure, remaining: looksLeft(usage), ...(account ? { account } : {}) }, status);
     }
 
     recordImage(usage.ip);
@@ -148,13 +173,16 @@ export async function POST(request: Request): Promise<Response> {
       return json({ image, view: req.view, compare: echo, remaining: looksLeft(usage) });
     }
     if (lookId) return json({ image, view: req.view, remaining: looksLeft(usage) });
-    return json(
-      { image, view: req.view, lookToken: issueLookToken(key, lookDigest(req)), remaining: looksLeft({ ...usage, looks: usage.looks + 1 }) },
-      200,
-      { 'Set-Cookie': lookCookie(usage, key) },
-    );
+    const lookToken = issueLookToken(key, lookDigest(req));
+    // Paid try-ons count looks in the ledger, not the cookie.
+    if (billing) return json({ image, view: req.view, lookToken, remaining: looksLeft(usage), ...(account ? { account } : {}) });
+    return json({ image, view: req.view, lookToken, remaining: looksLeft({ ...usage, looks: usage.looks + 1 }) }, 200, {
+      'Set-Cookie': lookCookie(usage, key),
+    });
   } finally {
     if (lookId) settleAngle(lookId, shot, outcome);
+    // a crash after the charge must not cost the person a look
+    if (charged && outcome !== 'done' && chargedLook) await giveBack(who, chargedLook);
     end(usage.ip);
   }
 }

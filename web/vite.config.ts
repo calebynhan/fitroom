@@ -18,9 +18,22 @@ function devApi(): Plugin {
     name: 'fitroom-dev-api',
     configureServer(server) {
       const env = loadEnv('development', REPO_ROOT, '');
-      if (env.OPENAI_API_KEY && !process.env.OPENAI_API_KEY) process.env.OPENAI_API_KEY = env.OPENAI_API_KEY;
+      // Server-side settings from ../.env.local for the functions (the shell's own environment wins).
+      const SERVER_ENV = /^(OPENAI_API_KEY|GOOGLE_CLIENT_ID|SESSION_SECRET|STRIPE_\w+|FREE_LOOKS|PACK_\w+|BILLING_\w+|KV_REST_API_\w+|UPSTASH_REDIS_REST_\w+|APP_URL|OAUTH_\w+|FASHN_API_KEY|TRYON_\w+|AFFILIATE_URL_TEMPLATE)$/;
+      for (const [k, v] of Object.entries(env)) if (SERVER_ENV.test(k) && v && !process.env[k]) process.env[k] = v;
 
       server.middlewares.use(async (req, res, next) => {
+        // Same rewrites as vercel.json: OAuth discovery and endpoints for the ChatGPT plugin (/api/mcp).
+        const url = req.url ?? '';
+        const [path, query = ''] = url.split('?');
+        const rewritten = path.startsWith('/.well-known/oauth-protected-resource')
+          ? '/api/oauth?step=resource'
+          : path.startsWith('/.well-known/oauth-authorization-server')
+            ? '/api/oauth?step=server'
+            : /^\/api\/oauth\/[a-z]+$/.test(path)
+              ? `/api/oauth?step=${path.split('/').pop()}${query ? `&${query}` : ''}`
+              : url;
+        if (rewritten !== url) req.url = rewritten;
         const match = req.url?.match(/^\/api\/([a-z]+)(?:\?|$)/);
         if (!match) return next();
         try {

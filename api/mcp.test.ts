@@ -441,6 +441,8 @@ describe('items FitRoom does not cover', () => {
     expect(text(womens)).toContain("women's and kids' sizing isn't covered yet");
     const browse = await call(client, 'find_clothes', { query: 'puffer jacket' });
     expect(sc(browse)).toMatchObject({ status: 'not_covered', items: [] });
+    // a bare "shirts" means T-shirts to most people: browse, don't refuse
+    expect(sc(await call(client, 'find_clothes', { query: 'black shirts' })).status).not.toBe('not_covered');
     // T-shirts and sweatshirts are not "shirts"
     expect((await call(client, 'find_clothes', { query: 'crew neck t-shirt' })).isError).toBeFalsy();
     expect(sc(await call(client, 'find_clothes', { query: 'crew neck t-shirt' })).items.length).toBeGreaterThan(0);

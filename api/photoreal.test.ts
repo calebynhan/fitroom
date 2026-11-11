@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { POST } from './photoreal';
+import { ledger, resetLedger } from './_lib/ledger';
 import { COOKIE_NAME, decodeCount, encodeCount, LOOK_LIMIT } from './_lib/rateLimit';
+import { encodeSession, SESSION_COOKIE } from './_lib/session';
 
 const KEY = 'sk-test-key';
 const PHOTO = 'data:image/jpeg;base64,/9j/4AAQSkZJRg==';
@@ -210,5 +212,62 @@ describe('POST /api/photoreal', () => {
     expect(res.status).toBe(200);
     expect(captured.form!.getAll('image[]')).toHaveLength(3);
     expect(String(captured.form!.get('prompt'))).toContain('Reproduce each garment faithfully');
+  });
+});
+
+describe('POST /api/photoreal with paid try-ons on', () => {
+  const SECRET = 's'.repeat(40);
+  const ME = { sub: 'google-7', email: 'shopper@example.com' };
+  const signedIn = `${SESSION_COOKIE}=${encodeSession(ME, SECRET)}`;
+  let captured: Captured;
+  beforeEach(() => {
+    process.env.OPENAI_API_KEY = KEY;
+    process.env.GOOGLE_CLIENT_ID = 'client.apps.googleusercontent.com';
+    process.env.SESSION_SECRET = SECRET;
+    resetLedger();
+    captured = { form: null, productFetches: [] };
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    for (const k of ['OPENAI_API_KEY', 'GOOGLE_CLIENT_ID', 'SESSION_SECRET', 'FREE_LOOKS']) delete process.env[k];
+  });
+
+  it('asks to sign in before a new look, without calling OpenAI', async () => {
+    mockUpstream(okImage, captured);
+    const res = await call(look());
+    expect(res.status).toBe(401);
+    expect(await res.json()).toMatchObject({ code: 'signin', retryable: false });
+    expect(captured.form).toBeNull();
+  });
+
+  it("charges one of the person's looks per front shot (not the cookie); its angles are free", async () => {
+    mockUpstream(okImage, captured);
+    const res = await call(look(), signedIn);
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data).toMatchObject({ account: { user: { freeUsed: 1, left: 4 } } });
+    expect(res.headers.get('set-cookie')).toBeNull();
+    await call(look({ view: 'side', lookToken: data.lookToken, reference: PHOTO }), signedIn);
+    expect(await ledger().balance(ME.sub)).toEqual({ freeUsed: 1, credits: 0 });
+    await call(look(), signedIn); // shooting the same look again is a new paid image: it costs a look again
+    expect(await ledger().balance(ME.sub)).toEqual({ freeUsed: 2, credits: 0 });
+  });
+
+  it('gives the look back when the shot fails', async () => {
+    mockUpstream(() => Response.json({ error: { message: 'boom' } }, { status: 500 }), captured);
+    const res = await call(look(), signedIn);
+    expect(res.status).toBeGreaterThanOrEqual(500);
+    expect(await ledger().balance(ME.sub)).toEqual({ freeUsed: 0, credits: 0 });
+  });
+
+  it('asks for payment when the free looks are used up', async () => {
+    process.env.FREE_LOOKS = '0';
+    mockUpstream(okImage, captured);
+    const res = await call(look(), signedIn);
+    expect(res.status).toBe(402);
+    expect(await res.json()).toMatchObject({ code: 'payment', account: { user: { left: 0 } } });
+    expect(captured.form).toBeNull();
   });
 });

@@ -2,7 +2,12 @@
 // JSON responses, no sessions), so it runs as a plain Vercel function. Connect ChatGPT (developer mode) or any MCP
 // client to https://<host>/api/mcp. A GET from a browser returns a short description instead.
 // Tools and widget: _lib/mcp/server.ts. Contract: CLAUDE.md, ChatGPT plugin.
+// Paid try-ons on (billing.ts): a bearer token from FitRoom's OAuth (api/oauth.ts) is the shopper's FitRoom account;
+// one that is present but invalid gets 401 + WWW-Authenticate so ChatGPT signs in again (accounts.ts).
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
+import { siteOrigin } from './_lib/account';
+import { billingConfig } from './_lib/billing';
+import { authChallenge, bearerUser } from './_lib/oauth';
 import { catalogItems } from './_lib/mcp/catalog';
 import { readStats, statsAllowed } from './_lib/mcp/metrics';
 import { SERVER_NAME, SERVER_VERSION, createServer, toolsFor, widgetHtml } from './_lib/mcp/server';
@@ -18,7 +23,7 @@ const CORS: Record<string, string> = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization, Accept, Mcp-Session-Id, Mcp-Protocol-Version, Last-Event-ID',
-  'Access-Control-Expose-Headers': 'Mcp-Session-Id, Mcp-Protocol-Version',
+  'Access-Control-Expose-Headers': 'Mcp-Session-Id, Mcp-Protocol-Version, WWW-Authenticate',
   'Access-Control-Max-Age': '86400',
 };
 
@@ -51,7 +56,14 @@ export async function POST(request: Request): Promise<Response> {
   const verdict = limiter.hit(ip);
   if (!verdict.ok) return jsonRpcError(429, 'Too many requests. Try again in a minute.', { 'Retry-After': String(verdict.retryAfterS) });
 
-  const server = createServer({ ip });
+  const billing = billingConfig();
+  const origin = siteOrigin(request);
+  const auth = billing.enabled ? bearerUser(request, origin, billing.sessionSecret) : { status: 'none' as const };
+  if (auth.status === 'invalid') {
+    return jsonRpcError(401, 'Sign in to FitRoom again.', { 'WWW-Authenticate': authChallenge(origin, 'invalid_token', 'Sign in to FitRoom again.') });
+  }
+  const account = { billing, user: auth.status === 'ok' ? auth.user : null, origin };
+  const server = createServer({ ip, account });
   const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
   try {
     await server.connect(transport);
@@ -87,6 +99,7 @@ export async function GET(request: Request): Promise<Response> {
     catalogItems: catalogItems().length,
     widgetBytes: widgetHtml().length,
     tryOn: tryOnStatus().on ? 'on' : 'off',
+    accounts: billingConfig().enabled ? 'FitRoom accounts (OAuth): try-ons come from the linked account' : 'off: monthly free allowance per ChatGPT user',
   };
   return withCors(new Response(JSON.stringify(info, null, 2), { status: 200, headers: { 'Content-Type': 'application/json' } }));
 }
