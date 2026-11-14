@@ -11,6 +11,11 @@ export interface TryOnScores {
   colourDE: number | null;
   /** Lightness difference (result - product): negative = darker than on UNIQLO's site. */
   lightnessD: number | null;
+  /**
+   * Fine detail in the new garment (mean |luma - its 3x3 mean|, 0..255): texture such as knit, waffle or denim. Only
+   * comparable between runs on the same photo at the same size; more is not proof of the right texture.
+   */
+  detail: number | null;
 }
 
 const CHANGED = 40;
@@ -99,7 +104,26 @@ export function scoreTryOn(
   const [x0, y0, x1, y1] = product.fabric;
   const fabric = medianLab(product.px, product.width, product.height, (x, y) => x >= x0 * product.width && x < x1 * product.width && y >= y0 * product.height && y < y1 * product.height);
   const colourDE = garment && fabric ? Math.hypot(garment[0] - fabric[0], garment[1] - fabric[1], garment[2] - fabric[2]) : null;
-  return { changed: n / (width * height), aboveGarment: above, colourDE, lightnessD: garment && fabric ? garment[0] - fabric[0] : null };
+  const detail = top >= 0 && n >= width * height * 0.01 ? fineDetail(after, width, height, (x, y) => y >= top && changed[y * width + x] === 1) : null;
+  return { changed: n / (width * height), aboveGarment: above, colourDE, lightnessD: garment && fabric ? garment[0] - fabric[0] : null, detail };
+}
+
+/** Mean |luma - mean of its 3x3 neighbourhood| over the pixels `pick` selects (null when none): fine texture. */
+export function fineDetail(px: Uint8ClampedArray, width: number, height: number, pick: (x: number, y: number) => boolean): number | null {
+  const luma = new Float32Array(width * height);
+  for (let i = 0; i < width * height; i += 1) luma[i] = 0.299 * px[i * 4] + 0.587 * px[i * 4 + 1] + 0.114 * px[i * 4 + 2];
+  let sum = 0;
+  let n = 0;
+  for (let y = 1; y < height - 1; y += 1) {
+    for (let x = 1; x < width - 1; x += 1) {
+      if (!pick(x, y)) continue;
+      let m = 0;
+      for (let dy = -1; dy <= 1; dy += 1) for (let dx = -1; dx <= 1; dx += 1) m += luma[(y + dy) * width + x + dx];
+      sum += Math.abs(luma[y * width + x] - m / 9);
+      n += 1;
+    }
+  }
+  return n ? sum / n : null;
 }
 
 /** Plain-language flags for a score, using the thresholds seen in testing. */

@@ -1,6 +1,7 @@
-// Sharper results. The try-on model returns ~486x864 and redraws only the clothes, so wherever it changed nothing (the
-// head and hair, the legs under a new top, the wall beside the person, the floor) the shopper's own photo is used at
-// full resolution, and the model's output only where the clothes changed. The changed region is found by comparing
+// Sharper results. The try-on model returns at most 576x864 and redraws only the clothes, so wherever it changed nothing
+// (the head and hair, the legs under a new top, the wall beside the person, the floor) the shopper's own photo is used at
+// full resolution, and the model's output only where the clothes changed. The model may have been shown only part of
+// the photo (tryon/frame.ts): its result goes back into that box, fading to the photo at the box's inner edges. The changed region is found by comparing
 // the two images, then made solid row by row: from the leftmost to the rightmost change in each row (smoothed over
 // neighbouring rows, widened by a margin), between the first and last changed rows. Never pixel by pixel: dark pants
 // over dark jeans barely differ in pixels, and a per-pixel blend mixed old and new garments. Inside the region the
@@ -25,6 +26,8 @@ const DENSE = 5;
 const MAX_AREA = 0.95;
 /** Unsharp mask on the enlarged model output: strength and radius (px of the photo). */
 export const SHARPEN = { amount: 0.5, radius: 2 }; // 1.0 left halos at the shoulders (tested 2026-11-11)
+/** Width of the fade back to the photo at a crop's inner edges (share of the result's height). */
+const EDGE = 0.025;
 
 /** 1 where the try-on changed the photo noticeably (3x3 mean of the largest channel difference over CHANGED). */
 export function changedMask(before: Uint8ClampedArray, after: Uint8ClampedArray, width: number, height: number, threshold = CHANGED): Uint8Array {
@@ -275,60 +278,126 @@ async function decode(src: Blob | string): Promise<ImageBitmap> {
 }
 
 /**
- * The try-on result at the photo's own resolution: the model's output where the clothes changed, the shopper's photo
- * everywhere else. Falls back to the model's result (as a data URL) when the two can't be lined up or nothing changed.
+ * Sharpening for the model's output enlarged `scale` times: the full amount at the ~1.8x of a whole full-length photo,
+ * less for the smaller enlargement of a crop, none when it isn't enlarged (sharpening then only exaggerates the model's
+ * own grain and compression artefacts).
  */
-export async function sharpenResult(photo: string, result: Blob, fallback: string, options: { keepSkin?: boolean } = {}): Promise<string> {
-  let original: ImageBitmap | null = null;
+export function sharpenAmount(scale: number): number {
+  return SHARPEN.amount * Math.min(1, Math.max(0, (scale - 1) / 0.78));
+}
+
+/** Which sides of a crop lie inside the photo (a seam could show there), as opposed to on the photo's own edge. */
+export interface InnerEdges {
+  left: boolean;
+  top: boolean;
+  right: boolean;
+  bottom: boolean;
+}
+
+/** Fades `alpha` (row-major) to 0 at the inner edges over `px` pixels (smoothstep), so a crop never shows a seam. */
+export function edgeFade(alpha: Float32Array, width: number, height: number, inner: InnerEdges, px: number): void {
+  if (px < 1 || !(inner.left || inner.top || inner.right || inner.bottom)) return;
+  const ramp = (d: number) => {
+    const t = Math.min(1, Math.max(0, d / px));
+    return t * t * (3 - 2 * t);
+  };
+  for (let y = 0; y < height; y += 1) {
+    const ry = (inner.top ? ramp(y) : 1) * (inner.bottom ? ramp(height - 1 - y) : 1);
+    for (let x = 0; x < width; x += 1) {
+      const rx = (inner.left ? ramp(x) : 1) * (inner.right ? ramp(width - 1 - x) : 1);
+      alpha[y * width + x] *= rx * ry;
+    }
+  }
+}
+
+/** Where a pass's result goes: `box` of the photo (null = all of it) and which of its sides are inside the photo. */
+export function placement(box: { x: number; y: number; w: number; h: number } | null, width: number, height: number) {
+  const b = box ?? { x: 0, y: 0, w: width, h: height };
+  return { box: b, inner: { left: b.x > 0, top: b.y > 0, right: b.x + b.w < width, bottom: b.y + b.h < height } };
+}
+
+/**
+ * One try-on pass put into `base` (the photo, or the photo already wearing the earlier garments), at `base`'s own
+ * resolution: the model's output where the clothes changed inside `box` (the part of `base` the model was shown; null =
+ * all of it), `base` everywhere else. Each pass is compared with its own input, so the top on a photo keeps the first
+ * pass's pixels when the bottoms are added. When the change can't be found (nothing changed, or the whole photo was
+ * redrawn) the model's output is used for the whole box. Falls back to `fallback` (the model's result as is) only when
+ * the images can't be drawn at all, or a whole-photo result came back in another shape.
+ */
+export async function compositePass(
+  base: string,
+  result: Blob,
+  box: { x: number; y: number; w: number; h: number } | null,
+  fallback: string,
+  options: { keepSkin?: boolean } = {},
+): Promise<string> {
+  let photo: ImageBitmap | null = null;
   let output: ImageBitmap | null = null;
   try {
-    [original, output] = await Promise.all([decode(photo), decode(result)]);
+    [photo, output] = await Promise.all([decode(base), decode(result)]);
+    const OW = photo.width;
+    const OH = photo.height;
     const W = output.width;
     const H = output.height;
-    const OW = original.width;
-    const OH = original.height;
-    if (!sameFraming({ width: W, height: H }, { width: OW, height: OH }) || OW <= W) return fallback;
+    const { box: B, inner } = placement(box, OW, OH);
+    const aligned = sameFraming({ width: W, height: H }, { width: B.w, height: B.h });
+    if (!aligned && !box) return fallback;
 
-    const [, small] = canvas(W, H);
-    small.drawImage(original, 0, 0, W, H);
-    const [, out] = canvas(W, H);
-    out.drawImage(output, 0, 0);
-    const before = small.getImageData(0, 0, W, H).data;
-    const after = out.getImageData(0, 0, W, H).data;
-    const region = garmentRegion(changedMask(before, after, W, H), W, H);
-    if (!region) return fallback;
-    const alpha = regionAlpha(region, W, H);
-    const skin = options.keepSkin === false ? null : sameSkin(before, after, W, H);
-    let area = 0;
-    for (const a of alpha) area += a;
-    if (area / (W * H) > MAX_AREA) return fallback;
-
-    // the shopper's photo, kept where alpha is low: its own alpha is 1 - the model's, drawn over the model's output
-    const [keep, k] = canvas(W, H);
-    const mask = k.createImageData(W, H);
-    for (let i = 0; i < W * H; i += 1) mask.data[i * 4 + 3] = Math.round(255 * (1 - alpha[i] * (1 - (skin?.[i] ?? 0))));
-    k.putImageData(mask, 0, 0);
     const [final, f] = canvas(OW, OH);
-    f.imageSmoothingQuality = 'high';
-    f.drawImage(output, 0, 0, OW, OH);
-    const box = alphaBox(alpha, W, H, OW, OH);
-    if (SHARPEN.amount > 0 && box) {
-      const enlarged = f.getImageData(box.x, box.y, box.w, box.h);
-      unsharp(enlarged.data, box.w, box.h, SHARPEN.radius, SHARPEN.amount);
-      f.putImageData(enlarged, box.x, box.y);
+    f.drawImage(photo, 0, 0);
+    try {
+      let alpha: Float32Array | null = null;
+      let skin: Float32Array | null = null;
+      if (aligned) {
+        const [, small] = canvas(W, H);
+        small.imageSmoothingQuality = 'high';
+        small.drawImage(photo, B.x, B.y, B.w, B.h, 0, 0, W, H);
+        const [, out] = canvas(W, H);
+        out.drawImage(output, 0, 0);
+        const before = small.getImageData(0, 0, W, H).data;
+        const after = out.getImageData(0, 0, W, H).data;
+        const region = garmentRegion(changedMask(before, after, W, H), W, H);
+        if (region) {
+          alpha = regionAlpha(region, W, H);
+          let area = 0;
+          for (const a of alpha) area += a;
+          if (area / (W * H) > MAX_AREA) alpha = null;
+          else if (options.keepSkin !== false) skin = sameSkin(before, after, W, H);
+        }
+      }
+      alpha ??= new Float32Array(W * H).fill(1);
+      edgeFade(alpha, W, H, inner, Math.max(2, Math.round(EDGE * H)));
+
+      // the model's output, enlarged into the box (sharpened by how much it was enlarged), masked by alpha
+      const [layer, l] = canvas(B.w, B.h);
+      l.imageSmoothingQuality = 'high';
+      l.drawImage(output, 0, 0, B.w, B.h);
+      const amount = sharpenAmount(B.w / W);
+      const sharpen = amount > 0 ? alphaBox(alpha, W, H, B.w, B.h) : null;
+      if (sharpen) {
+        const pixels = l.getImageData(sharpen.x, sharpen.y, sharpen.w, sharpen.h);
+        unsharp(pixels.data, sharpen.w, sharpen.h, SHARPEN.radius, amount);
+        l.putImageData(pixels, sharpen.x, sharpen.y);
+      }
+      const [maskCanvas, m] = canvas(W, H);
+      const mask = m.createImageData(W, H);
+      for (let i = 0; i < W * H; i += 1) mask.data[i * 4 + 3] = Math.round(255 * alpha[i] * (1 - (skin?.[i] ?? 0)));
+      m.putImageData(mask, 0, 0);
+      l.globalCompositeOperation = 'destination-in';
+      l.drawImage(maskCanvas, 0, 0, B.w, B.h);
+      f.drawImage(layer, B.x, B.y);
+    } catch (err: unknown) {
+      // pixels unreadable (memory, a tainted canvas): the model's output over the whole box, still in place
+      console.warn('[tryon] placed the model result without blending', err);
+      f.drawImage(photo, 0, 0);
+      f.drawImage(output, B.x, B.y, B.w, B.h);
     }
-    const [photoLayer, p] = canvas(OW, OH);
-    p.drawImage(original, 0, 0);
-    p.globalCompositeOperation = 'destination-in';
-    p.imageSmoothingQuality = 'high';
-    p.drawImage(keep, 0, 0, OW, OH);
-    f.drawImage(photoLayer, 0, 0);
-    return final.toDataURL('image/jpeg', 0.92);
+    return final.toDataURL('image/jpeg', 0.95);
   } catch (err: unknown) {
-    console.warn('[tryon] kept the model result unsharpened', err);
+    console.warn('[tryon] kept the model result as is', err);
     return fallback;
   } finally {
-    original?.close();
+    photo?.close();
     output?.close();
   }
 }

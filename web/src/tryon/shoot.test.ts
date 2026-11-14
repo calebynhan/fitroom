@@ -8,7 +8,7 @@ import { parseCatalog } from '../catalog/types';
 import { useLooks } from '../state/looks';
 import { useApp } from '../state/store';
 import { useAllowance } from './allowance';
-import { addSideView, canAddSide, canRetryTryOn, cancelTryOn, forgetPasses, makeTryOnLook, passesNeeded, reachableLooks, retryTryOnView, tryOnInput } from './shoot';
+import { addSideView, canAddSide, canRetryTryOn, cancelTryOn, forgetPasses, makeTryOnLook, passesNeeded, reachableLooks, retryTryOnView, setBodyFinder, tryOnInput } from './shoot';
 import { SpaceError, type GarmentPhotoType, type TryOnCategory, type TryOnRunner } from './space';
 
 const PHOTO = { dataUrl: 'data:image/jpeg;base64,/9j/4AAQSkZJRg==', width: 600, height: 900 };
@@ -50,11 +50,17 @@ beforeEach(() => {
   useLooks.setState({ looks: {}, busy: null, latest: null, remaining: null });
   useAccount.setState({ view: FREE, dialog: null, pending: false }); // paid try-ons off unless a test turns them on
   forgetAdmitted();
-  // The person photo arrives as a data URL; garment photos come from the same-site /uniqlo/ proxy.
+  setBodyFinder(async () => null); // Node has no WASM pose model or canvas: the whole photo is sent, as without landmarks
+  // The person photo arrives as a data URL ("me"); a pass starts from the previous pass's photo, also a data URL (what
+  // it holds is decoded, so the chain shows); garment photos come from the same-site /uniqlo/ proxy.
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url: string) =>
-      url.startsWith('data:') ? new Response(new Blob(['me'])) : new Response(new Blob([`garment ${url}`], { type: 'image/jpeg' })),
+      url === PHOTO.dataUrl
+        ? new Response(new Blob(['me']))
+        : url.startsWith('data:')
+          ? new Response(new Blob([decode(url)]))
+          : new Response(new Blob([`garment ${url}`], { type: 'image/jpeg' })),
     ),
   );
   vi.spyOn(console, 'warn').mockImplementation(() => undefined); // no canvas in Node: results stay unsharpened

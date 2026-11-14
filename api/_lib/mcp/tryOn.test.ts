@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { garmentOnlyUrl } from '../fit/garmentPhoto';
-import { fashnPass, fetchImage, photoUrl, safePublicUrl, tryOnStatus, type TryOnDeps } from './tryOn';
+import { fashnMode, fashnPass, fetchImage, photoUrl, QUALITY_PASS_MS, safePublicUrl, tryOnStatus, type TryOnDeps } from './tryOn';
 
 const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 0]);
 
@@ -97,6 +97,30 @@ describe('FASHN passes', () => {
   it('gives up at the deadline', async () => {
     const d = deps((url) => (url.endsWith('/run') ? Response.json({ id: 'x' }) : Response.json({ status: 'in_queue' })));
     expect(await fashnPass('a', 'b', 'bottoms', 'k', d, 10_000)).toMatchObject({ kind: 'busy', message: expect.stringContaining('too long') });
+  });
+});
+
+describe('FASHN mode', () => {
+  it('uses quality while the time left covers a quality pass for every pass to come, else balanced', () => {
+    expect(fashnMode(48_000, 2)).toBe('quality'); // a top and bottoms, at the start of the 48 s budget
+    expect(fashnMode(30_000, 2)).toBe('balanced');
+    expect(fashnMode(25_000, 1)).toBe('quality');
+    expect(fashnMode(15_000, 1)).toBe('balanced');
+    expect(fashnMode(QUALITY_PASS_MS, 0)).toBe('quality');
+  });
+
+  it('sends the chosen mode to FASHN', async () => {
+    const sent: unknown[] = [];
+    const d = deps((url, init) => {
+      if (url.endsWith('/run')) {
+        sent.push(JSON.parse(String(init?.body)).inputs.mode);
+        return Response.json({ id: 'abc' });
+      }
+      return Response.json({ status: 'completed', output: ['data:image/jpeg;base64,/9j/x'] });
+    });
+    await fashnPass('a', 'b', 'tops', 'k', d, 60_000, 'quality');
+    await fashnPass('a', 'b', 'tops', 'k', d, 60_000);
+    expect(sent).toEqual(['quality', 'balanced']);
   });
 });
 

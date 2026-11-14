@@ -5,11 +5,13 @@
 // with truer colour. Some goods_ shots are model shots too, so each photo is checked before choosing its photo type.
 
 import { garmentOnlyUrl } from '@api/fit/garmentPhoto';
+import { frameGarment } from './frame';
 import type { GarmentPhotoType } from './space';
 
 export { garmentOnlyUrl };
 
 export interface GarmentPhoto {
+  /** What the model is sent: cropped to the garment on a 2:3 canvas of its backdrop (frame.ts) unless asked not to. */
   blob: Blob;
   type: GarmentPhotoType;
   /** The same-site URL it came from (shown as the colour reference). */
@@ -100,8 +102,12 @@ async function fetchImage(url: string): Promise<Blob | null> {
   return res.blob();
 }
 
-/** The best photo of a garment for the try-on: garment-only when UNIQLO has one, else the catalogue photo. */
-export async function loadGarmentPhoto(url: string): Promise<GarmentPhoto | null> {
+/**
+ * The best photo of a garment for the try-on: garment-only when UNIQLO has one, else the catalogue photo. Its type is
+ * judged on the photo as UNIQLO framed it (the detector looks where a model's head would be), then it is cropped to
+ * the garment (`frame: false` keeps it as is, for the eval's before/after).
+ */
+export async function loadGarmentPhoto(url: string, { frame = true }: { frame?: boolean } = {}): Promise<GarmentPhoto | null> {
   const plain = garmentOnlyUrl(url);
   for (const candidate of plain ? [plain, url] : [url]) {
     const blob = await fetchImage(candidate);
@@ -112,7 +118,7 @@ export async function loadGarmentPhoto(url: string): Promise<GarmentPhoto | null
     } catch {
       // can't inspect it: treat it as worn, the setting that copes with either
     }
-    return { blob, type, url: candidate };
+    return { blob: frame ? await frameGarment(blob) : blob, type, url: candidate };
   }
   return null;
 }

@@ -136,12 +136,12 @@ export function PhotoSection() {
           </ul>
           <p className="note">Your photo stays as it is (face, pose and background); only the clothes change.</p>
           <p className="note fine">
-            Only photos of yourself. They go from this tab straight to the free{' '}
+            Only photos of yourself. Just the part being dressed goes from this tab straight to the free{' '}
             <a href={SPACE_PAGE} target="_blank" rel="noreferrer">
               FASHN VTON try-on on Hugging Face
             </a>{' '}
             to make your shots. That public Space keeps uploads on its server for a while, outside FitRoom's control; FitRoom itself
-            never stores them.
+            never stores your photos.
           </p>
         </>
       ) : (
