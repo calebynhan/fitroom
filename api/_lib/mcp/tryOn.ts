@@ -1,5 +1,5 @@
-// Try-on photos for the ChatGPT plugin, made on the server with the FASHN API (tryon-v1.6, about 8 s and 1 credit
-// per garment). The shopper's photo arrives as a ChatGPT file link; it is downloaded into memory, sent to FASHN as a
+// Try-on photos for the ChatGPT plugin, made on the server with the FASHN API (tryon-v1.6, 1 credit per garment;
+// quality mode, ~12-17 s, whenever the time left allows it, else balanced, ~8 s). The shopper's photo arrives as a ChatGPT file link; it is downloaded into memory, sent to FASHN as a
 // data URI with `return_base64` (FASHN keeps no copy of either beyond the request: docs.fashn.ai, Data Retention),
 // and the result goes back to the widget only. FitRoom stores and logs neither photo.
 // Each garment is one pass: the top on the shopper's photo, then the bottoms on that result (as the web app does).
@@ -162,6 +162,20 @@ function runtimeFailure(name: string | undefined): TryOnFailure {
   }
 }
 
+export type FashnMode = 'quality' | 'balanced';
+
+/** Time to allow one quality-mode pass (FASHN: ~12-17 s, plus upload and polling). */
+export const QUALITY_PASS_MS = 20_000;
+
+/**
+ * FASHN's mode for the next pass. Quality costs the same credit as balanced and draws garment detail (knit, denim)
+ * better, but takes ~12-17 s instead of ~8 s: used only while the time left covers a quality pass for every pass still
+ * to run, so a two-garment try-on still fits the tool's budget.
+ */
+export function fashnMode(timeLeftMs: number, passesLeft: number): FashnMode {
+  return timeLeftMs >= Math.max(1, passesLeft) * QUALITY_PASS_MS ? 'quality' : 'balanced';
+}
+
 /** One FASHN pass: `garment` on `person` (both data URIs). Gives up at `deadline` (ms since epoch). */
 export async function fashnPass(
   person: string,
@@ -170,6 +184,7 @@ export async function fashnPass(
   key: string,
   deps: TryOnDeps,
   deadline: number,
+  mode: FashnMode = 'balanced',
 ): Promise<{ ok: true; image: string } | TryOnFailure> {
   const headers = { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' };
   let id: string;
@@ -184,7 +199,7 @@ export async function fashnPass(
           garment_image: garment,
           category,
           garment_photo_type: 'auto',
-          mode: 'balanced',
+          mode,
           moderation_level: 'conservative',
           output_format: 'jpeg',
           return_base64: true,
@@ -241,10 +256,11 @@ export async function tryOnOutfit(photo: string, garments: Garment[], key: strin
   const ordered = [...garments].sort((a, b) => (a.item.slot === 'top' ? -1 : 1) - (b.item.slot === 'top' ? -1 : 1));
   let person = photo;
   const done: Garment[] = [];
-  for (const g of ordered) {
+  for (const [i, g] of ordered.entries()) {
     const garment = await fetchGarmentPhoto(g.item, g.colorCode, deps);
+    const mode = fashnMode(deadline - deps.now(), ordered.length - i);
     const pass: { ok: true; image: string } | TryOnFailure = garment
-      ? await fashnPass(person, garment, g.item.slot === 'top' ? 'tops' : 'bottoms', key, deps, deadline)
+      ? await fashnPass(person, garment, g.item.slot === 'top' ? 'tops' : 'bottoms', key, deps, deadline, mode)
       : { ok: false, kind: 'error', message: `UNIQLO's photo of the ${g.item.name} couldn't be loaded. Try again.` };
     if (!pass.ok) {
       if (done.length === 0) return pass;

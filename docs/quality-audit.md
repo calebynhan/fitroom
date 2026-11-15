@@ -1,7 +1,7 @@
 # FitRoom quality audit, 2026-11-10
 
-Status: Phases 0, 1, 2, 3, 5, 6 and 7 done (live-URL checks pending); Phase 4 code side done. Findings 1-7, 9-18 fixed;
-8 downgraded to P2 (not reproduced on 2 of 8 products), 19 open.
+Status: Phases 0, 1, 2, 3, 5, 6, 7 and 8 done (live-URL checks pending); Phase 4 code side done. Findings 1-7, 9-18
+fixed; 8 downgraded to P2 (not reproduced on 2 of 8 products), 19 open.
 
 What was tested, what is wrong, and a plan to improve it that can be measured. Covers the free try-on engine (the
 default), sizing and the fit card, the catalog and the UI, on branch `claude/focused-turing-yuhkiq` (PR #2).
@@ -190,6 +190,37 @@ The try-on returns ~486x864; the photo the shopper sees is 864x1536 or more. Wor
 - **Before / after** divider in the lightbox; **Your try-ons** strip to go back to an outfit for free; upload warnings for
   photos under 1000 px tall (soft results; the selfie case) or dark (mean luma < 60).
 Cost: ~0.3-0.6 s per photo in desktop Chromium.
+
+### Phase 8: fabric texture - done 2026-11-14 (Space check of the two-pass flow pending)
+Shoppers saw knit, waffle and denim come out wrong. Causes, from the model's code (fashn_vton: TryOnModel input 864x576,
+12 px patches; the Space fits inputs into that and pads to 2:3) and 9 passes on the Space (FASHN's example person2,
+full length, cut to 9:16):
+- a full-length photo used 486x864 of the model's canvas and left the chest ~150 px wide; UNIQLO's garment-only shots
+  have a wide margin (the sweater spans 74% of the width);
+- for a top + bottoms, the bottoms pass got the top pass's raw 486x864 WebP and redrew the top: -14% fine detail, and
+  once a strip of the old pants at the waist;
+- the Space returns WebP at quality 80, which keeps ~87% of a knit's fine detail (estimated by re-encoding UNIQLO's
+  fabric at the model's scale).
+
+| Fine detail in the same patch (mean luma - 2 px blur) | Before | After |
+|---|---|---|
+| Milano Ribbed Sweater, chest (garment crop only: 0.20) | 0.15 | 0.35, rib hem, cuffs and collar band appear |
+| Waffle T, chest | 0.59 | 0.96, but drawn as vertical ribs, not a grid |
+| Baggy Jeans, shin | 0.41 | 0.85, seams and fading |
+| 50 steps instead of 30 (sweater, cropped) | 0.35 | 0.41, no visible change, 1.6x GPU |
+
+Built: body landmarks on the device (photos/body.ts, MediaPipe Pose Landmarker lite, ~9 MB once, after a photo is
+added); a 2:3 crop of the part being dressed and of the garment (tryon/frame.ts); the result put back into the full
+photo with a fade at the crop's inner edges and sharpening scaled to the enlargement (tryon/composite.ts compositePass);
+each pass starts from the previous composite (tryon/pass.ts, tryon/shoot.ts); the eval page gained a framing switch and
+a detail score. Plugin: FASHN quality mode when the time allows (same credit). Own Space: PNG output (CLAUDE.md).
+Checked in Chromium: the app sent a 552x827 crop and a 1114x1671 framed garment to the Space (then the GPU allowance of
+this connection was used up); real Space results put back with compositePass show no seam at 3x zoom; the app's own
+two-pass flow with a fake Space places both garments and starts the bottoms from the top's composite; the production
+build loads nothing of the pose model before a photo. **Still to do:** the same outfit on the Space with the owner's
+photos (eval.html, crop vs whole photo), then the live URL on desktop and a phone (iOS Safari runs the WASM model).
+Not fixable at 576x864: the fine rib of a Milano knit and a waffle grid. That needs a higher-resolution model (FASHN API
+tryon-v1.6 at 864x1296, or Try-On Max up to 4K).
 
 ## How to rerun
 

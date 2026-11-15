@@ -5,6 +5,8 @@
 // replaced are never sent again: their cached inputs are dropped and a run still using them is stopped.
 // Free GPU time is scarce (about 3 passes a day), so every finished pass is kept in memory: the same photo in the same
 // top is reused when only the bottoms change, and a retry after a partial photo starts from the part that worked.
+// Each pass is shown only the part of the photo it dresses (frame.ts) and goes back into the full-resolution photo
+// (composite.ts); the next pass starts from that, so the bottoms pass never redraws the top from a small, lossy copy.
 // Paid try-ons (account/gate.ts): a look that needs GPU passes is charged first and given back if it makes no photo.
 import type { View } from '@api/look';
 import { admit, billingOff, lookId, release, type Ticket } from '../account/gate';
@@ -15,8 +17,10 @@ import type { LookCaption } from '../look/request';
 import { exclusive } from '../look/shoot';
 import { doneCount, useLooks, type Look } from '../state/looks';
 import { useApp } from '../state/store';
-import { sharpenResult, skinColouredHex } from './composite';
+import { bodyOf, keepBodies, prefetchBody, type Body } from '../photos/body';
+import { skinColouredHex } from './composite';
 import { loadGarmentPhoto, type GarmentPhoto } from './garment';
+import { dressPass } from './pass';
 import { describeStatus, garmentUrl, PASS_MS, runSpace, SpaceError, warmUp, within, type TryOnCategory, type TryOnRunner } from './space';
 
 type AppSnapshot = Pick<ReturnType<typeof useApp.getState>, 'catalog' | 'outfit' | 'photos' | 'photoVersion'>;
@@ -81,14 +85,14 @@ export function tryOnInput(state: AppSnapshot): TryOnInput {
 }
 
 const inputs = new Map<string, Ready>();
-/** Finished passes: photo version + view + the garments worn so far, in order -> the result. */
-const passes = new Map<string, Blob>();
+/** Finished passes: photo version + view + the garments worn so far, in order -> the photo wearing them (data URL). */
+const passes = new Map<string, string>();
 const MAX_PASSES = 16;
 const passKey = (version: number, view: View, garments: TryOnGarment[]) => [version, view, ...garments.map((g) => g.image)].join('|');
 
-function keepPass(key: string, blob: Blob): void {
+function keepPass(key: string, image: string): void {
   passes.delete(key);
-  passes.set(key, blob);
+  passes.set(key, image);
   while (passes.size > MAX_PASSES) passes.delete(passes.keys().next().value!);
 }
 
@@ -108,6 +112,32 @@ export function passesNeeded(input: Ready, views: View[] = input.order): number 
   return views.reduce((sum, view) => sum + input.garments.length - reusable(input, view), 0);
 }
 const garmentPhotos = new Map<string, Promise<GarmentPhoto>>();
+
+/** How long a try-on waits for the body landmarks (a first visit downloads the model) before sending the whole photo. */
+const BODY_WAIT_MS = 15_000;
+let findBody: (photo: string) => Promise<Body | null> = bodyOf;
+/** Replaces the landmark finder (tests: Node has no canvas or WASM model). */
+export function setBodyFinder(find: (photo: string) => Promise<Body | null>): void {
+  findBody = find;
+}
+
+/** The body in `photo`, or null when it isn't found in time (never rejects: the whole photo is the fallback). */
+function bodyFor(photo: string): Promise<Body | null> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(null), BODY_WAIT_MS);
+    findBody(photo).then(
+      (body) => {
+        clearTimeout(timer);
+        resolve(body);
+      },
+      () => {
+        clearTimeout(timer);
+        resolve(null);
+      },
+    );
+  });
+}
+
 /** The run in progress, so the shopper (or a photo change) can stop it. */
 let running: { controller: AbortController; version: number } | null = null;
 const GARMENT_WAIT_MS = 20_000;
@@ -122,7 +152,13 @@ useApp.subscribe((state, prev) => {
   if (state.photoVersion === prev.photoVersion) return;
   // a front photo means a try-on is coming: open the connection now (config only, no photo is sent), saving seconds later
   const freeEngine = import.meta.env.VITE_PHOTO_ENGINE !== 'openai';
-  if (freeEngine && state.photos.front && !prev.photos.front && typeof window !== 'undefined' && !import.meta.env.VITEST) void warmUp();
+  const browser = typeof window !== 'undefined' && !import.meta.env.VITEST;
+  if (freeEngine && state.photos.front && !prev.photos.front && browser) void warmUp();
+  // and find the body in it meanwhile (on the device), so the try-on can send just the part being dressed
+  if (freeEngine && browser) {
+    keepBodies([state.photos.front?.dataUrl, state.photos.side?.dataUrl].filter((p): p is string => Boolean(p)));
+    if (state.photos.front && state.photos.front.dataUrl !== prev.photos.front?.dataUrl) prefetchBody(state.photos.front.dataUrl);
+  }
   for (const [key, input] of inputs) if (input.version !== state.photoVersion) inputs.delete(key);
   for (const key of passes.keys()) if (!key.startsWith(`${state.photoVersion}|`)) passes.delete(key);
   if (running && running.version !== state.photoVersion) running.controller.abort();
@@ -152,12 +188,10 @@ function garmentPhoto(url: string): Promise<GarmentPhoto> {
   return photo;
 }
 
-/** Data URL of a result image (kept in memory like every photo; also what the Download link saves). */
-export async function blobToDataUrl(blob: Blob): Promise<string> {
-  const bytes = new Uint8Array(await blob.arrayBuffer());
-  let binary = '';
-  for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-  return `data:${blob.type || 'image/webp'};base64,${btoa(binary)}`;
+/** Cancelling stops the run; any other failure to get the landmarks just means sending the whole photo. */
+function rethrowCancel(err: unknown): null {
+  if (err instanceof SpaceError && err.cancelled) throw err;
+  return null;
 }
 
 function asSpaceError(err: unknown): SpaceError {
@@ -181,22 +215,23 @@ async function shootView(key: string, view: View, input: Ready, run: TryOnRunner
   const working = (status: string) => looks.setView(key, view, { kind: 'working', startedAt, expectedMs, status });
   working(reused ? 'Picking up where you left off…' : 'Sending your photo…');
   const photo = input.photos[view]!;
-  let current: Blob | null = null;
+  // the photo wearing the garments so far, at its own resolution: what the next pass starts from
+  let base = reused ? passes.get(passKey(input.version, view, input.garments.slice(0, reused)))! : photo;
   let worn: string[] = input.garments.slice(0, reused).map((g) => g.slot);
-  // The shopper's own photo above the new garment, the model's result below it (composite.ts).
-  const keepSkin = !input.garments.some((g) => g.skinTone);
-  const finish = async (result: Blob) => sharpenResult(photo, result, await blobToDataUrl(result), { keepSkin });
+  const body = bodyFor(photo); // on the device, while the garment photo loads
   try {
-    current = reused ? passes.get(passKey(input.version, view, input.garments.slice(0, reused)))! : await (await fetch(photo)).blob();
     for (const [i, garment] of input.garments.entries()) {
       if (i < reused) continue;
       const g = await within(garmentPhoto(garment.image), GARMENT_WAIT_MS, signal, () => new SpaceError("Couldn't load the product photo. Try again.", true));
-      current = await run(current, g.blob, garment.category, g.type, (s) => working(describeStatus(s)), signal);
+      const landmarks = await within(body, BODY_WAIT_MS + 1000, signal, () => new Error('no body')).catch(rethrowCancel);
+      // the garment from the model, everything else from `base` (composite.ts)
+      const pass = { blob: g.blob, type: g.type, category: garment.category, skinTone: garment.skinTone };
+      base = (await dressPass(base, photo, landmarks, pass, run, (s) => working(describeStatus(s)), signal)).image;
       recordPass();
-      keepPass(passKey(input.version, view, input.garments.slice(0, i + 1)), current);
+      keepPass(passKey(input.version, view, input.garments.slice(0, i + 1)), base);
       worn = [...worn, garment.slot];
     }
-    looks.setView(key, view, { kind: 'done', image: await finish(current), before: photo });
+    looks.setView(key, view, { kind: 'done', image: base, before: photo });
     trackTryOn('ok', view, input.garments.length, startedAt, undefined, reused);
     return { quota: false, cancelled: false };
   } catch (err: unknown) {
@@ -210,9 +245,9 @@ async function shootView(key: string, view: View, input: Ready, run: TryOnRunner
       looks.setView(key, view, { kind: 'error', message: 'Stopped: your photos changed.', detail: null, retryable: false });
       return stop;
     }
-    if (worn.length > 0 && current) {
+    if (worn.length > 0) {
       const missingNames = input.garments.filter((g) => !worn.includes(g.slot)).map((g) => g.name.split(' in ')[0]);
-      looks.setView(key, view, { kind: 'done', image: await finish(current), before: photo, note: `Without the ${missingNames.join(' and ')}: ${e.message}` });
+      looks.setView(key, view, { kind: 'done', image: base, before: photo, note: `Without the ${missingNames.join(' and ')}: ${e.message}` });
     } else if (previous?.kind === 'done') {
       // a retry that made nothing must not cost the photo already there
       looks.setView(key, view, { ...previous, note: `${e.message} Your earlier photo is kept.` });

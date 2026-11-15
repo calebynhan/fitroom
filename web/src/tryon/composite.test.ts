@@ -1,5 +1,21 @@
 import { describe, expect, it } from 'vitest';
-import { alphaBox, changedMask, changedPerRow, garmentRegion, garmentTop, isSkin, regionAlpha, sameFraming, sameSkin, skinColouredHex, unsharp } from './composite';
+import {
+  alphaBox,
+  changedMask,
+  changedPerRow,
+  edgeFade,
+  garmentRegion,
+  garmentTop,
+  isSkin,
+  placement,
+  regionAlpha,
+  sameFraming,
+  sameSkin,
+  SHARPEN,
+  sharpenAmount,
+  skinColouredHex,
+  unsharp,
+} from './composite';
 
 function image(w: number, h: number, paint?: (x: number, y: number) => [number, number, number]) {
   const px = new Uint8ClampedArray(w * h * 4);
@@ -128,5 +144,38 @@ describe("keeping the shopper's own skin", () => {
     expect(skin[100 * w + 20]).toBeCloseTo(1, 2);
     expect(skin[100 * w + 50]).toBe(0);
     expect(skin[100 * w + 80]).toBe(0);
+  });
+});
+
+describe('putting a cropped result back into the photo', () => {
+  it('knows which sides of a crop lie inside the photo', () => {
+    expect(placement(null, 864, 1536)).toEqual({ box: { x: 0, y: 0, w: 864, h: 1536 }, inner: { left: false, top: false, right: false, bottom: false } });
+    // a bottoms crop: from the chest down to the photo's own bottom edge
+    expect(placement({ x: 120, y: 700, w: 560, h: 836 }, 864, 1536).inner).toEqual({ left: true, top: true, right: true, bottom: false });
+  });
+
+  it('fades to the photo at inner edges only, never leaving a seam', () => {
+    const [w, h] = [60, 90];
+    const alpha = new Float32Array(w * h).fill(1);
+    edgeFade(alpha, w, h, { left: true, top: true, right: true, bottom: false }, 10);
+    expect(alpha[45 * w + 0]).toBe(0); // left edge
+    expect(alpha[0 * w + 30]).toBe(0); // top edge
+    expect(alpha[45 * w + (w - 1)]).toBe(0); // right edge
+    expect(alpha[(h - 1) * w + 30]).toBe(1); // the photo's own bottom edge: no fade
+    expect(alpha[45 * w + 30]).toBe(1); // the middle is the model's
+    expect(alpha[45 * w + 5]).toBeGreaterThan(0);
+    expect(alpha[45 * w + 5]).toBeLessThan(1);
+    const untouched = new Float32Array(w * h).fill(1);
+    edgeFade(untouched, w, h, { left: false, top: false, right: false, bottom: false }, 10);
+    expect(untouched.every((a) => a === 1)).toBe(true);
+  });
+
+  it('sharpens by how much the result is enlarged: full for a whole photo, little for a crop, none at 1:1', () => {
+    expect(sharpenAmount(1536 / 864)).toBeCloseTo(SHARPEN.amount, 2);
+    expect(sharpenAmount(1.1)).toBeGreaterThan(0);
+    expect(sharpenAmount(1.1)).toBeLessThan(SHARPEN.amount / 4);
+    expect(sharpenAmount(1)).toBe(0);
+    expect(sharpenAmount(0.8)).toBe(0);
+    expect(sharpenAmount(3)).toBe(SHARPEN.amount);
   });
 });

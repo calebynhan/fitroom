@@ -16,7 +16,8 @@ broken.
   so; never slim, bulk up or idealise the person. A size up must look roomier in the shots.
 - **Their photos are theirs.** Photos stay in browser memory (never localStorage) and are never stored or logged by
   FitRoom. Try-on engine: they go from the browser straight to the public FASHN Space, which keeps uploads on its
-  server for a while (Gradio's file cache, outside our control); the UI says so. OpenAI engine: they pass through
+  server for a while (Gradio's file cache, outside our control); the UI says so. Only the part being dressed is sent
+  (a crop found by a pose model that runs in the browser, photos/body.ts; nothing is sent for that). OpenAI engine: they pass through
   /api/photoreal to OpenAI. ChatGPT plugin: the shopper attaches the photo in ChatGPT (OpenAI holds it under its
   terms); /api/mcp downloads it into memory, sends it to the FASHN API as base64 with `return_base64` (FASHN keeps no
   image copy past the request), and returns the result to the widget only (`_meta`, never to the model); nothing is
@@ -38,7 +39,10 @@ the last step for every item is the same check on the live URL, on desktop and a
       in/lb <-> cm/kg. Measurements saved to localStorage, photos never.
 - [x] The try-on photo: the shopper's own front photo wearing the top and the bottoms (the side photo on request), face,
       body, pose and background kept, ~30-60 s, with progress, Cancel, Retry and Download; what it costs in free GPU time
-      said before it runs out (tryon/allowance.ts).
+      said before it runs out (tryon/allowance.ts). Fabric texture (2026-11-14): the model is shown only the part it
+      dresses and a garment photo cropped to the garment (tryon/frame.ts); each pass goes back into the full photo and the
+      next starts from that (tryon/pass.ts). Checked in a browser with real Space results and the real pose model; the
+      two-pass run on the Space itself waits for the GPU allowance (used up by the tests that day).
 - [x] Size recommendation per item ("You're an M; L if you want it roomier"), from UNIQLO size charts vs. the user's
       measurements, honest about estimates (borderline sizes).
 - [x] Fit confidence: a fit card per item (the chosen size vs one other, in numbers: chest/hip room, where the hem lands,
@@ -133,11 +137,21 @@ Jeans E479000-000 (22-34 inch) came in through the men's listing; removed from c
       tryon/space.ts      free engine: @gradio/client (lazy chunk) -> FASHN VTON v1.5 Space (ours, then FASHN's); errors in
                           shopper words
       tryon/garment.ts    garment photo: UNIQLO's garment-only shot (goods_*) when it exists, else the catalogue photo;
-                          flat-lay vs model judged from the top-centre backdrop
+                          flat-lay vs model judged from the top-centre backdrop (on the photo as UNIQLO framed it), then
+                          cropped to the garment (frame.ts)
+      photos/body.ts      body landmarks on the device: MediaPipe Pose Landmarker lite (Apache-2.0), WASM from
+                          @mediapipe/tasks-vision (lazy chunk, `?url` assets), model web/public/pose/ (5.8 MB); loaded
+                          after a front photo is added (not with Save-Data), cached per photo; any failure = null
+      tryon/frame.ts      what the model is shown, at its 2:3: the photo cropped to the part being dressed (personBox:
+                          tops head to mid-thigh, bottoms chest to below the feet, hands in; null = whole photo, also
+                          when the gain is < 1.15x) and the garment photo cropped to the garment on its backdrop
+      tryon/pass.ts       one pass, shared with the eval page: crop, run, put back (dressPass)
       tryon/composite.ts  sharper results: the model's output only where the clothes changed (solid per-row region,
-                          feathered, lightly sharpened), the shopper's own photo everywhere else
-      tryon/shoot.ts      the front: top, then bottoms on that result (side photo on request); finished passes reused;
-                          partial photo kept; quota stops the rest
+                          feathered, sharpened by how much it is enlarged), put back into its crop box (fading to the
+                          photo at inner edges), the photo everywhere else (compositePass)
+      tryon/shoot.ts      the front: top, then bottoms on that result (side photo on request); each pass starts from
+                          the previous composite; finished passes (composites) reused; partial photo kept; quota stops
+                          the rest
       tryon/allowance.ts  estimate of the free GPU allowance (passes today, used up, when it's back), localStorage
       outfit/             share links (share.ts), saved outfits (saved.ts), wearing either (load.ts)
       look/request.ts     app state -> the request every view shares + a key (same key = same photos)
@@ -197,10 +211,20 @@ chatgpt.com,openai.com), BILLING_DISABLED=1 (kill switch). vite dev reads these 
 called from the shopper's browser with @gradio/client, connected by URL (https://fashn-ai-fashn-vton-1-5.hf.space/;
 by name it first asks huggingface.co for metadata). Endpoint `/try_on`: { person_image, garment_image, category:
 tops|bottoms|one-pieces, garment_photo_type: flat-lay|model (garment.ts decides per photo), num_timesteps (we use 30,
-default 50), guidance_scale 1.5, seed 42, segmentation_free true } -> one image (576x864 WebP). The Space sends CORS for
-any origin. The front photo gets the top, then the bottoms on that result: ~26 s a pass. The side photo (optional) is
+default 50), guidance_scale 1.5, seed 42, segmentation_free true } -> one image (at most 576x864, lossy WebP at PIL's
+default quality 80). The Space sends CORS for any origin. The front photo gets the top, then the bottoms on that result:
+~26 s a pass. What the model is shown (2026-11-14, tryon/frame.ts): the model works at a fixed 576x864 in 12 px patches
+(fashn_vton TryOnModel input_shape (864, 576), patch_size 12; the Space resizes inputs to fit, Lanczos up / area down,
+and pads to 2:3), so a full-length 9:16 photo used 486x864 of it and left the chest ~150 px wide: knit, waffle and
+denim came out smooth or wrong. Now each pass gets a 2:3 crop of the part being dressed, from body landmarks found in
+the browser (photos/body.ts; tops ~1.55x the pixels on the body, bottoms ~1.7x on the test photo), and the garment
+photo cropped to the garment and padded with its backdrop (~1.35x). The result goes back into the full-resolution
+photo (composite.ts, compositePass) and the next pass starts from that composite: before, the bottoms pass got the top
+pass's raw 486x864 WebP and redrew the top from it (-14% fine detail, and once a strip of the old pants at the waist).
+No landmarks (model can't load, no clear body, 15 s on a first visit) = the whole photo, as before. The side photo (optional) is
 tried only when the shopper asks, after the front ("Try your side photo too"; also only then uploaded). No face
-close-up, no setting. Finished passes are kept in memory per (photo version, view, garments so far), last 16: the same
+close-up, no setting. Finished passes (the photo wearing them, at full resolution) are kept in memory per (photo version,
+view, garments so far), last 16: the same
 photo in the same top is reused when only the bottoms change, Try On Again costs nothing (the seed is fixed, so it
 would be the same photo anyway), and a retry after a partial photo starts from the part that worked. Order stays top
 then bottoms (a bottoms-first order would make the same outfit depend on the path taken). The photo keeps their face, body, pose and background; it shows the
@@ -214,7 +238,10 @@ costs before it starts; it is shared by everyone on the network, so only ever "a
 remove it). Free accounts in good standing (verified email, > 30 days old) can host 2 ZeroGPU Spaces, so a duplicate
 under our own account is the free way to control availability and get our own queue (visitors still use their quota).
 Own Space: on the FASHN Space page, menu (three dots) > Duplicate this Space, keep ZeroGPU and Public (the browser calls
-it without a token), then set VITE_TRYON_SPACE=<you>/<name> in Vercel (Production + Preview) and redeploy. The app tries
+it without a token). In the duplicate's app.py, give the result image a lossless format: `result_image = gr.Image(
+label="Try-On Result", type="pil", format="png", interactive=False, ...)` (the default WebP at quality 80 keeps ~87% of
+a knit's fine detail; the client takes any image type; a PNG result is ~0.6 MB). Then set VITE_TRYON_SPACE=<you>/<name>
+in Vercel (Production + Preview) and redeploy (FASHN's Space, the fallback, stays WebP). The app tries
 ours first and falls back to FASHN's when ours doesn't connect within 20 s (sleeping, building, paused); a quota or busy
 error is not a reason to switch (the quota is the visitor's, on every Space).
 A quota error keeps any finished pass as a partial photo with a note and stops the remaining photos.
@@ -237,8 +264,10 @@ truer colour; (2) output is ~486x864 -> composite.ts uses the model's output onl
 the shopper's photo (at its own resolution, 864x1536 for the front) everywhere else: changed = 3x3 mean of the largest
 channel difference > 24 (40 left holes in the garment, 16 caught sand and wall texture); per row, leftmost to rightmost
 dense change, smoothed over 3% of the height (widest wins, which also fills rows inside the garment), widened 3% of the
-width, between the first and last garment rows +-1.2%, feathered 1.2%; unsharp mask 0.5 (radius 2 px) on the enlarged
-output inside that box (1.0 haloed). Inside the region, where both images show skin in the same place (YCbCr skin box,
+width, between the first and last garment rows +-1.2%, feathered 1.2%; unsharp mask on the enlarged output inside that
+box, 0.5 (radius 2 px) at the ~1.8x of a whole full-length photo, scaled down to 0 at 1x for a crop (1.0 haloed; at 1x
+it only exaggerates the model's grain and WebP blocks). A cropped pass fades to the photo over 2.5% of the result's
+height at the crop's inner edges (never at the photo's own edges), so it can't leave a seam. Inside the region, where both images show skin in the same place (YCbCr skin box,
 light to very dark tones alike; largest channel difference < 48; eroded 1 px, softened) the shopper's own skin is kept:
 sharper hands, forearms and neck. Off when a new garment's colour is itself skin-like (catalog hex; 54/237 colourways),
 so an old beige garment can never pass for skin under a new beige one. On the owner's photos the model's output now covers 13-31% of the image (was
@@ -255,6 +284,13 @@ shirt) were NOT copied with category tops / bottoms. So: 30 steps, segmentation_
 Beige chinos come out ~15 L lighter than UNIQLO's photo (both settings). A free account's 5 GPU-minutes covered 8
 passes (~37 s each), so an anonymous visitor's 2 minutes is ~3 passes. A blur detector (Laplacian variance) couldn't tell a motion-blurred selfie
 (472) from a sharp photo (530), so there is none.
+Texture tested 2026-11-14 on the Space (FASHN's example person2, full length, cut to 9:16 at 720x1280; seed 42; fine
+detail = mean |luma - 2 px blur| in the same body patch at the same display scale): Milano Ribbed Sweater 0.15 whole
+photo -> 0.20 garment cropped -> 0.35 photo cropped too (the rib hem, cuffs and collar band appear; the fine rib on the
+body never does: below what 576x864 can draw); Waffle T 0.59 -> 0.96 (drawn as vertical ribs, not a waffle grid);
+Baggy Jeans 0.41 -> 0.85; 50 steps 0.35 -> 0.41 (no visible change); WebP q80 keeps ~87% of a knit's fine detail.
+The eval page (/eval.html) has a framing switch (crop / whole photo) and a detail score to repeat this on real photos.
+Real knit texture needs a higher-resolution model (FASHN API: tryon-v1.6 at 864x1296, Try-On Max up to 4K).
 **Generated (openai, paid)**: four views from /api/photoreal (below), size comparison shots, settings, 3 looks per visitor.
 
 ## Paid try-ons
@@ -440,7 +476,8 @@ commit as any change to what the plugin or site keeps.
   sweaters, sweatshirts and pants... so don't guess a size". The model made up a puffer size before this.
 - `try_on` { photo: { download_url, file_id?, ... } (`openai/fileParams`), top?: { product, color? }, bottom?: {...} } ->
   `{ kind: "tryon", status: ok|partial|limit|unavailable|photo|busy|error, message, items, remaining, resetsAt }`, the
-  image in `_meta["fitroom/photo"]` (data URI). Top first, then bottoms on that result (FASHN tryon-v1.6, balanced,
+  image in `_meta["fitroom/photo"]` (data URI). Top first, then bottoms on that result (FASHN tryon-v1.6, mode quality
+  while the time left covers 20 s for every pass still to run, else balanced (same 1 credit; fashnMode),
   jpeg, conservative moderation, garment-only goods_* shot fetched by the server, else the catalogue photo); a failed
   second pass keeps the first (partial, counted). Budget 48 s. Photo links: https only, no IP literals or internal
   names, each redirect checked, <= 10 MB, JPEG/PNG/WebP sniffed. Quota: per hashed `openai/subject` (then
@@ -517,6 +554,8 @@ every value they offer is accepted. (5) Colourways sharing a name show UNIQLO's 
 | "Space metadata could not be loaded" from @gradio/client | `Client.connect("owner/name")` asks huggingface.co first (rate limits, blocked hosts) | connect by the Space URL (tryon/space.ts SPACE_URL) |
 | Node scripts can't reach the Space or Hugging Face from a cloud session | Node's fetch ignores HTTPS_PROXY | `NODE_USE_ENV_PROXY=1 NODE_EXTRA_CA_CERTS=/root/.ccr/ca-bundle.crt node ...`; Playwright: `proxy: { server: HTTPS_PROXY, bypass: 'localhost' }` |
 | Try-on copied the product photo's undershirt / tuck / jacket | the catalogue photo is worn by a model with styling | garment-only goods_* shot when it exists (tryon/garment.ts) |
+| Knit, waffle, denim come out smooth or wrong | the model works at 576x864 (12 px patches): a full-length photo left the chest ~150 px wide; the bottoms pass redrew the top from a 486 px lossy WebP | crop to the part being dressed + crop the garment photo (tryon/frame.ts); each pass starts from the full-resolution composite (tryon/pass.ts) |
+| Try-on tests from a cloud session stop with "exceeded your ZeroGPU runs limit" | the session's IP has the anonymous ZeroGPU allowance (~9 passes at 30 steps on 2026-11-14) | test compositing with saved Space results and a fake runner (`makeTryOnLook(run)`); run the Space again the next day |
 | Try-on photo cropped (feet cut off) | frames were fixed at 2:3, results are the shopper's 9:16 | finished frames take the photo's own shape (.frame-done) |
 | UNIQLO API: HTTP/2 INTERNAL_ERROR / timeouts from a cloud session | UNIQLO blocks those IPs (it answers Vercel and home connections) | run `npm run catalog` locally |
 | Every deploy uploads 57 MB of unused 3D assets | web/public is copied into dist | .vercelignore excludes web/public/{hdri,models,garments} |
